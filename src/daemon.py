@@ -1,5 +1,6 @@
 import subprocess
 import os
+import sys
 import datetime
 from pathlib import Path
 
@@ -29,7 +30,10 @@ def log(message):
 
 
 def notify(title, message):
-    """Sends a native macOS notification."""
+    """Sends a native macOS notification (Darwin only)."""
+    if sys.platform != "darwin":
+        return
+
     clean_msg = message.replace('"', "'")
     script = (
         f'display notification "{clean_msg}" with title "{title}" subtitle "{APP_NAME}"'
