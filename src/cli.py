@@ -1,0 +1,74 @@
+import subprocess
+import sys
+from pathlib import Path
+
+REGISTRY_FILE = Path.home() / ".git_pulsar_registry"
+BACKUP_BRANCH = "wip/pulsar"
+
+
+def setup_repo():
+    cwd = Path.cwd()
+    print(f"🔭 Git Pulsar: activating for {cwd.name}...")
+
+    # 1. Ensure it's a git repo
+    if not (cwd / ".git").exists():
+        print(f"Initializing git in {cwd}...")
+        subprocess.run(["git", "init"], check=True)
+
+    # 2. Check/Create .gitignore
+    gitignore = cwd / ".gitignore"
+    defaults = [
+        "__pycache__/",
+        "*.ipynb_checkpoints",
+        "*.pdf",
+        "*.aux",
+        "*.log",
+        ".DS_Store",
+    ]
+
+    if not gitignore.exists():
+        print("Creating basic .gitignore...")
+        with open(gitignore, "w") as f:
+            f.write("\n".join(defaults) + "\n")
+    else:
+        print("Existing .gitignore found. Skipping creation.")
+
+    # 3. Create/Switch to the backup branch
+    print(f"Switching to {BACKUP_BRANCH}...")
+    try:
+        subprocess.run(
+            ["git", "checkout", BACKUP_BRANCH], check=True, stderr=subprocess.DEVNULL
+        )
+    except subprocess.CalledProcessError:
+        try:
+            # Create orphan if main doesn't exist, or branch off current
+            subprocess.run(["git", "checkout", "-b", BACKUP_BRANCH], check=True)
+        except subprocess.CalledProcessError as e:
+            print(f"❌ Error switching branches: {e}")
+            sys.exit(1)
+
+    # 4. Add to Registry
+    print("Registering path...")
+    if not REGISTRY_FILE.exists():
+        REGISTRY_FILE.touch()
+
+    with open(REGISTRY_FILE, "r+") as f:
+        content = f.read()
+        if str(cwd) not in content:
+            f.write(f"{cwd}\n")
+            print(f"Registered: {cwd}")
+        else:
+            print("Already registered.")
+
+    print("\n✅ Pulsar Active.")
+    print("1. Add remote: git remote add origin <url>")
+    print("2. Work loop: code -> code (auto-commits happen)")
+    print(f"3. Milestone: git checkout main -> git merge --squash {BACKUP_BRANCH}")
+
+
+def main():
+    setup_repo()
+
+
+if __name__ == "__main__":
+    main()
