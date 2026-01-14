@@ -61,28 +61,24 @@ def has_large_files(repo_path):
     Scans for files larger than GitHub's 100MB limit.
     Returns True if a large file is found (and notifies user).
     """
-    for root, dirs, files in os.walk(repo_path):
-        if ".git" in dirs:
-            dirs.remove(".git")
+    # Only scan files git knows about or sees as untracked
+    try:
+        cmd = ["git", "ls-files", "--others", "--modified", "--exclude-standard"]
+        candidates = subprocess.check_output(cmd, cwd=repo_path, text=True).splitlines()
+    except subprocess.CalledProcessError:
+        return False
 
-        for name in files:
-            file_path = Path(root) / name
-            try:
-                if file_path.stat().st_size > GITHUB_FILE_LIMIT_BYTES:
-                    # Check if ignored
-                    res = subprocess.run(
-                        ["git", "check-ignore", "-q", str(file_path)], cwd=repo_path
-                    )
-                    if res.returncode == 0:
-                        continue
-
-                    log(
-                        f"WARNING {repo_path.name}: Large file detected ({name}). Backup aborted."
-                    )
-                    notify("Backup Aborted", f"File >100MB detected: {name}")
-                    return True
-            except OSError:
-                continue
+    for name in candidates:
+        file_path = repo_path / name
+        try:
+            if file_path.stat().st_size > GITHUB_FILE_LIMIT_BYTES:
+                log(
+                    f"WARNING {repo_path.name}: Large file detected ({name}). Backup aborted."
+                )
+                notify("Backup Aborted", f"File >100MB detected: {name}")
+                return True
+        except OSError:
+            continue
 
     return False
 
