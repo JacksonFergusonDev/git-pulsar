@@ -37,3 +37,20 @@ jobs:
         # Use a repository secret named PYPI_API_TOKEN
         # Or remove this 'password' line to use Trusted Publishing (OIDC)
         password: ${{ secrets.PYPI_API_TOKEN }}
+
+  update-homebrew:
+    needs: build-n-publish
+    runs-on: ubuntu-latest
+    steps:
+      - name: Update Homebrew Formula
+        uses: mislav/bump-homebrew-formula-action@v3
+        with:
+          # The name of the formula file (git-pulsar.rb)
+          formula-name: git-pulsar
+          # Your Tap Repository
+          homebrew-tap: JacksonFergusonDev/homebrew-tap
+          # Explicitly set the URL pattern to match your previous releases
+          download-url: https://github.com/JacksonFergusonDev/git-pulsar/archive/refs/tags/${{ github.ref_name }}.tar.gz
+        env:
+          # This action requires the token as an env var, not an input
+          COMMITTER_TOKEN: ${{ secrets.TAP_GITHUB_TOKEN }}
