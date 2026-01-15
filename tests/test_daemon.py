@@ -60,7 +60,7 @@ def test_run_backup_commits_dirty_state(tmp_path: Path, mocker: MagicMock) -> No
     mock_check_output = mocker.patch("subprocess.check_output")
     mock_run = mocker.patch("subprocess.run")
 
-    def check_output_side_effect(cmd, **kwargs):
+    def check_output_side_effect(cmd: list[str], **kwargs: object) -> str:
         if "branch" in cmd:
             return "wip/pulsar"
         if "status" in cmd:
