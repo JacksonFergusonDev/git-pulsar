@@ -7,7 +7,7 @@ REGISTRY_FILE = Path.home() / ".git_pulsar_registry"
 BACKUP_BRANCH = "wip/pulsar"
 
 
-def setup_repo():
+def setup_repo() -> None:
     cwd = Path.cwd()
     print(f"🔭 Git Pulsar: activating for {cwd.name}...")
 
@@ -88,7 +88,7 @@ def setup_repo():
     print(f"3. Milestone: git checkout main -> git merge --squash {BACKUP_BRANCH}")
 
 
-def main():
+def main() -> None:
     if len(sys.argv) > 1:
         cmd = sys.argv[1]
         if cmd == "install-service":
