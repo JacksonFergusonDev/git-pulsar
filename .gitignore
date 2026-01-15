@@ -8,3 +8,4 @@ build/
 .coverage
 .pytest_cache/
 htmlcov/
+.hypothesis/
