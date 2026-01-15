@@ -22,10 +22,13 @@ def test_is_repo_busy_clean(tmp_path: Path) -> None:
 
 def test_run_backup_aborts_on_wrong_branch(tmp_path: Path, mocker: MagicMock) -> None:
     """Daemon should not backup if user is on 'main' instead of 'wip/pulsar'."""
-    # 1. Mock filesystem existence to pass early checks
-    mocker.patch.object(Path, "exists", return_value=True)
+    # 1. Setup real filesystem (Replace dangerous global Path.exists mock)
+    (tmp_path / ".git").mkdir()
 
-    # 2. Mock git calls
+    # 2. Patch LOG_FILE to avoid hitting real home dir (and crashing on stat)
+    mocker.patch("src.daemon.LOG_FILE", tmp_path / "test.log")
+
+    # 3. Mock git calls
     mock_check_output = mocker.patch("subprocess.check_output")
     mock_run = mocker.patch("subprocess.run")
 
@@ -44,7 +47,13 @@ def test_run_backup_aborts_on_wrong_branch(tmp_path: Path, mocker: MagicMock) ->
 
 def test_run_backup_commits_dirty_state(tmp_path: Path, mocker: MagicMock) -> None:
     """Daemon should commit if on correct branch and changes exist."""
-    mocker.patch.object(Path, "exists", return_value=True)
+    # 1. Setup real filesystem
+    (tmp_path / ".git").mkdir()
+
+    # 2. Patch LOG_FILE
+    mocker.patch("src.daemon.LOG_FILE", tmp_path / "test.log")
+
+    # 3. Mocks
     mocker.patch("src.daemon.is_repo_busy", return_value=False)
     mocker.patch("src.daemon.has_large_files", return_value=False)
 
