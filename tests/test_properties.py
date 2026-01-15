@@ -81,6 +81,6 @@ def test_log_rotation_keeps_file_size_bounded(messages: list[str]) -> None:
                     current_size = log_file.stat().st_size
                     # Invariant: Size <= Limit + NewMsg + Buffer
                     max_allowed = small_limit + len(msg.encode("utf-8")) + 100
-                    assert (
-                        current_size <= max_allowed
-                    ), f"Log file grew too large! {current_size} > {max_allowed}"
+                    assert current_size <= max_allowed, (
+                        f"Log file grew too large! {current_size} > {max_allowed}"
+                    )
