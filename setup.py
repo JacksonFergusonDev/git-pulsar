@@ -12,5 +12,5 @@ setup(
             "git-pulsar-daemon=src.daemon:main",
         ],
     },
-    python_requires=">=3.7",
+    python_requires=">=3.12",
 )
