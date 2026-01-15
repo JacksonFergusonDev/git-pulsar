@@ -14,7 +14,7 @@ GITHUB_FILE_LIMIT_BYTES = 100 * 1024 * 1024  # 100 MB
 
 
 def log(message):
-    """Logs to file, rotating if too large."""
+    """Logs to file and stderr, rotating if too large."""
     if LOG_FILE.exists() and LOG_FILE.stat().st_size > MAX_LOG_SIZE_BYTES:
         try:
             os.remove(LOG_FILE)
@@ -22,11 +22,17 @@ def log(message):
             pass
 
     timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    formatted_msg = f"[{timestamp}] {message}"
+
+    # 1. Write to internal log file
     try:
         with open(LOG_FILE, "a") as f:
-            f.write(f"[{timestamp}] {message}\n")
+            f.write(f"{formatted_msg}\n")
     except OSError:
         pass
+
+    # 2. Echo to stderr (so Homebrew/Systemd captures it)
+    print(formatted_msg, file=sys.stderr)
 
 
 def notify(title, message):
