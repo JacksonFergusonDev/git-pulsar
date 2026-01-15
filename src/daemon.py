@@ -163,7 +163,8 @@ def run_backup(original_path_str: str) -> None:
         timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
         subprocess.run(["git", "add", "."], cwd=repo_path, check=True)
         subprocess.run(
-            ["git", "commit", "-m", f"Pulsar auto-backup: {timestamp}"],
+            # --no-verify to skip pre-commit hooks
+            ["git", "commit", "--no-verify", "-m", f"Pulsar auto-backup: {timestamp}"],
             cwd=repo_path,
             check=True,
             stdout=subprocess.DEVNULL,
