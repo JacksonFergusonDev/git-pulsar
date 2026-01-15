@@ -2,7 +2,7 @@ from setuptools import find_packages, setup
 
 setup(
     name="git-pulsar",
-    version="0.1.0",
+    version="0.2.0",
     description="Automated paranoid git backup for students",
     author="Jackson Ferguson",
     packages=find_packages(),
