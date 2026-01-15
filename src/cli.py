@@ -1,5 +1,6 @@
 import subprocess
 import sys
+from . import service
 from pathlib import Path
 
 REGISTRY_FILE = Path.home() / ".git_pulsar_registry"
@@ -67,6 +68,15 @@ def setup_repo():
 
 
 def main():
+    if len(sys.argv) > 1:
+        cmd = sys.argv[1]
+        if cmd == "install-service":
+            service.install()
+            return
+        elif cmd == "uninstall-service":
+            service.uninstall()
+            return
+
     setup_repo()
 
 
