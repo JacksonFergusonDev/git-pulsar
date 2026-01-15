@@ -13,7 +13,7 @@ MAX_LOG_SIZE_BYTES = 5 * 1024 * 1024  # 5 MB
 GITHUB_FILE_LIMIT_BYTES = 100 * 1024 * 1024  # 100 MB
 
 
-def log(message):
+def log(message: str) -> None:
     """Logs to file and stderr, rotating if too large."""
     if LOG_FILE.exists() and LOG_FILE.stat().st_size > MAX_LOG_SIZE_BYTES:
         try:
@@ -35,7 +35,7 @@ def log(message):
     print(formatted_msg, file=sys.stderr)
 
 
-def notify(title, message):
+def notify(title: str, message: str) -> None:
     """Sends a desktop notification (macOS + Linux)."""
     clean_msg = message.replace('"', "'")
 
@@ -58,7 +58,7 @@ def notify(title, message):
             pass
 
 
-def is_repo_busy(repo_path):
+def is_repo_busy(repo_path: Path) -> bool:
     git_dir = repo_path / ".git"
     critical_files = [
         "MERGE_HEAD",
@@ -74,7 +74,7 @@ def is_repo_busy(repo_path):
     return False
 
 
-def has_large_files(repo_path):
+def has_large_files(repo_path: Path) -> bool:
     """
     Scans for files larger than GitHub's 100MB limit.
     Returns True if a large file is found (and notifies user).
@@ -101,7 +101,7 @@ def has_large_files(repo_path):
     return False
 
 
-def prune_registry(original_path_str):
+def prune_registry(original_path_str: str) -> None:
     if not REGISTRY_FILE.exists():
         return
     try:
@@ -118,7 +118,7 @@ def prune_registry(original_path_str):
         log(f"ERROR: Could not prune registry. {e}")
 
 
-def run_backup(original_path_str):
+def run_backup(original_path_str: str) -> None:
     try:
         repo_path = Path(original_path_str).expanduser().resolve()
     except Exception as e:
@@ -191,7 +191,7 @@ def run_backup(original_path_str):
         notify("Pulsar Crash", f"{repo_name}: {e}")
 
 
-def main():
+def main() -> None:
     if not REGISTRY_FILE.exists():
         return
 
