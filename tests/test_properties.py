@@ -7,9 +7,12 @@ from hypothesis import strategies as st
 
 from src import daemon
 
-# Strategy: Generate a list of non-empty strings that don't contain newlines
+# Strategy: Generate a list of non-empty strings that don't contain ANY line breaks.
+# We map strip() to remove leading/trailing whitespace (which includes newlines).
+# We filter s.splitlines() to ensure no internal line breaks (like \n, \r, \x1e) remain.
 paths_strategy = st.lists(
-    st.text(min_size=1).filter(lambda s: "\n" not in s and s.strip()), unique=True
+    st.text(min_size=1).map(str.strip).filter(lambda s: s and len(s.splitlines()) == 1),
+    unique=True,
 )
 
 
