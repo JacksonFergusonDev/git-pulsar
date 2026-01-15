@@ -8,7 +8,7 @@ REGISTRY_FILE = Path.home() / ".git_pulsar_registry"
 BACKUP_BRANCH = "wip/pulsar"
 
 
-def setup_repo() -> None:
+def setup_repo(registry_path: Path = REGISTRY_FILE) -> None:
     cwd = Path.cwd()
     print(f"🔭 Git Pulsar: activating for {cwd.name}...")
 
@@ -51,10 +51,10 @@ def setup_repo() -> None:
 
     # 4. Add to Registry
     print("Registering path...")
-    if not REGISTRY_FILE.exists():
-        REGISTRY_FILE.touch()
+    if not registry_path.exists():
+        registry_path.touch()
 
-    with open(REGISTRY_FILE, "r+") as f:
+    with open(registry_path, "r+") as f:
         content = f.read()
         if str(cwd) not in content:
             f.write(f"{cwd}\n")
