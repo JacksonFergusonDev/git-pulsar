@@ -111,9 +111,14 @@ def prune_registry(original_path_str: str) -> None:
     try:
         with open(REGISTRY_FILE, "r") as f:
             lines = f.readlines()
+
+        target = original_path_str.strip()
+
         with open(REGISTRY_FILE, "w") as f:
             for line in lines:
-                if line.strip() != original_path_str:
+                clean_line = line.strip()
+                # Skip empty lines and the target path (ignoring whitespace)
+                if clean_line and clean_line != target:
                     f.write(line)
         repo_name = Path(original_path_str).name
         log(f"PRUNED: {original_path_str} removed from registry.")
