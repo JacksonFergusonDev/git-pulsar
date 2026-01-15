@@ -49,3 +49,38 @@ def test_prune_registry_removes_only_target(
     # All other paths should still be there
     expected_remaining = [p for p in existing_paths if p != target]
     assert new_content == expected_remaining
+
+
+@given(messages=st.lists(st.text(min_size=1)))
+def test_log_rotation_keeps_file_size_bounded(
+    tmp_path: Path, mocker: MagicMock, messages: list[str]
+) -> None:
+    """
+    Property: No matter how many messages we log, the file size should never
+    grow significantly beyond the MAX_LOG_SIZE_BYTES (plus the latest message).
+    """
+    log_file = tmp_path / "test.log"
+
+    # Set a tiny limit (e.g., 100 bytes) to force frequent rotation
+    small_limit = 100
+
+    mocker.patch("src.daemon.LOG_FILE", log_file)
+    mocker.patch("src.daemon.MAX_LOG_SIZE_BYTES", small_limit)
+
+    # Silence stderr printing
+    mocker.patch("builtins.print")
+
+    for msg in messages:
+        daemon.log(msg)
+
+        # Invariant check:
+        # The file might be slightly larger than the limit immediately after a write,
+        # but it should have been rotated BEFORE the write if it was already too big.
+        # So the size should roughly be Limit  Length of current line.
+        if log_file.exists():
+            current_size = log_file.stat().st_size
+            # Allow some buffer for timestamps/formatting
+            max_allowed = small_limit  len(msg.encode("utf-8"))  100
+            assert current_size <= max_allowed, (
+                f"Log file grew too large! {current_size} > {max_allowed}"
+            )
