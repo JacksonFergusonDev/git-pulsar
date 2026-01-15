@@ -30,18 +30,26 @@ def log(message):
 
 
 def notify(title, message):
-    """Sends a native macOS notification (Darwin only)."""
-    if sys.platform != "darwin":
-        return
-
+    """Sends a desktop notification (macOS + Linux)."""
     clean_msg = message.replace('"', "'")
-    script = (
-        f'display notification "{clean_msg}" with title "{title}" subtitle "{APP_NAME}"'
-    )
-    try:
-        subprocess.run(["osascript", "-e", script], stderr=subprocess.DEVNULL)
-    except Exception:
-        pass
+
+    # macOS
+    if sys.platform == "darwin":
+        script = f'display notification "{clean_msg}" with title "{title}" subtitle "{APP_NAME}"'
+        try:
+            subprocess.run(["osascript", "-e", script], stderr=subprocess.DEVNULL)
+        except Exception:
+            pass
+
+    # Linux
+    elif sys.platform.startswith("linux"):
+        try:
+            subprocess.run(
+                ["notify-send", title, clean_msg, "-a", APP_NAME],
+                stderr=subprocess.DEVNULL,
+            )
+        except FileNotFoundError:
+            pass
 
 
 def is_repo_busy(repo_path):
