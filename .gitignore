@@ -5,3 +5,6 @@ dist/
 build/
 *.egg-info/
 .env
+.coverage
+.pytest_cache/
+htmlcov/
