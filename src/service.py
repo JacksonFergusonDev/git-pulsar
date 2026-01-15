@@ -6,7 +6,7 @@ from pathlib import Path
 APP_LABEL = "com.jacksonferguson.gitpulsar"
 
 
-def get_executable():
+def get_executable() -> str:
     """Locates the installed daemon executable."""
     exe = shutil.which("git-pulsar-daemon")
     if not exe:
@@ -17,7 +17,7 @@ def get_executable():
     return exe
 
 
-def get_paths():
+def get_paths() -> tuple[Path, Path]:
     """Returns (service_file_path, log_path) based on OS."""
     home = Path.home()
     if sys.platform == "darwin":
@@ -35,7 +35,7 @@ def get_paths():
         sys.exit(1)
 
 
-def install_macos(plist_path, log_path, executable):
+def install_macos(plist_path: Path, log_path: Path, executable: str) -> None:
     content = f"""<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -66,7 +66,7 @@ def install_macos(plist_path, log_path, executable):
     print(f"✅ Pulsar background service active (macOS).\nLogs: {log_path}")
 
 
-def install_linux(unit_path, log_path, executable):
+def install_linux(unit_path: Path, log_path: Path, executable: str) -> None:
     # Systemd Timer approach
     base_dir = unit_path.parent
     base_dir.mkdir(parents=True, exist_ok=True)
@@ -106,7 +106,7 @@ WantedBy=timers.target
     )
 
 
-def install():
+def install() -> None:
     exe = get_executable()
     path, log = get_paths()
 
@@ -117,7 +117,7 @@ def install():
         install_linux(path, log, exe)
 
 
-def uninstall():
+def uninstall() -> None:
     path, _ = get_paths()
     if sys.platform == "darwin":
         subprocess.run(["launchctl", "unload", str(path)], stderr=subprocess.DEVNULL)
