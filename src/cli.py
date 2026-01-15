@@ -62,6 +62,27 @@ def setup_repo():
             print("Already registered.")
 
     print("\n✅ Pulsar Active.")
+
+    try:
+        # Check if we can verify credentials (only if remote exists)
+        remotes = subprocess.check_output(["git", "remote"], cwd=cwd, text=True).strip()
+        if remotes:
+            print("Verifying git access...")
+            subprocess.run(
+                ["git", "push", "--dry-run"],
+                cwd=cwd,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                check=True,
+            )
+    except subprocess.CalledProcessError:
+        print(
+            "⚠️  WARNING: Git push failed. Ensure you have SSH keys set up or credentials cached."
+        )
+        print(
+            "   Background backups will fail if authentication requires a password prompt."
+        )
+
     print("1. Add remote: git remote add origin <url>")
     print("2. Work loop: code -> code (auto-commits happen)")
     print(f"3. Milestone: git checkout main -> git merge --squash {BACKUP_BRANCH}")
