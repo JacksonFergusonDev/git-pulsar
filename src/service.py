@@ -1,6 +1,6 @@
-import sys
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 
 APP_LABEL = "com.jacksonferguson.gitpulsar"
@@ -11,7 +11,8 @@ def get_executable() -> str:
     exe = shutil.which("git-pulsar-daemon")
     if not exe:
         print(
-            "❌ Error: Could not find 'git-pulsar-daemon'. Ensure the package is installed."
+            "❌ Error: Could not find 'git-pulsar-daemon'. Ensure the package is "
+            "installed."
         )
         sys.exit(1)
     return exe
@@ -102,7 +103,8 @@ WantedBy=timers.target
         ["systemctl", "--user", "enable", "--now", f"{APP_LABEL}.timer"], check=True
     )
     print(
-        f"✅ Pulsar systemd timer active (Linux).\nCheck status: systemctl --user status {APP_LABEL}.timer"
+        f"✅ Pulsar systemd timer active (Linux).\n"
+        f"Check status: systemctl --user status {APP_LABEL}.timer"
     )
 
 

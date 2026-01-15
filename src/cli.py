@@ -1,7 +1,8 @@
 import subprocess
 import sys
-from . import service
 from pathlib import Path
+
+from . import service
 
 REGISTRY_FILE = Path.home() / ".git_pulsar_registry"
 BACKUP_BRANCH = "wip/pulsar"
@@ -77,10 +78,12 @@ def setup_repo() -> None:
             )
     except subprocess.CalledProcessError:
         print(
-            "⚠️  WARNING: Git push failed. Ensure you have SSH keys set up or credentials cached."
+            "⚠️  WARNING: Git push failed. Ensure you have SSH keys set up or "
+            "credentials cached."
         )
         print(
-            "   Background backups will fail if authentication requires a password prompt."
+            "   Background backups will fail if authentication requires a password "
+            "prompt."
         )
 
     print("1. Add remote: git remote add origin <url>")

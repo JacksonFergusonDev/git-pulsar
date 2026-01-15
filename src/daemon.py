@@ -1,7 +1,7 @@
-import subprocess
-import os
-import sys
 import datetime
+import os
+import subprocess
+import sys
 from pathlib import Path
 
 # Config
@@ -41,7 +41,10 @@ def notify(title: str, message: str) -> None:
 
     # macOS
     if sys.platform == "darwin":
-        script = f'display notification "{clean_msg}" with title "{title}" subtitle "{APP_NAME}"'
+        script = (
+            f'display notification "{clean_msg}" with title "{title}" '
+            f'subtitle "{APP_NAME}"'
+        )
         try:
             subprocess.run(["osascript", "-e", script], stderr=subprocess.DEVNULL)
         except Exception:
@@ -91,7 +94,8 @@ def has_large_files(repo_path: Path) -> bool:
         try:
             if file_path.stat().st_size > GITHUB_FILE_LIMIT_BYTES:
                 log(
-                    f"WARNING {repo_path.name}: Large file detected ({name}). Backup aborted."
+                    f"WARNING {repo_path.name}: Large file detected ({name}). "
+                    "Backup aborted."
                 )
                 notify("Backup Aborted", f"File >100MB detected: {name}")
                 return True
