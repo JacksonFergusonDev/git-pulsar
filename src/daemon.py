@@ -2,20 +2,57 @@ import datetime
 import os
 import subprocess
 import sys
+import tomllib
 from pathlib import Path
 
-# Config
 APP_NAME = "git-pulsar"
 REGISTRY_FILE = Path.home() / ".git_pulsar_registry"
-BACKUP_BRANCH = "wip/pulsar"
 LOG_FILE = Path.home() / ".git_pulsar_log"
-MAX_LOG_SIZE_BYTES = 5 * 1024 * 1024  # 5 MB
-GITHUB_FILE_LIMIT_BYTES = 100 * 1024 * 1024  # 100 MB
+
+DEFAULT_CONFIG = {
+    "core": {
+        "backup_branch": "wip/pulsar",
+        "remote_name": "origin",
+    },
+    "limits": {
+        "max_log_size": 5 * 1024 * 1024,
+        "large_file_threshold": 100 * 1024 * 1024,
+    },
+}
 
 
-def log(message: str) -> None:
+def load_config() -> dict:
+    config_path = Path.home() / ".config/git-pulsar/config.toml"
+    config = DEFAULT_CONFIG.copy()
+
+    if config_path.exists():
+        try:
+            with open(config_path, "rb") as f:
+                user_config = tomllib.load(f)
+
+            # recursive update for sections
+            for section, values in user_config.items():
+                if section in config and isinstance(values, dict):
+                    # Assign to local variable so mypy can narrow the type
+                    target_section = config[section]
+                    if isinstance(target_section, dict):
+                        target_section.update(values)
+
+        except Exception as e:
+            # Fallback to defaults on parse error, but log it
+            print(f"Config Error: {e}", file=sys.stderr)
+
+    return config
+
+
+# Load once at module level
+CONFIG = load_config()
+
+
+def log(message: str, interactive: bool = False) -> None:
     """Logs to file and stderr, rotating if too large."""
-    if LOG_FILE.exists() and LOG_FILE.stat().st_size > MAX_LOG_SIZE_BYTES:
+    max_size = CONFIG["limits"]["max_log_size"]
+    if LOG_FILE.exists() and LOG_FILE.stat().st_size > max_size:
         try:
             os.remove(LOG_FILE)
         except OSError:
@@ -23,6 +60,10 @@ def log(message: str) -> None:
 
     timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     formatted_msg = f"[{timestamp}] {message}"
+
+    if interactive:
+        print(formatted_msg)  # Print to stdout for user visibility
+        return  # Skip file writing in interactive mode
 
     # 1. Write to internal log file
     try:
@@ -82,6 +123,8 @@ def has_large_files(repo_path: Path) -> bool:
     Scans for files larger than GitHub's 100MB limit.
     Returns True if a large file is found (and notifies user).
     """
+    limit = CONFIG["limits"]["large_file_threshold"]
+
     # Only scan files git knows about or sees as untracked
     try:
         cmd = ["git", "ls-files", "--others", "--modified", "--exclude-standard"]
@@ -92,7 +135,7 @@ def has_large_files(repo_path: Path) -> bool:
     for name in candidates:
         file_path = repo_path / name
         try:
-            if file_path.stat().st_size > GITHUB_FILE_LIMIT_BYTES:
+            if file_path.stat().st_size > limit:
                 log(
                     f"WARNING {repo_path.name}: Large file detected ({name}). "
                     "Backup aborted."
@@ -127,30 +170,42 @@ def prune_registry(original_path_str: str) -> None:
         log(f"ERROR: Could not prune registry. {e}")
 
 
-def run_backup(original_path_str: str) -> None:
+def run_backup(original_path_str: str, interactive: bool = False) -> None:
     try:
         repo_path = Path(original_path_str).expanduser().resolve()
     except Exception as e:
-        log(f"ERROR: Could not resolve path {original_path_str}: {e}")
+        log(
+            f"ERROR: Could not resolve path {original_path_str}: {e}",
+            interactive=interactive,
+        )
         return
 
     repo_name = repo_path.name
 
     if not repo_path.exists():
-        log(f"MISSING {original_path_str}: Path not found. Pruning.")
+        log(
+            f"MISSING {original_path_str}: Path not found. Pruning.",
+            interactive=interactive,
+        )
         prune_registry(original_path_str)
         return
 
     if not (repo_path / ".git").exists():
-        log(f"SKIPPED {repo_name}: Not a git repo anymore.")
+        log(f"SKIPPED {repo_name}: Not a git repo anymore.", interactive=interactive)
         return
 
     if is_repo_busy(repo_path):
-        log(f"SKIPPED {repo_name}: Repo is busy (merge/rebase).")
+        log(
+            f"SKIPPED {repo_name}: Repo is busy (merge/rebase).",
+            interactive=interactive,
+        )
         return
 
     if has_large_files(repo_path):
         return
+
+    backup_branch = CONFIG["core"]["backup_branch"]
+    remote_name = CONFIG["core"]["remote_name"]
 
     try:
         # Check branch
@@ -158,7 +213,7 @@ def run_backup(original_path_str: str) -> None:
             ["git", "branch", "--show-current"], cwd=repo_path, text=True
         ).strip()
 
-        if current_branch != BACKUP_BRANCH:
+        if current_branch != backup_branch:
             return
 
         # Check status
@@ -181,35 +236,37 @@ def run_backup(original_path_str: str) -> None:
 
         # Push
         subprocess.run(
-            ["git", "push", "origin", BACKUP_BRANCH],
+            ["git", "push", remote_name, backup_branch],  # Use remote_name here
             cwd=repo_path,
             check=True,
             timeout=45,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.PIPE,
         )
-        log(f"SUCCESS {repo_name}: Pushed.")
+        log(f"SUCCESS {repo_name}: Pushed.", interactive=interactive)
 
     except subprocess.TimeoutExpired:
-        log(f"TIMEOUT {repo_name}: Push timed out.")
+        log(f"TIMEOUT {repo_name}: Push timed out.", interactive=interactive)
     except subprocess.CalledProcessError as e:
         err_text = e.stderr.decode("utf-8") if e.stderr else "Unknown git error"
-        log(f"ERROR {repo_name}: {err_text.strip()}")
+        log(f"ERROR {repo_name}: {err_text.strip()}", interactive=interactive)
         notify("Backup Failed", f"{repo_name}: Check logs.")
     except Exception as e:
-        log(f"CRITICAL {repo_name}: {e}")
+        log(f"CRITICAL {repo_name}: {e}", interactive=interactive)
         notify("Pulsar Crash", f"{repo_name}: {e}")
 
 
-def main() -> None:
+def main(interactive: bool = False) -> None:
     if not REGISTRY_FILE.exists():
+        if interactive:
+            print("Registry empty. Run 'git-pulsar' in a repo to register it.")
         return
 
     with open(REGISTRY_FILE, "r") as f:
         repos = [line.strip() for line in f if line.strip()]
 
     for repo_str in set(repos):
-        run_backup(repo_str)
+        run_backup(repo_str, interactive=interactive)
 
 
 if __name__ == "__main__":

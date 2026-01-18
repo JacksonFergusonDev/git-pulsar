@@ -166,3 +166,30 @@ def test_main_default_behavior(mocker: MagicMock) -> None:
 
     mock_bootstrap.assert_not_called()
     mock_setup.assert_called_once()
+
+
+def test_install_service_accepts_interval(mocker: MagicMock) -> None:
+    """Ensure --interval is passed to the service installer."""
+    mock_install = mocker.patch("src.service.install")
+
+    # Simulate: git-pulsar install-service --interval 300
+    mocker.patch("sys.argv", ["git-pulsar", "install-service", "--interval", "300"])
+
+    cli.main()
+
+    # Verify the interval argument was parsed and passed correctly
+    mock_install.assert_called_once_with(interval=300)
+
+
+def test_now_command_triggers_interactive_daemon(mocker: MagicMock) -> None:
+    """Ensure 'now' command calls daemon in interactive mode."""
+    # We must mock the module where main is defined.
+    # Since cli imports daemon, we can patch src.daemon.main
+    mock_daemon_main = mocker.patch("src.daemon.main")
+
+    # Simulate: git-pulsar now
+    mocker.patch("sys.argv", ["git-pulsar", "now"])
+
+    cli.main()
+
+    mock_daemon_main.assert_called_once_with(interactive=True)

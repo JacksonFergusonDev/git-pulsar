@@ -1,4 +1,4 @@
-# 🔭 Git Pulsar (v0.4.0)
+# 🔭 Git Pulsar (v0.5.0)
 
 [![Tests](https://github.com/jacksonfergusondev/git-pulsar/actions/workflows/ci.yml/badge.svg)](https://github.com/jacksonfergusondev/git-pulsar/actions)
 [![Python 3.12+](https://img.shields.io/badge/python-3.12+-blue.svg)](https://www.python.org/downloads/)
@@ -38,7 +38,7 @@ Install via `uv` (or `pipx`) to isolate the environment, then register the syste
 
 ```bash
 uv tool install git-pulsar
-git-pulsar install-service
+git-pulsar install-service --interval 300  # Optional: Run every 5 mins (default: 900s)
 ```
 
 ## 🚀 Usage
@@ -58,13 +58,37 @@ You do not need to do anything else. Pulsar wakes up every 15 minutes to:
 2. Commit them to `wip/pulsar`.
 3. Push to `origin`.
 
-### 3. Retrieve Your Work
+### 3. Manual Backup
+If you want to force a backup immediately (e.g., right before closing your laptop), run:
+
+```bash
+git-pulsar now
+```
+
+### 4. Retrieve Your Work
 When you are ready to finalize your work, you can squash the backup history into your main branch:
 
 ```bash
 git checkout main
 git merge --squash wip/pulsar
 git commit -m "Finalized assignment submission"
+```
+
+## ⚙️ Configuration
+
+You can customize global behavior by creating `~/.config/git-pulsar/config.toml`.
+
+**Default Configuration:**
+```toml
+[core]
+backup_branch = "wip/pulsar"
+remote_name = "origin"
+
+[limits]
+# 5MB log rotation
+max_log_size = 5242880
+# Skip files larger than 100MB
+large_file_threshold = 104857600
 ```
 
 ## 🛑 Stopping the Service
@@ -86,7 +110,7 @@ This project uses modern Python tooling.
 
 1. **Clone and Install Dependencies:**
    ```bash
-   git clone [https://github.com/jacksonferguson/git-pulsar.git](https://github.com/jacksonferguson/git-pulsar.git)
+   git clone https://github.com/jacksonferguson/git-pulsar.git
    cd git-pulsar
    uv sync
    ```
@@ -99,7 +123,7 @@ This project uses modern Python tooling.
 3. **Run Tests:**
    We use `pytest` for testing and `hypothesis` for property-based testing.
    ```bash
-   pytest
+   uv run pytest
    ```
 
 ## 📂 Project Structure
