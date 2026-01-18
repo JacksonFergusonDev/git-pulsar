@@ -183,6 +183,21 @@ def bootstrap_env() -> None:
         print("      source ~/.zshrc")
 
 
+def set_pause_state(paused: bool) -> None:
+    if not Path(".git").exists():
+        print("❌ Not a git repository.")
+        sys.exit(1)
+
+    pause_file = Path(".git/pulsar_paused")
+    if paused:
+        pause_file.touch()
+        print("⏸️  Pulsar paused. Backups suspended for this repo.")
+    else:
+        if pause_file.exists():
+            pause_file.unlink()
+        print("▶️  Pulsar resumed. Backups active.")
+
+
 def setup_repo(registry_path: Path = REGISTRY_FILE) -> None:
     cwd = Path.cwd()
     print(f"🔭 Git Pulsar: activating for {cwd.name}...")
@@ -307,6 +322,9 @@ def main() -> None:
         "finalize", help="Squash wip/pulsar into main and reset backup history"
     )
 
+    subparsers.add_parser("pause", help="Suspend backups for current repo")
+    subparsers.add_parser("resume", help="Resume backups for current repo")
+
     args = parser.parse_args()
 
     # 1. Handle Environment Setup (Flag)
@@ -328,6 +346,12 @@ def main() -> None:
         return
     elif args.command == "finalize":
         finalize_work()
+        return
+    elif args.command == "pause":
+        set_pause_state(True)
+        return
+    elif args.command == "resume":
+        set_pause_state(False)
         return
 
     # 3. Default Action (if no subcommand is run, or after --env)
