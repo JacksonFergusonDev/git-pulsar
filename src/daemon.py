@@ -33,7 +33,11 @@ def load_config() -> dict:
             # recursive update for sections
             for section, values in user_config.items():
                 if section in config and isinstance(values, dict):
-                    config[section].update(values)
+                    # Assign to local variable so mypy can narrow the type
+                    target_section = config[section]
+                    if isinstance(target_section, dict):
+                        target_section.update(values)
+
         except Exception as e:
             # Fallback to defaults on parse error, but log it
             print(f"Config Error: {e}", file=sys.stderr)
