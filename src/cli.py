@@ -1,3 +1,4 @@
+import argparse
 import os
 import shutil
 import subprocess
@@ -189,23 +190,40 @@ def setup_repo(registry_path: Path = REGISTRY_FILE) -> None:
 
 
 def main() -> None:
-    if len(sys.argv) > 1:
-        cmd = sys.argv[1]
+    parser = argparse.ArgumentParser(description="Git Pulsar CLI")
 
-        # Service management
-        if cmd == "install-service":
-            service.install()
-            return
-        elif cmd == "uninstall-service":
-            service.uninstall()
-            return
+    # Global flags
+    parser.add_argument(
+        "--env",
+        "-e",
+        action="store_true",
+        help="Bootstrap macOS Python environment (uv, direnv, VS Code)",
+    )
 
-        # Environment Setup
-        elif cmd in ["--env", "-e"]:
-            bootstrap_env()
-            # Fall through to setup_repo so the user gets both
-            # environment setup AND git backup in one go.
+    subparsers = parser.add_subparsers(
+        dest="command", help="Service management commands"
+    )
 
+    # Subcommands
+    subparsers.add_parser("install-service", help="Install the background daemon")
+    subparsers.add_parser("uninstall-service", help="Uninstall the background daemon")
+
+    args = parser.parse_args()
+
+    # 1. Handle Environment Setup (Flag)
+    if args.env:
+        bootstrap_env()
+
+    # 2. Handle Subcommands
+    if args.command == "install-service":
+        service.install()
+        return
+    elif args.command == "uninstall-service":
+        service.uninstall()
+        return
+
+    # 3. Default Action (if no subcommand is run, or after --env)
+    # We always run setup_repo unless a service command explicitly exited.
     setup_repo()
 
 
