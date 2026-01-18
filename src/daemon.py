@@ -1,7 +1,9 @@
 import datetime
 import os
+import socket
 import subprocess
 import sys
+import time
 import tomllib
 from pathlib import Path
 
@@ -17,6 +19,10 @@ DEFAULT_CONFIG = {
     "limits": {
         "max_log_size": 5 * 1024 * 1024,
         "large_file_threshold": 100 * 1024 * 1024,
+    },
+    "daemon": {
+        "min_battery_percent": 10,
+        "eco_mode_percent": 20,
     },
 }
 
@@ -47,6 +53,95 @@ def load_config() -> dict:
 
 # Load once at module level
 CONFIG = load_config()
+
+
+def get_battery_status() -> tuple[int, bool]:
+    """
+    Returns (percentage, is_plugged_in).
+    Returns (100, True) if battery cannot be determined (desktop/error).
+    """
+    # macOS
+    if sys.platform == "darwin":
+        try:
+            out = subprocess.check_output(["pmset", "-g", "batt"], text=True)
+            is_plugged = "AC Power" in out
+
+            # Parse percentage manually to avoid regex dependency if desired,
+            # but usually regex is cleaner. Using simple split for robustness.
+            # Output fmt: ... 45%; discharging; ...
+            import re
+
+            match = re.search(r"(\d+)%", out)
+            percent = int(match.group(1)) if match else 100
+            return percent, is_plugged
+        except Exception:
+            return 100, True
+
+    # Linux
+    elif sys.platform.startswith("linux"):
+        try:
+            # Simple sysfs fallback for standard laptops
+            bat_path = Path("/sys/class/power_supply/BAT0")
+            if not bat_path.exists():
+                bat_path = Path("/sys/class/power_supply/BAT1")
+
+            if bat_path.exists():
+                with open(bat_path / "capacity", "r") as f:
+                    percent = int(f.read().strip())
+                with open(bat_path / "status", "r") as f:
+                    status = f.read().strip()
+                is_plugged = status != "Discharging"
+                return percent, is_plugged
+        except Exception:
+            pass
+
+    # Default/Desktop
+    return 100, True
+
+
+def is_system_under_load() -> bool:
+    """Returns True if 1-minute load average > 2.5x CPU count."""
+    if not hasattr(os, "getloadavg"):
+        return False  # Windows/non-Unix
+    try:
+        load_1m, _, _ = os.getloadavg()
+        cpu_count = os.cpu_count() or 1
+        return load_1m > (cpu_count * 2.5)
+    except OSError:
+        return False
+
+
+def get_remote_host(repo_path: Path, remote_name: str) -> str | None:
+    """Extracts hostname from git remote URL (SSH or HTTPS)."""
+    try:
+        url = subprocess.check_output(
+            ["git", "remote", "get-url", remote_name], cwd=repo_path, text=True
+        ).strip()
+
+        # Handle SSH: git@github.com:user/repo.git
+        if "@" in url:
+            return url.split("@")[1].split(":")[0]
+        # Handle HTTPS: https://github.com/user/repo.git
+        if "://" in url:
+            return url.split("://")[1].split("/")[0]
+        return None
+    except Exception:
+        return None
+
+
+def is_remote_reachable(host: str) -> bool:
+    """Quick TCP check to see if remote is online (Port 443 or 22)."""
+    if not host:
+        return False  # Can't check, assume offline or broken
+
+    for port in [443, 22]:
+        try:
+            # 3 second timeout is plenty for a simple SYN check
+            with socket.create_connection((host, port), timeout=3):
+                return True
+        except OSError:
+            continue
+    return False
 
 
 def log(message: str, interactive: bool = False) -> None:
@@ -102,8 +197,10 @@ def notify(title: str, message: str) -> None:
             pass
 
 
-def is_repo_busy(repo_path: Path) -> bool:
+def is_repo_busy(repo_path: Path, interactive: bool = False) -> bool:
     git_dir = repo_path / ".git"
+
+    # 1. Check for operational locks
     critical_files = [
         "MERGE_HEAD",
         "REBASE_HEAD",
@@ -115,6 +212,30 @@ def is_repo_busy(repo_path: Path) -> bool:
     for f in critical_files:
         if (git_dir / f).exists():
             return True
+
+    # 2. Check for index.lock (Race Condition Handler)
+    lock_file = git_dir / "index.lock"
+    if lock_file.exists():
+        # A. Check for stale lock (> 24 hours)
+        try:
+            mtime = lock_file.stat().st_mtime
+            age_hours = (time.time() - mtime) / 3600
+            if age_hours > 24:
+                msg = f"Stale lock detected in {repo_path.name} ({age_hours:.1f}h old)."
+                log(f"WARNING: {msg}")
+                if interactive:
+                    print(f"⚠️  {msg}\n   Run 'rm {lock_file}' to fix.")
+                else:
+                    notify("Pulsar Warning", f"Stale lock in {repo_path.name}")
+                return True
+        except OSError:
+            pass  # File vanished
+
+        # B. Wait-and-see (Micro-retry)
+        time.sleep(1.0)
+        if lock_file.exists():
+            return True
+
     return False
 
 
@@ -171,6 +292,27 @@ def prune_registry(original_path_str: str) -> None:
 
 
 def run_backup(original_path_str: str, interactive: bool = False) -> None:
+    # 1. Power Check
+    if not interactive:
+        percent, plugged_in = get_battery_status()
+        daemon_cfg = CONFIG.get("daemon", {})
+        min_batt = daemon_cfg.get("min_battery_percent", 10)
+        eco_batt = daemon_cfg.get("eco_mode_percent", 20)
+
+        # Critical Mode: Stop everything
+        if not plugged_in and percent < min_batt:
+            return
+
+        # Eco Mode: Commit only
+        is_eco_mode = (not plugged_in) and (percent < eco_batt)
+    else:
+        is_eco_mode = False
+
+    # 2. CPU Load Check
+    if not interactive and is_system_under_load():
+        # Silent skip - don't add to the load
+        return
+
     try:
         repo_path = Path(original_path_str).expanduser().resolve()
     except Exception as e:
@@ -194,9 +336,9 @@ def run_backup(original_path_str: str, interactive: bool = False) -> None:
         log(f"SKIPPED {repo_name}: Not a git repo anymore.", interactive=interactive)
         return
 
-    if is_repo_busy(repo_path):
+    if is_repo_busy(repo_path, interactive=interactive):
         log(
-            f"SKIPPED {repo_name}: Repo is busy (merge/rebase).",
+            f"SKIPPED {repo_name}: Repo is busy.",
             interactive=interactive,
         )
         return
@@ -234,17 +376,42 @@ def run_backup(original_path_str: str, interactive: bool = False) -> None:
             stdout=subprocess.DEVNULL,
         )
 
-        # Push
+        # PUSH LOGIC
+        # A. Eco Mode Check
+        if is_eco_mode:
+            log(
+                f"ECO MODE {repo_name}: Committed. Push skipped (Battery {percent}%).",
+                interactive=interactive,
+            )
+            return
+
+        # B. Network Check (The Targeted Way)
+        remote_host = get_remote_host(repo_path, remote_name)
+        if remote_host and not is_remote_reachable(remote_host):
+            log(
+                f"OFFLINE {repo_name}: Committed. "
+                f"Push skipped (Cannot reach {remote_host}).",
+                interactive=interactive,
+            )
+            return
+
+        # C. Push with Safe SSH
+        env = os.environ.copy()
+        env["GIT_SSH_COMMAND"] = "ssh -o BatchMode=yes"
+
+        # NO INNER TRY HERE - Just run it
         subprocess.run(
-            ["git", "push", remote_name, backup_branch],  # Use remote_name here
+            ["git", "push", remote_name, backup_branch],
             cwd=repo_path,
             check=True,
             timeout=45,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.PIPE,
+            env=env,  # Inject BatchMode
         )
         log(f"SUCCESS {repo_name}: Pushed.", interactive=interactive)
 
+    # These except blocks catch errors from branch check, commit, AND push
     except subprocess.TimeoutExpired:
         log(f"TIMEOUT {repo_name}: Push timed out.", interactive=interactive)
     except subprocess.CalledProcessError as e:
