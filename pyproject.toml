@@ -79,3 +79,8 @@ replace = 'version = "{new_version}"'
 filename = "README.md"
 search = "# 🔭 Git Pulsar (v{current_version})"
 replace = "# 🔭 Git Pulsar (v{new_version})"
+
+[[tool.bumpversion.files]]
+filename = "uv.lock"
+search = 'name = "git-pulsar"\nversion = "{current_version}"'
+replace = 'name = "git-pulsar"\nversion = "{new_version}"'
