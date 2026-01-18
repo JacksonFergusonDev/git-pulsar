@@ -12,6 +12,51 @@ REGISTRY_FILE = Path.home() / ".git_pulsar_registry"
 BACKUP_BRANCH = "wip/pulsar"
 
 
+def show_status() -> None:
+    # 1. Daemon Health
+    print("--- 🩺 System Status ---")
+    is_running = False
+    if sys.platform == "darwin":
+        res = subprocess.run(["launchctl", "list"], capture_output=True, text=True)
+        is_running = "com.jacksonferguson.gitpulsar" in res.stdout
+    elif sys.platform.startswith("linux"):
+        res = subprocess.run(
+            ["systemctl", "--user", "is-active", "com.jacksonferguson.gitpulsar.timer"],
+            capture_output=True,
+            text=True,
+        )
+        is_running = res.stdout.strip() == "active"
+
+    state_icon = "🟢 Running" if is_running else "🔴 Stopped"
+    print(f"Daemon: {state_icon}")
+
+    # 2. Repo Status (if we are in one)
+    if Path(".git").exists():
+        print("\n--- 📂 Repository Status ---")
+
+        # Last Backup Time
+        try:
+            last_time = subprocess.check_output(
+                ["git", "log", "-1", "--format=%cr", BACKUP_BRANCH],
+                stderr=subprocess.DEVNULL,
+                text=True,
+            ).strip()
+        except subprocess.CalledProcessError:
+            last_time = "Never"
+
+        print(f"Last Backup: {last_time}")
+
+        # Pending Changes
+        status = subprocess.check_output(
+            ["git", "status", "--porcelain"], text=True
+        ).strip()
+        count = len(status.splitlines()) if status else 0
+        print(f"Pending:     {count} files changed")
+
+        if (Path(".git") / "pulsar_paused").exists():
+            print("Mode:        ⏸️  PAUSED")
+
+
 def restore_file(path_str: str, force: bool = False) -> None:
     path = Path(path_str)
     if not path.exists():
@@ -324,6 +369,7 @@ def main() -> None:
 
     subparsers.add_parser("pause", help="Suspend backups for current repo")
     subparsers.add_parser("resume", help="Resume backups for current repo")
+    subparsers.add_parser("status", help="Show daemon and repo status")
 
     args = parser.parse_args()
 
@@ -352,6 +398,9 @@ def main() -> None:
         return
     elif args.command == "resume":
         set_pause_state(False)
+        return
+    elif args.command == "status":
+        show_status()
         return
 
     # 3. Default Action (if no subcommand is run, or after --env)
