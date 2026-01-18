@@ -2,20 +2,53 @@ import datetime
 import os
 import subprocess
 import sys
+import tomllib
 from pathlib import Path
 
-# Config
 APP_NAME = "git-pulsar"
 REGISTRY_FILE = Path.home() / ".git_pulsar_registry"
-BACKUP_BRANCH = "wip/pulsar"
 LOG_FILE = Path.home() / ".git_pulsar_log"
-MAX_LOG_SIZE_BYTES = 5 * 1024 * 1024  # 5 MB
-GITHUB_FILE_LIMIT_BYTES = 100 * 1024 * 1024  # 100 MB
+
+DEFAULT_CONFIG = {
+    "core": {
+        "backup_branch": "wip/pulsar",
+        "remote_name": "origin",
+    },
+    "limits": {
+        "max_log_size": 5 * 1024 * 1024,
+        "large_file_threshold": 100 * 1024 * 1024,
+    },
+}
+
+
+def load_config() -> dict:
+    config_path = Path.home() / ".config/git-pulsar/config.toml"
+    config = DEFAULT_CONFIG.copy()
+
+    if config_path.exists():
+        try:
+            with open(config_path, "rb") as f:
+                user_config = tomllib.load(f)
+
+            # recursive update for sections
+            for section, values in user_config.items():
+                if section in config and isinstance(values, dict):
+                    config[section].update(values)
+        except Exception as e:
+            # Fallback to defaults on parse error, but log it
+            print(f"Config Error: {e}", file=sys.stderr)
+
+    return config
+
+
+# Load once at module level
+CONFIG = load_config()
 
 
 def log(message: str) -> None:
     """Logs to file and stderr, rotating if too large."""
-    if LOG_FILE.exists() and LOG_FILE.stat().st_size > MAX_LOG_SIZE_BYTES:
+    max_size = CONFIG["limits"]["max_log_size"]
+    if LOG_FILE.exists() and LOG_FILE.stat().st_size > max_size:
         try:
             os.remove(LOG_FILE)
         except OSError:
@@ -82,6 +115,8 @@ def has_large_files(repo_path: Path) -> bool:
     Scans for files larger than GitHub's 100MB limit.
     Returns True if a large file is found (and notifies user).
     """
+    limit = CONFIG["limits"]["large_file_threshold"]
+
     # Only scan files git knows about or sees as untracked
     try:
         cmd = ["git", "ls-files", "--others", "--modified", "--exclude-standard"]
@@ -92,7 +127,7 @@ def has_large_files(repo_path: Path) -> bool:
     for name in candidates:
         file_path = repo_path / name
         try:
-            if file_path.stat().st_size > GITHUB_FILE_LIMIT_BYTES:
+            if file_path.stat().st_size > limit:
                 log(
                     f"WARNING {repo_path.name}: Large file detected ({name}). "
                     "Backup aborted."
@@ -152,13 +187,16 @@ def run_backup(original_path_str: str) -> None:
     if has_large_files(repo_path):
         return
 
+    backup_branch = CONFIG["core"]["backup_branch"]
+    remote_name = CONFIG["core"]["remote_name"]
+
     try:
         # Check branch
         current_branch = subprocess.check_output(
             ["git", "branch", "--show-current"], cwd=repo_path, text=True
         ).strip()
 
-        if current_branch != BACKUP_BRANCH:
+        if current_branch != backup_branch:
             return
 
         # Check status
@@ -181,7 +219,7 @@ def run_backup(original_path_str: str) -> None:
 
         # Push
         subprocess.run(
-            ["git", "push", "origin", BACKUP_BRANCH],
+            ["git", "push", remote_name, backup_branch],  # Use remote_name here
             cwd=repo_path,
             check=True,
             timeout=45,
