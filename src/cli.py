@@ -78,6 +78,31 @@ def show_diff() -> None:
             print(f"   + {line}")
 
 
+def list_repos() -> None:
+    if not REGISTRY_FILE.exists():
+        print("📭 Registry is empty.")
+        return
+
+    print("📚 Registered Repositories:")
+    with open(REGISTRY_FILE, "r") as f:
+        for line in f:
+            if line.strip():
+                print(f"  • {line.strip()}")
+
+
+def tail_log() -> None:
+    log_file = Path.home() / ".git_pulsar_log"
+    if not log_file.exists():
+        print("❌ No log file found yet.")
+        return
+
+    print(f"📜 Tailing {log_file} (Ctrl+C to stop)...")
+    try:
+        subprocess.run(["tail", "-f", str(log_file)])
+    except KeyboardInterrupt:
+        print("\nStopped.")
+
+
 def restore_file(path_str: str, force: bool = False) -> None:
     path = Path(path_str)
     if not path.exists():
@@ -392,6 +417,8 @@ def main() -> None:
     subparsers.add_parser("resume", help="Resume backups for current repo")
     subparsers.add_parser("status", help="Show daemon and repo status")
     subparsers.add_parser("diff", help="Show changes between working dir and backup")
+    subparsers.add_parser("list", help="List registered repositories")
+    subparsers.add_parser("log", help="Tail the daemon log file")
 
     args = parser.parse_args()
 
@@ -426,6 +453,12 @@ def main() -> None:
         return
     elif args.command == "diff":
         show_diff()
+        return
+    elif args.command == "list":
+        list_repos()
+        return
+    elif args.command == "log":
+        tail_log()
         return
 
     # 3. Default Action (if no subcommand is run, or after --env)
