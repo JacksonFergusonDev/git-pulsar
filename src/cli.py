@@ -191,12 +191,20 @@ def setup_repo(registry_path: Path = REGISTRY_FILE) -> None:
 def main() -> None:
     if len(sys.argv) > 1:
         cmd = sys.argv[1]
+
+        # Service management
         if cmd == "install-service":
             service.install()
             return
         elif cmd == "uninstall-service":
             service.uninstall()
             return
+
+        # Environment Setup
+        elif cmd in ["--env", "-e"]:
+            bootstrap_env()
+            # Fall through to setup_repo so the user gets both
+            # environment setup AND git backup in one go.
 
     setup_repo()
 
