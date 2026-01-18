@@ -2,6 +2,8 @@ import os
 from pathlib import Path
 from unittest.mock import MagicMock
 
+import pytest
+
 from src import cli
 
 
@@ -71,11 +73,13 @@ def test_bootstrap_env_checks_dependencies(tmp_path: Path, mocker: MagicMock) ->
 
     # Mock shutil.which to return None (simulating missing tools)
     mocker.patch("shutil.which", return_value=None)
-    mock_exit = mocker.patch("sys.exit")
 
-    cli.bootstrap_env()
+    # We expect the script to exit with code 1
+    # We do NOT mock sys.exit; we catch the exception instead.
+    with pytest.raises(SystemExit) as excinfo:
+        cli.bootstrap_env()
 
-    mock_exit.assert_called_with(1)
+    assert excinfo.value.code == 1
 
 
 def test_bootstrap_env_scaffolds_files(tmp_path: Path, mocker: MagicMock) -> None:
