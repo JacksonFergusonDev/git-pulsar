@@ -1,6 +1,6 @@
 import os
 from pathlib import Path
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, call
 
 import pytest
 
@@ -127,8 +127,8 @@ def test_bootstrap_env_skips_existing_files(tmp_path: Path, mocker: MagicMock) -
 
     # Should NOT have called uv init
     # We inspect all calls to subprocess.run to ensure 'uv' wasn't one of them
-    for call in mock_run.call_args_list:
-        args = call[0][0]
+    for mock_call in mock_run.call_args_list:
+        args = mock_call[0][0]
         assert "uv" not in args
 
     # Content should be preserved
@@ -193,3 +193,66 @@ def test_now_command_triggers_interactive_daemon(mocker: MagicMock) -> None:
     cli.main()
 
     mock_daemon_main.assert_called_once_with(interactive=True)
+
+
+def test_restore_clean(mocker: MagicMock) -> None:
+    """Should checkout the file from wip/pulsar if working tree is clean."""
+    mocker.patch("src.cli.Path.exists", return_value=True)
+    # Mock check_output to return empty string (indicating no changes)
+    mocker.patch("src.cli.subprocess.check_output", return_value="")
+    mock_run = mocker.patch("src.cli.subprocess.run")
+
+    cli.restore_file("script.py")
+
+    mock_run.assert_called_with(
+        ["git", "checkout", "wip/pulsar", "--", "script.py"], check=True
+    )
+
+
+def test_restore_dirty_fails(mocker: MagicMock) -> None:
+    """Should abort if the file has local changes."""
+    mocker.patch("src.cli.Path.exists", return_value=True)
+    # Simulate git status returning a modification
+    mocker.patch("src.cli.subprocess.check_output", return_value="M script.py")
+
+    with pytest.raises(SystemExit):
+        cli.restore_file("script.py")
+
+
+def test_restore_force(mocker: MagicMock) -> None:
+    """Should overwrite local changes if --force is provided."""
+    mocker.patch("src.cli.Path.exists", return_value=True)
+    mocker.patch("src.cli.subprocess.check_output", return_value="M script.py")
+    mock_run = mocker.patch("src.cli.subprocess.run")
+
+    cli.restore_file("script.py", force=True)
+
+    mock_run.assert_called_with(
+        ["git", "checkout", "wip/pulsar", "--", "script.py"], check=True
+    )
+
+
+def test_finalize_success(mocker: MagicMock) -> None:
+    """Should switch to main, squash merge, commit, and reset backup branch."""
+    mocker.patch("src.cli.Path.exists", return_value=True)
+    mocker.patch("src.cli.subprocess.check_output", return_value="")
+    mock_run = mocker.patch("src.cli.subprocess.run")
+
+    cli.finalize_work()
+
+    expected_calls = [
+        call(["git", "checkout", "main"], check=True),
+        call(["git", "merge", "--squash", "wip/pulsar"], check=True),
+        call(["git", "commit"], check=True),
+        call(["git", "branch", "-f", "wip/pulsar", "main"], check=True),
+    ]
+    mock_run.assert_has_calls(expected_calls)
+
+
+def test_finalize_dirty_fails(mocker: MagicMock) -> None:
+    """Should abort if there are uncommitted changes."""
+    mocker.patch("src.cli.Path.exists", return_value=True)
+    mocker.patch("src.cli.subprocess.check_output", return_value="?? new_file.py")
+
+    with pytest.raises(SystemExit):
+        cli.finalize_work()
