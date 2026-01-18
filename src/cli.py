@@ -12,6 +12,37 @@ REGISTRY_FILE = Path.home() / ".git_pulsar_registry"
 BACKUP_BRANCH = "wip/pulsar"
 
 
+def restore_file(path_str: str, force: bool = False) -> None:
+    path = Path(path_str)
+    if not path.exists():
+        # It might be a deleted file we want to recover,
+        # so we don't strictly require existence.
+        pass
+
+    # 1. Safety Check: Is the file dirty?
+    if not force and path.exists():
+        try:
+            # git status --porcelain <path> returns output if modified/staged
+            status = subprocess.check_output(
+                ["git", "status", "--porcelain", path_str], text=True
+            ).strip()
+            if status:
+                print(f"❌ Aborted: '{path_str}' has uncommitted changes.")
+                print("   Use --force to overwrite them.")
+                sys.exit(1)
+        except subprocess.CalledProcessError:
+            pass
+
+    # 2. Restore
+    print(f"🚑 Restoring '{path_str}' from {BACKUP_BRANCH}...")
+    try:
+        subprocess.run(["git", "checkout", BACKUP_BRANCH, "--", path_str], check=True)
+        print("✅ Restore complete.")
+    except subprocess.CalledProcessError as e:
+        print(f"❌ Failed to restore: {e}")
+        sys.exit(1)
+
+
 def bootstrap_env() -> None:
     """
     Scaffolds a macOS Python environment: uv, direnv, and VS Code.
@@ -217,6 +248,15 @@ def main() -> None:
     subparsers.add_parser("uninstall-service", help="Uninstall the background daemon")
     subparsers.add_parser("now", help="Run backup immediately (one-off)")
 
+    # Restore Command
+    restore_parser = subparsers.add_parser(
+        "restore", help="Restore a file from the backup branch"
+    )
+    restore_parser.add_argument("path", help="Path to the file to restore")
+    restore_parser.add_argument(
+        "--force", "-f", action="store_true", help="Overwrite local changes"
+    )
+
     args = parser.parse_args()
 
     # 1. Handle Environment Setup (Flag)
@@ -232,6 +272,9 @@ def main() -> None:
         return
     elif args.command == "now":
         daemon.main(interactive=True)
+        return
+    elif args.command == "restore":
+        restore_file(args.path, args.force)
         return
 
     # 3. Default Action (if no subcommand is run, or after --env)
