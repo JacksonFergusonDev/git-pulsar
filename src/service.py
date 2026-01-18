@@ -36,7 +36,9 @@ def get_paths() -> tuple[Path, Path]:
         sys.exit(1)
 
 
-def install_macos(plist_path: Path, log_path: Path, executable: str) -> None:
+def install_macos(
+    plist_path: Path, log_path: Path, executable: str, interval: int
+) -> None:
     content = f"""<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -48,7 +50,8 @@ def install_macos(plist_path: Path, log_path: Path, executable: str) -> None:
         <string>{executable}</string>
     </array>
     <key>StartInterval</key>
-    <integer>900</integer>
+    <key>StartInterval</key>
+    <integer>{interval}</integer>
     <key>RunAtLoad</key>
     <true/>
     <key>StandardOutPath</key>
@@ -67,8 +70,9 @@ def install_macos(plist_path: Path, log_path: Path, executable: str) -> None:
     print(f"✅ Pulsar background service active (macOS).\nLogs: {log_path}")
 
 
-def install_linux(unit_path: Path, log_path: Path, executable: str) -> None:
-    # Systemd Timer approach
+def install_linux(
+    unit_path: Path, log_path: Path, executable: str, interval: int
+) -> None:
     base_dir = unit_path.parent
     base_dir.mkdir(parents=True, exist_ok=True)
 
@@ -82,11 +86,11 @@ Description=Git Pulsar Backup Daemon
 ExecStart={executable}
 """
     timer_content = f"""[Unit]
-Description=Run Git Pulsar every 15 minutes
+Description=Run Git Pulsar every {interval} seconds
 
 [Timer]
 OnBootSec=5min
-OnUnitActiveSec=15min
+OnUnitActiveSec={interval}s
 Unit={APP_LABEL}.service
 
 [Install]
@@ -108,15 +112,15 @@ WantedBy=timers.target
     )
 
 
-def install() -> None:
+def install(interval: int = 900) -> None:
     exe = get_executable()
     path, log = get_paths()
 
-    print("Installing background service...")
+    print(f"Installing background service (interval: {interval}s)...")
     if sys.platform == "darwin":
-        install_macos(path, log, exe)
+        install_macos(path, log, exe, interval)
     elif sys.platform.startswith("linux"):
-        install_linux(path, log, exe)
+        install_linux(path, log, exe, interval)
 
 
 def uninstall() -> None:

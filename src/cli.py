@@ -205,7 +205,15 @@ def main() -> None:
     )
 
     # Subcommands
-    subparsers.add_parser("install-service", help="Install the background daemon")
+    install_parser = subparsers.add_parser(
+        "install-service", help="Install the background daemon"
+    )
+    install_parser.add_argument(
+        "--interval",
+        type=int,
+        default=900,
+        help="Backup interval in seconds (default: 900)",
+    )
     subparsers.add_parser("uninstall-service", help="Uninstall the background daemon")
 
     args = parser.parse_args()
@@ -216,7 +224,7 @@ def main() -> None:
 
     # 2. Handle Subcommands
     if args.command == "install-service":
-        service.install()
+        service.install(interval=args.interval)
         return
     elif args.command == "uninstall-service":
         service.uninstall()
