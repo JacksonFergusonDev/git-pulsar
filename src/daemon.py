@@ -18,6 +18,10 @@ DEFAULT_CONFIG = {
         "max_log_size": 5 * 1024 * 1024,
         "large_file_threshold": 100 * 1024 * 1024,
     },
+    "daemon": {
+        "min_battery_percent": 10,
+        "eco_mode_percent": 20,
+    },
 }
 
 
@@ -47,6 +51,50 @@ def load_config() -> dict:
 
 # Load once at module level
 CONFIG = load_config()
+
+
+def get_battery_status() -> tuple[int, bool]:
+    """
+    Returns (percentage, is_plugged_in).
+    Returns (100, True) if battery cannot be determined (desktop/error).
+    """
+    # macOS
+    if sys.platform == "darwin":
+        try:
+            out = subprocess.check_output(["pmset", "-g", "batt"], text=True)
+            is_plugged = "AC Power" in out
+
+            # Parse percentage manually to avoid regex dependency if desired,
+            # but usually regex is cleaner. Using simple split for robustness.
+            # Output fmt: ... 45%; discharging; ...
+            import re
+
+            match = re.search(r"(\d+)%", out)
+            percent = int(match.group(1)) if match else 100
+            return percent, is_plugged
+        except Exception:
+            return 100, True
+
+    # Linux
+    elif sys.platform.startswith("linux"):
+        try:
+            # Simple sysfs fallback for standard laptops
+            bat_path = Path("/sys/class/power_supply/BAT0")
+            if not bat_path.exists():
+                bat_path = Path("/sys/class/power_supply/BAT1")
+
+            if bat_path.exists():
+                with open(bat_path / "capacity", "r") as f:
+                    percent = int(f.read().strip())
+                with open(bat_path / "status", "r") as f:
+                    status = f.read().strip()
+                is_plugged = status != "Discharging"
+                return percent, is_plugged
+        except Exception:
+            pass
+
+    # Default/Desktop
+    return 100, True
 
 
 def log(message: str, interactive: bool = False) -> None:
