@@ -43,6 +43,52 @@ def restore_file(path_str: str, force: bool = False) -> None:
         sys.exit(1)
 
 
+def finalize_work() -> None:
+    print("🚀 Finalizing work...")
+
+    # 1. Check we are in a repo
+    if not Path(".git").exists():
+        print("❌ Not a git repository.")
+        sys.exit(1)
+
+    try:
+        # 2. Ensure clean working state on current branch (usually wip/pulsar)
+        status = subprocess.check_output(
+            ["git", "status", "--porcelain"], text=True
+        ).strip()
+        if status:
+            print("⚠️  You have uncommitted changes.")
+            print("   Please commit or stash them before finalizing.")
+            sys.exit(1)
+
+        # 3. Checkout Main
+        print("-> Switching to main...")
+        subprocess.run(["git", "checkout", "main"], check=True)
+
+        # 4. Merge Squash
+        print(f"-> Squashing {BACKUP_BRANCH}...")
+        subprocess.run(["git", "merge", "--squash", BACKUP_BRANCH], check=True)
+
+        # 5. Commit (Interactive)
+        print("-> Committing (opens editor)...")
+        subprocess.run(["git", "commit"], check=True)
+
+        # 6. Reset Backup Branch
+        # We point wip/pulsar to the new main so the next session starts fresh.
+        print(f"-> Resetting {BACKUP_BRANCH} to main...")
+        subprocess.run(["git", "branch", "-f", BACKUP_BRANCH, "main"], check=True)
+
+        print("\n✅ Work finalized!")
+        print(
+            f"   You are now on 'main'. "
+            f"Run 'git-pulsar' to switch back to {BACKUP_BRANCH}."
+        )
+
+    except subprocess.CalledProcessError as e:
+        print(f"\n❌ Error during finalize: {e}")
+        sys.exit(1)
+
+
 def bootstrap_env() -> None:
     """
     Scaffolds a macOS Python environment: uv, direnv, and VS Code.
@@ -257,6 +303,10 @@ def main() -> None:
         "--force", "-f", action="store_true", help="Overwrite local changes"
     )
 
+    subparsers.add_parser(
+        "finalize", help="Squash wip/pulsar into main and reset backup history"
+    )
+
     args = parser.parse_args()
 
     # 1. Handle Environment Setup (Flag)
@@ -275,6 +325,9 @@ def main() -> None:
         return
     elif args.command == "restore":
         restore_file(args.path, args.force)
+        return
+    elif args.command == "finalize":
+        finalize_work()
         return
 
     # 3. Default Action (if no subcommand is run, or after --env)
