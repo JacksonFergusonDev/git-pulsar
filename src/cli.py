@@ -57,6 +57,27 @@ def show_status() -> None:
             print("Mode:        ⏸️  PAUSED")
 
 
+def show_diff() -> None:
+    if not Path(".git").exists():
+        print("❌ Not a git repository.")
+        sys.exit(1)
+
+    print(f"🔍 Diff vs {BACKUP_BRANCH}:\n")
+
+    # 1. Standard Diff (tracked files)
+    subprocess.run(["git", "diff", BACKUP_BRANCH])
+
+    # 2. Untracked Files (often missed)
+    untracked = subprocess.check_output(
+        ["git", "ls-files", "--others", "--exclude-standard"], text=True
+    ).strip()
+
+    if untracked:
+        print("\n🌱 Untracked (New) Files:")
+        for line in untracked.splitlines():
+            print(f"   + {line}")
+
+
 def restore_file(path_str: str, force: bool = False) -> None:
     path = Path(path_str)
     if not path.exists():
@@ -370,6 +391,7 @@ def main() -> None:
     subparsers.add_parser("pause", help="Suspend backups for current repo")
     subparsers.add_parser("resume", help="Resume backups for current repo")
     subparsers.add_parser("status", help="Show daemon and repo status")
+    subparsers.add_parser("diff", help="Show changes between working dir and backup")
 
     args = parser.parse_args()
 
@@ -401,6 +423,9 @@ def main() -> None:
         return
     elif args.command == "status":
         show_status()
+        return
+    elif args.command == "diff":
+        show_diff()
         return
 
     # 3. Default Action (if no subcommand is run, or after --env)
