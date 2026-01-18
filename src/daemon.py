@@ -2,6 +2,7 @@ import datetime
 import os
 import subprocess
 import sys
+import time
 import tomllib
 from pathlib import Path
 
@@ -150,8 +151,10 @@ def notify(title: str, message: str) -> None:
             pass
 
 
-def is_repo_busy(repo_path: Path) -> bool:
+def is_repo_busy(repo_path: Path, interactive: bool = False) -> bool:
     git_dir = repo_path / ".git"
+
+    # 1. Check for operational locks
     critical_files = [
         "MERGE_HEAD",
         "REBASE_HEAD",
@@ -163,6 +166,30 @@ def is_repo_busy(repo_path: Path) -> bool:
     for f in critical_files:
         if (git_dir / f).exists():
             return True
+
+    # 2. Check for index.lock (Race Condition Handler)
+    lock_file = git_dir / "index.lock"
+    if lock_file.exists():
+        # A. Check for stale lock (> 24 hours)
+        try:
+            mtime = lock_file.stat().st_mtime
+            age_hours = (time.time() - mtime) / 3600
+            if age_hours > 24:
+                msg = f"Stale lock detected in {repo_path.name} ({age_hours:.1f}h old)."
+                log(f"WARNING: {msg}")
+                if interactive:
+                    print(f"⚠️  {msg}\n   Run 'rm {lock_file}' to fix.")
+                else:
+                    notify("Pulsar Warning", f"Stale lock in {repo_path.name}")
+                return True
+        except OSError:
+            pass  # File vanished
+
+        # B. Wait-and-see (Micro-retry)
+        time.sleep(1.0)
+        if lock_file.exists():
+            return True
+
     return False
 
 
@@ -258,9 +285,9 @@ def run_backup(original_path_str: str, interactive: bool = False) -> None:
         log(f"SKIPPED {repo_name}: Not a git repo anymore.", interactive=interactive)
         return
 
-    if is_repo_busy(repo_path):
+    if is_repo_busy(repo_path, interactive=interactive):
         log(
-            f"SKIPPED {repo_name}: Repo is busy (merge/rebase).",
+            f"SKIPPED {repo_name}: Repo is busy.",
             interactive=interactive,
         )
         return
