@@ -1,5 +1,6 @@
 import datetime
 import os
+import socket
 import subprocess
 import sys
 import time
@@ -96,6 +97,51 @@ def get_battery_status() -> tuple[int, bool]:
 
     # Default/Desktop
     return 100, True
+
+
+def is_system_under_load() -> bool:
+    """Returns True if 1-minute load average > 2.5x CPU count."""
+    if not hasattr(os, "getloadavg"):
+        return False  # Windows/non-Unix
+    try:
+        load_1m, _, _ = os.getloadavg()
+        cpu_count = os.cpu_count() or 1
+        return load_1m > (cpu_count * 2.5)
+    except OSError:
+        return False
+
+
+def get_remote_host(repo_path: Path, remote_name: str) -> str | None:
+    """Extracts hostname from git remote URL (SSH or HTTPS)."""
+    try:
+        url = subprocess.check_output(
+            ["git", "remote", "get-url", remote_name], cwd=repo_path, text=True
+        ).strip()
+
+        # Handle SSH: git@github.com:user/repo.git
+        if "@" in url:
+            return url.split("@")[1].split(":")[0]
+        # Handle HTTPS: https://github.com/user/repo.git
+        if "://" in url:
+            return url.split("://")[1].split("/")[0]
+        return None
+    except Exception:
+        return None
+
+
+def is_remote_reachable(host: str) -> bool:
+    """Quick TCP check to see if remote is online (Port 443 or 22)."""
+    if not host:
+        return False  # Can't check, assume offline or broken
+
+    for port in [443, 22]:
+        try:
+            # 3 second timeout is plenty for a simple SYN check
+            with socket.create_connection((host, port), timeout=3):
+                return True
+        except OSError:
+            continue
+    return False
 
 
 def log(message: str, interactive: bool = False) -> None:
@@ -262,6 +308,11 @@ def run_backup(original_path_str: str, interactive: bool = False) -> None:
     else:
         is_eco_mode = False
 
+    # 2. CPU Load Check
+    if not interactive and is_system_under_load():
+        # Silent skip - don't add to the load
+        return
+
     try:
         repo_path = Path(original_path_str).expanduser().resolve()
     except Exception as e:
@@ -325,7 +376,8 @@ def run_backup(original_path_str: str, interactive: bool = False) -> None:
             stdout=subprocess.DEVNULL,
         )
 
-        # Push
+        # PUSH LOGIC
+        # A. Eco Mode Check
         if is_eco_mode:
             log(
                 f"ECO MODE {repo_name}: Committed. Push skipped (Battery {percent}%).",
@@ -333,16 +385,33 @@ def run_backup(original_path_str: str, interactive: bool = False) -> None:
             )
             return
 
+        # B. Network Check (The Targeted Way)
+        remote_host = get_remote_host(repo_path, remote_name)
+        if remote_host and not is_remote_reachable(remote_host):
+            log(
+                f"OFFLINE {repo_name}: Committed. "
+                f"Push skipped (Cannot reach {remote_host}).",
+                interactive=interactive,
+            )
+            return
+
+        # C. Push with Safe SSH
+        env = os.environ.copy()
+        env["GIT_SSH_COMMAND"] = "ssh -o BatchMode=yes"
+
+        # NO INNER TRY HERE - Just run it
         subprocess.run(
-            ["git", "push", remote_name, backup_branch],  # Use remote_name here
+            ["git", "push", remote_name, backup_branch],
             cwd=repo_path,
             check=True,
             timeout=45,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.PIPE,
+            env=env,  # Inject BatchMode
         )
         log(f"SUCCESS {repo_name}: Pushed.", interactive=interactive)
 
+    # These except blocks catch errors from branch check, commit, AND push
     except subprocess.TimeoutExpired:
         log(f"TIMEOUT {repo_name}: Push timed out.", interactive=interactive)
     except subprocess.CalledProcessError as e:
