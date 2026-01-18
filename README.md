@@ -65,14 +65,22 @@ If you want to force a backup immediately (e.g., right before closing your lapto
 git-pulsar now
 ```
 
-### 4. Retrieve Your Work
-When you are ready to finalize your work, you can squash the backup history into your main branch:
+### 4. Restore a File
+If you messed up a file and need to grab the latest version from the backup:
 
 ```bash
-git checkout main
-git merge --squash wip/pulsar
-git commit -m "Finalized assignment submission"
+git-pulsar restore src/main.py
 ```
+*This pulls the file from `wip/pulsar` into your working directory. It will warn you if you have uncommitted changes.*
+
+### 5. Finalize Your Work
+When you are ready to submit or merge your work back to main:
+
+```bash
+git-pulsar finalize
+```
+
+*This automates the squashing process: it switches to `main`, merges your backup history into a single commit, and resets the backup branch so you are ready for the next assignment.*
 
 ## ⚙️ Configuration
 
