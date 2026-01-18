@@ -34,10 +34,10 @@ brew services start git-pulsar
 ```
 
 ### Linux / Generic
-Install via `pipx` to isolate the environment, then register the systemd service.
+Install via `uv` (or `pipx`) to isolate the environment, then register the systemd service.
 
 ```bash
-pipx install git-pulsar
+uv tool install git-pulsar
 git-pulsar install-service
 ```
 
@@ -88,7 +88,7 @@ This project uses modern Python tooling.
    ```bash
    git clone [https://github.com/jacksonferguson/git-pulsar.git](https://github.com/jacksonferguson/git-pulsar.git)
    cd git-pulsar
-   pip install -r requirements-dev.txt
+   uv sync
    ```
 
 2. **Setup Pre-commit Hooks:**
@@ -109,8 +109,7 @@ This project uses modern Python tooling.
 ├── LICENSE
 ├── pyproject.toml
 ├── README.md
-├── requirements-dev.txt
-├── setup.py
+├── uv.lock
 ├── src
 │   ├── __init__.py
 │   ├── cli.py         # Entry point & repo setup logic
