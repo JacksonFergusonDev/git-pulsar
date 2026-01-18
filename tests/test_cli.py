@@ -129,3 +129,36 @@ def test_bootstrap_env_skips_existing_files(tmp_path: Path, mocker: MagicMock) -
 
     # Content should be preserved
     assert envrc.read_text() == "# old content"
+
+
+def test_main_triggers_bootstrap(mocker: MagicMock) -> None:
+    """Ensure --env flag calls the bootstrap function and then setup."""
+    mock_bootstrap = mocker.patch("src.cli.bootstrap_env")
+    mock_setup = mocker.patch("src.cli.setup_repo")
+
+    # Test long flag
+    mocker.patch("sys.argv", ["git-pulsar", "--env"])
+    cli.main()
+    mock_bootstrap.assert_called_once()
+    mock_setup.assert_called_once()
+
+    mock_bootstrap.reset_mock()
+    mock_setup.reset_mock()
+
+    # Test short flag
+    mocker.patch("sys.argv", ["git-pulsar", "-e"])
+    cli.main()
+    mock_bootstrap.assert_called_once()
+    mock_setup.assert_called_once()
+
+
+def test_main_default_behavior(mocker: MagicMock) -> None:
+    """Ensure running without flags defaults to setup_repo."""
+    mock_bootstrap = mocker.patch("src.cli.bootstrap_env")
+    mock_setup = mocker.patch("src.cli.setup_repo")
+
+    mocker.patch("sys.argv", ["git-pulsar"])
+    cli.main()
+
+    mock_bootstrap.assert_not_called()
+    mock_setup.assert_called_once()
