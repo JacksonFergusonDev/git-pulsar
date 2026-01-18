@@ -219,6 +219,22 @@ def prune_registry(original_path_str: str) -> None:
 
 
 def run_backup(original_path_str: str, interactive: bool = False) -> None:
+    # 1. Power Check
+    if not interactive:
+        percent, plugged_in = get_battery_status()
+        daemon_cfg = CONFIG.get("daemon", {})
+        min_batt = daemon_cfg.get("min_battery_percent", 10)
+        eco_batt = daemon_cfg.get("eco_mode_percent", 20)
+
+        # Critical Mode: Stop everything
+        if not plugged_in and percent < min_batt:
+            return
+
+        # Eco Mode: Commit only
+        is_eco_mode = (not plugged_in) and (percent < eco_batt)
+    else:
+        is_eco_mode = False
+
     try:
         repo_path = Path(original_path_str).expanduser().resolve()
     except Exception as e:
@@ -283,6 +299,13 @@ def run_backup(original_path_str: str, interactive: bool = False) -> None:
         )
 
         # Push
+        if is_eco_mode:
+            log(
+                f"ECO MODE {repo_name}: Committed. Push skipped (Battery {percent}%).",
+                interactive=interactive,
+            )
+            return
+
         subprocess.run(
             ["git", "push", remote_name, backup_branch],  # Use remote_name here
             cwd=repo_path,
