@@ -6,7 +6,7 @@ import sys
 import textwrap
 from pathlib import Path
 
-from . import service
+from . import daemon, service
 
 REGISTRY_FILE = Path.home() / ".git_pulsar_registry"
 BACKUP_BRANCH = "wip/pulsar"
@@ -215,6 +215,7 @@ def main() -> None:
         help="Backup interval in seconds (default: 900)",
     )
     subparsers.add_parser("uninstall-service", help="Uninstall the background daemon")
+    subparsers.add_parser("now", help="Run backup immediately (one-off)")
 
     args = parser.parse_args()
 
@@ -228,6 +229,9 @@ def main() -> None:
         return
     elif args.command == "uninstall-service":
         service.uninstall()
+        return
+    elif args.command == "now":
+        daemon.main(interactive=True)
         return
 
     # 3. Default Action (if no subcommand is run, or after --env)
