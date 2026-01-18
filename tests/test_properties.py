@@ -69,9 +69,17 @@ def test_log_rotation_keeps_file_size_bounded(messages: list[str]) -> None:
         log_file = Path(tmp_dir) / "test.log"
         small_limit = 100
 
+        # Create a test config that overrides the limit
+        test_config = daemon.DEFAULT_CONFIG.copy()
+
+        # Assign to local variable and assert type for mypy
+        limits_section = test_config["limits"]
+        assert isinstance(limits_section, dict)
+        limits_section["max_log_size"] = small_limit
+
         with (
             patch("src.daemon.LOG_FILE", log_file),
-            patch("src.daemon.MAX_LOG_SIZE_BYTES", small_limit),
+            patch("src.daemon.CONFIG", test_config),
             patch("builtins.print"),
         ):
             for msg in messages:
