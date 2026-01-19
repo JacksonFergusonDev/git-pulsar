@@ -5,7 +5,6 @@ from pathlib import Path
 
 from . import daemon, ops, service
 from .constants import BACKUP_BRANCH, REGISTRY_FILE
-from .git_wrapper import GitRepo
 
 
 def show_status() -> None:
@@ -104,38 +103,6 @@ def tail_log() -> None:
         subprocess.run(["tail", "-f", str(log_file)])
     except KeyboardInterrupt:
         print("\nStopped.")
-
-
-def restore_file(path_str: str, force: bool = False) -> None:
-    path = Path(path_str)
-    if not path.exists():
-        # It might be a deleted file we want to recover,
-        # so we don't strictly require existence.
-        pass
-
-    # 1. Safety Check: Is the file dirty?
-    if not force and path.exists():
-        try:
-            # git status --porcelain <path> returns output if modified/staged
-            status = subprocess.check_output(
-                ["git", "status", "--porcelain", path_str], text=True
-            ).strip()
-            if status:
-                print(f"❌ Aborted: '{path_str}' has uncommitted changes.")
-                print("   Use --force to overwrite them.")
-                sys.exit(1)
-        except subprocess.CalledProcessError:
-            pass
-
-    # 2. Restore
-    print(f"🚑 Restoring '{path_str}' from {BACKUP_BRANCH}...")
-    try:
-        repo = GitRepo(Path.cwd())
-        repo.checkout(BACKUP_BRANCH, file=path_str)
-        print("✅ Restore complete.")
-    except Exception as e:
-        print(f"❌ Failed to restore: {e}")
-        sys.exit(1)
 
 
 def set_pause_state(paused: bool) -> None:
@@ -301,7 +268,7 @@ def main() -> None:
         daemon.main(interactive=True)
         return
     elif args.command == "restore":
-        restore_file(args.path, args.force)
+        ops.restore_file(args.path, args.force)
         return
     elif args.command == "finalize":
         ops.finalize_work()
