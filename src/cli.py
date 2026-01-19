@@ -288,7 +288,7 @@ def main() -> None:
 
     # 1. Handle Environment Setup (Flag)
     if args.env:
-        bootstrap_env()
+        ops.bootstrap_env()
 
     # 2. Handle Subcommands
     if args.command == "install-service":
