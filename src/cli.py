@@ -3,7 +3,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-from . import daemon, service
+from . import daemon, ops, service
 from .constants import BACKUP_BRANCH, REGISTRY_FILE
 from .git_wrapper import GitRepo
 
