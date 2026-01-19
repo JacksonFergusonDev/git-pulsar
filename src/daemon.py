@@ -180,23 +180,35 @@ def has_large_files(repo_path: Path) -> bool:
 def prune_registry(original_path_str: str) -> None:
     if not REGISTRY_FILE.exists():
         return
+
+    target = original_path_str.strip()
+    tmp_file = REGISTRY_FILE.with_suffix(".tmp")
+
     try:
+        # 1. Read Original
         with open(REGISTRY_FILE, "r") as f:
             lines = f.readlines()
 
-        target = original_path_str.strip()
-
-        with open(REGISTRY_FILE, "w") as f:
+        # 2. Write Temp
+        with open(tmp_file, "w") as f:
             for line in lines:
                 clean_line = line.strip()
-                # Skip empty lines and the target path (ignoring whitespace)
                 if clean_line and clean_line != target:
-                    f.write(line)
+                    f.write(line + "\n")
+            f.flush()
+            os.fsync(f.fileno())  # Force write to disk
+
+        # 3. Atomic Swap
+        os.replace(tmp_file, REGISTRY_FILE)
+
         repo_name = Path(original_path_str).name
         logger.info(f"PRUNED: {original_path_str} removed from registry.")
         SYSTEM.notify("Backup Stopped", f"Removed missing repo: {repo_name}")
+
     except OSError as e:
         logger.error(f"ERROR: Could not prune registry. {e}")
+        if tmp_file.exists():
+            tmp_file.unlink()
 
 
 def _should_skip(repo_path: Path, interactive: bool) -> str | None:
