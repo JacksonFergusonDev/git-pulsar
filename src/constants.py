@@ -18,9 +18,9 @@ REGISTRY_FILE = STATE_DIR / "registry"
 LOG_FILE = STATE_DIR / "daemon.log"
 
 # --- Configuration Paths ---
-CONFIG_DIR = Path.home() / ".config/git-pulsar"
-CONFIG_FILE = CONFIG_DIR / "config.toml"
-MACHINE_ID_FILE = CONFIG_DIR / "machine_id"
+CONFIG_DIR: Path = Path.home() / ".config/git-pulsar"
+CONFIG_FILE: Path = CONFIG_DIR / "config.toml"
+MACHINE_ID_FILE: Path = CONFIG_DIR / "machine_id"
 
 # --- Git / Logic Constants ---
 DEFAULT_IGNORES = [
