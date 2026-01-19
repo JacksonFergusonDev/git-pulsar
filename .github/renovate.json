@@ -1,0 +1,48 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": [
+    "config:best-practices",
+    ":semanticCommits",
+    ":prHourlyLimit2"
+  ],
+  "labels": [
+    "dependencies",
+    "chore"
+  ],
+  "enabledManagers": [
+    "pep621",
+    "github-actions",
+    "pre-commit"
+  ],
+  "uv": {
+    "enabled": true
+  },
+  "packageRules": [
+    {
+      "description": "Group all python dev-dependencies (ruff, mypy, pytest, etc) into one weekly PR to reduce noise.",
+      "matchFileNames": [
+        "pyproject.toml"
+      ],
+      "matchDepTypes": [
+        "dev",
+        "dependency-groups"
+      ],
+      "groupName": "python-dev-tools"
+    },
+    {
+      "description": "Group GitHub Actions updates (checkout, setup-uv, etc).",
+      "matchManagers": [
+        "github-actions"
+      ],
+      "groupName": "github-actions"
+    },
+    {
+      "description": "Automerge dev dependencies if tests pass (Optional: remove 'automerge' if you want to click the button yourself).",
+      "matchGroupName": [
+        "python-dev-tools",
+        "github-actions"
+      ],
+      "automerge": true
+    }
+  ]
+}
