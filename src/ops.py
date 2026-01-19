@@ -1,12 +1,47 @@
 import os
 import shutil
+import socket
 import subprocess
 import sys
 import textwrap
 from pathlib import Path
 
-from .constants import BACKUP_BRANCH
 from .git_wrapper import GitRepo
+from .system import get_machine_id, get_machine_id_file
+
+
+def get_backup_ref(branch: str) -> str:
+    """Constructs the namespaced ref for the current machine/branch."""
+    machine_id = get_machine_id()
+    return f"refs/heads/wip/pulsar/{machine_id}/{branch}"
+
+
+def configure_identity() -> None:
+    """Interactive setup to establish machine identity."""
+    id_file = get_machine_id_file()
+    if id_file.exists():
+        return
+
+    print("🤖 Git Pulsar Machine Identity Setup")
+    print("   To enable seamless roaming, this machine needs a unique name.")
+
+    # 1. Fetch existing identities from remote
+    # We need a repo context to fetch, but we might not be in one.
+    # We'll try to guess or just let the user type.
+    # For robust implementation, we'd need to find a valid git repo to query the remote.
+    # Simulating the list for now based on user intent:
+
+    default_name = socket.gethostname().split(".")[0]
+    print(f"\n   Suggested name: [bold]{default_name}[/bold]")
+
+    choice = input("   Enter name (or press Enter to accept): ").strip()
+    name = choice if choice else default_name
+
+    # 2. Persist
+    id_file.parent.mkdir(parents=True, exist_ok=True)
+    with open(id_file, "w") as f:
+        f.write(name)
+    print(f"✅ Machine ID set to: '{name}'\n")
 
 
 def bootstrap_env() -> None:
@@ -107,6 +142,9 @@ def restore_file(path_str: str, force: bool = False) -> None:
     repo = GitRepo(Path.cwd())
     path = Path(path_str)
 
+    current_branch = repo.current_branch()
+    backup_ref = get_backup_ref(current_branch)
+
     # 1. Safety Check: Is the file dirty?
     if not force and path.exists():
         # Check specifically for this file
@@ -116,12 +154,93 @@ def restore_file(path_str: str, force: bool = False) -> None:
             sys.exit(1)
 
     # 2. Restore
-    print(f"🚑 Restoring '{path_str}' from {BACKUP_BRANCH}...")
+    print(f"🚑 Restoring '{path_str}' from {backup_ref}...")
     try:
-        repo.checkout(BACKUP_BRANCH, file=path_str)
+        repo.checkout(backup_ref, file=path_str)
         print("✅ Restore complete.")
     except Exception as e:
         print(f"❌ Failed to restore: {e}")
+        sys.exit(1)
+
+
+def sync_session() -> None:
+    """
+    Smart Handoff: Scans ALL machine backups for the current branch
+    and resets the working directory to the absolute latest version.
+    """
+    repo = GitRepo(Path.cwd())
+    current_branch = repo.current_branch()
+
+    print(f"📡 Scanning for latest session on '{current_branch}'...")
+
+    # 1. Fetch everything (all machines)
+    try:
+        repo._run(
+            ["fetch", "origin", "refs/heads/wip/pulsar/*:refs/heads/wip/pulsar/*"],
+            capture=False,
+        )
+    except Exception:
+        print("⚠️  Fetch warning: network might be down.")
+
+    # 2. Find candidates
+    # Pattern: refs/heads/wip/pulsar/{machine}/{branch}
+    candidates = repo.list_refs(f"refs/heads/wip/pulsar/*/{current_branch}")
+
+    if not candidates:
+        print("❌ No backups found anywhere.")
+        return
+
+    # 3. Sort by commit date (newest first)
+    # We need to parse the commit timestamp for each ref
+    latest_ref = None
+    latest_time = 0
+
+    for ref in candidates:
+        # Get unix timestamp
+        try:
+            ts_str = repo._run(["log", "-1", "--format=%ct", ref])
+            ts = int(ts_str.strip())
+            if ts > latest_time:
+                latest_time = ts
+                latest_ref = ref
+        except Exception:
+            continue
+
+    if not latest_ref:
+        print("❌ Could not determine latest backup.")
+        return
+
+    # 4. Compare with local
+    machine_name = latest_ref.split("/")[-2]
+    human_time = repo._run(["log", "-1", "--format=%cr", latest_ref])
+
+    print("\n🎯 Found latest session:")
+    print(f"   • Source: {machine_name}")
+    print(f"   • Time:   {human_time}")
+
+    # Check if this IS our current state (approx)
+    local_tree = repo.write_tree()  # Current worktree state
+    remote_tree = repo._run(["rev-parse", f"{latest_ref}^{{tree}}"])
+
+    if local_tree == remote_tree:
+        print("✅ You are already up to date.")
+        return
+
+    # 5. Confirmation
+    print("\n⚠️  WARNING: This will overwrite your local changes to match the backup.")
+    confirm = input("   Proceed with sync? [y/N] ").lower()
+    if confirm != "y":
+        print("❌ Aborted.")
+        sys.exit(0)
+
+    # 6. execution
+    try:
+        # Checkout the contents of the backup ref to the worktree
+        # We use checkout with path '.' to update files without switching HEAD
+        repo._run(["checkout", latest_ref, "--", "."])
+        print("✅ Session synced. You may resume work.")
+    except Exception as e:
+        print(f"❌ Sync failed: {e}")
         sys.exit(1)
 
 
@@ -135,35 +254,63 @@ def finalize_work() -> None:
         print("   Please commit or stash them before finalizing.")
         sys.exit(1)
 
+    # Resolve the backup ref for the branch we were just working on
+    # (Assuming we are finalizing the *current* context)
+    working_branch = repo.current_branch()
+
     try:
-        # 2. Sync with Remote (Anti-Race)
+        # 2. Sync with Remote (Anti-Race + Backup Aggregation)
         print("-> Syncing with origin...")
         try:
+            # Fetch main AND all pulsar backups to ensure we see 'library' work
             repo._run(["fetch", "origin", "main"], capture=False)
-        except Exception:
-            print("⚠️  Could not fetch origin. Proceeding with local refs.")
+            repo._run(
+                [
+                    "fetch",
+                    "origin",
+                    "refs/heads/wip/pulsar/*:refs/heads/wip/pulsar/*",
+                ],
+                capture=False,
+            )
+        except Exception as e:
+            print(f"⚠️  Fetch warning: {e}")
 
-        # 3. Checkout Main
+        # 3. Identify Backup Candidates
+        # Find ALL refs that match: refs/heads/wip/pulsar/*/current_branch
+        # e.g. refs/heads/wip/pulsar/macbook/main, refs/heads/wip/pulsar/library/main
+        candidates = repo.list_refs(f"refs/heads/wip/pulsar/*/{working_branch}")
+
+        if not candidates:
+            print("❌ No backups found for this branch.")
+            sys.exit(1)
+
+        print(f"-> Found {len(candidates)} backup stream(s):")
+        for c in candidates:
+            print(f"   • {c}")
+
+        # 4. Checkout Main
         print("-> Switching to main...")
         repo.checkout("main")
 
-        # 4. Merge Squash
-        print(f"-> Squashing {BACKUP_BRANCH}...")
-        repo.merge_squash(BACKUP_BRANCH)
+        # 5. Octopus Squash
+        print("-> Collapsing backup streams...")
+        try:
+            repo.merge_squash(*candidates)
+        except RuntimeError:
+            print("⚠️  Merge conflicts detected. Please resolve them, then commit.")
+            # We exit here to let the user resolve conflicts manually
+            sys.exit(0)
 
         # 5. Commit (Interactive)
         print("-> Committing (opens editor)...")
         repo.commit_interactive()
 
-        # 6. Reset Backup Branch
-        print(f"-> Resetting {BACKUP_BRANCH} to main...")
-        repo.branch_reset(BACKUP_BRANCH, "main")
+        # 6. No Reset Needed
+        # In the shadow-commit model, we don't reset the backup ref manually.
+        # It continues to grow as a history log, or is abandoned if the branch dies.
 
         print("\n✅ Work finalized!")
-        print(
-            f"   You are now on 'main'. "
-            f"Run 'git-pulsar' to switch back to {BACKUP_BRANCH}."
-        )
+        print("   Your backup history remains in refs/wip/pulsar/...")
 
     except Exception as e:
         print(f"\n❌ Error during finalize: {e}")

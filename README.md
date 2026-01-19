@@ -1,31 +1,34 @@
-# 🔭 Git Pulsar (v0.9.1)
+# 🔭 Git Pulsar (v0.10.0)
 
 [![Tests](https://github.com/jacksonfergusondev/git-pulsar/actions/workflows/ci.yml/badge.svg)](https://github.com/jacksonfergusondev/git-pulsar/actions)
 [![Python 3.12+](https://img.shields.io/badge/python-3.12+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
-[![Pre-commit](https://img.shields.io/badge/pre--commit-enabled-brightgreen?logo=pre-commit)](https://github.com/pre-commit/pre-commit)
+[![Style: Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
 
-**Automated, paranoid git backups for students and casual coding.**
+**Paranoid, invisible backups for students and distributed developers.**
 
-Git Pulsar is a background daemon that wakes up every 15 minutes, commits your work to a secluded `wip/pulsar` branch, and pushes it to your remote. It ensures that even if your laptop dies, your uncommitted work is safe on the server—without polluting your main history.
+Git Pulsar is a background daemon that wakes up every 15 minutes to snapshot your work. Unlike standard autosave tools, Pulsar uses **Shadow Commits**—it writes directly to the git object database without touching your staging area, index, or active branch.
+
+It ensures that even if your laptop dies (or you forget to push before leaving the library), your work is safe on the server and accessible from any other machine.
 
 ---
 
 ## ⚡ Features
 
-- **Set & Forget:** Runs silently in the background via `launchd` (macOS) or `systemd` (Linux).
-- **Non-Intrusive:** Commits are pushed to a separate branch (`wip/pulsar`). Your `main` branch stays clean.
-- **Smart Checks:**
-  - Detects if the repo is busy (merging/rebasing) and yields.
-  - Prevents accidental upload of large files (>100MB).
-  - Auto-generates `.gitignore` for Python/LaTeX projects if missing.
-- **System Integration:** Native desktop notifications on success or failure.
+* **👻 Ghost Mode (Shadow Commits):** Backups are stored in a hidden namespace (`refs/heads/wip/pulsar/...`). Your `git status`, `git branch`, and `git log` remain completely clean.
+* **🌍 Roaming Profiles:** Hop between your laptop, desktop, and university lab computer. Pulsar tracks sessions per machine and lets you `sync` to pick up exactly where you left off.
+* **🛡 Zero-Interference:**
+    * Uses a temporary index so it never messes up your partial `git add`.
+    * Detects if you are rebasing or merging and waits for you to finish.
+    * Prevents accidental upload of large binaries (>100MB).
+* **🐙 Grand Unification:** When you are done, `finalize` merges the backup history from *all* your devices into your main branch in one clean squash commit.
+
+---
 
 ## 📦 Installation
 
 ### macOS (Recommended)
-Install via Homebrew to handle the daemon registration automatically.
+Install via Homebrew to handle the background service registration automatically.
 
 ```bash
 brew tap jacksonfergusondev/tap
@@ -34,154 +37,115 @@ brew services start git-pulsar
 ```
 
 ### Linux / Generic
-Install via `uv` (or `pipx`) to isolate the environment, then register the systemd service.
+Install via `uv` (or `pipx`) and register the systemd timer.
 
 ```bash
 uv tool install git-pulsar
-git-pulsar install-service --interval 300  # Optional: Run every 5 mins (default: 900s)
+git-pulsar install-service --interval 300  # Check every 5 mins (default: 15m)
 ```
 
-## 🚀 Usage
+---
 
-### 1. Activate a Repository
-Navigate to any project you want to back up and initialize Pulsar.
+## 🚀 The Pulsar Workflow
+
+### 1. Initialize & Identify
+Navigate to your project. The first time you run Pulsar, it will ask for a **Machine ID** (e.g., `macbook`, `lab-pc`) to namespace your backups.
 
 ```bash
 cd ~/University/Astro401
 git-pulsar
 ```
-*This registers the path in the local registry (`~/.git_pulsar_registry`) and ensures the `wip/pulsar` branch exists.*
+*You are now protected. The daemon will silently snapshot your work every 15 minutes.*
 
-### 2. Work Normally
-You do not need to do anything else. Pulsar wakes up every 15 minutes to:
-1. Check for changes.
-2. Commit them to `wip/pulsar`.
-3. Push to `origin`.
-
-### 3. Manual Backup
-If you want to force a backup immediately (e.g., right before closing your laptop), run:
+### 2. The "Session Handoff" (Sync)
+You worked on your **Desktop** all night but forgot to push. You open your **Laptop** at class.
 
 ```bash
-git-pulsar now
+git-pulsar sync
 ```
+*Pulsar checks the remote, finds the newer session from `desktop`, and asks to fast-forward your working directory to match it. You just recovered your homework.*
 
-### 4. Monitoring & Control
-Pulsar provides tools to check what's happening behind the scenes.
-
-**Check Status:**
-See if the background daemon is running and when the last backup happened.
-```bash
-git-pulsar status
-```
-
-**View Changes:**
-See exactly what is different between your current work and the last backup (includes untracked files).
-```bash
-git-pulsar diff
-```
-
-**Pause Backups:**
-Stop Pulsar from running on a specific repo during heavy refactoring.
-```bash
-git-pulsar pause
-# ... do messy work ...
-git-pulsar resume
-```
-
-**View Logs:**
-Tail the background service logs in real-time.
-```bash
-git-pulsar log
-```
-
-### 5. Restore a File
-If you messed up a file and need to grab the latest version from the backup:
+### 3. Restore a File
+Mess up a script? Grab the version from 15 minutes ago.
 
 ```bash
+# Restore specific file from the latest shadow backup
 git-pulsar restore src/main.py
 ```
-*This pulls the file from `wip/pulsar` into your working directory. It will warn you if you have uncommitted changes.*
 
-### 6. Finalize Your Work
-When you are ready to submit or merge your work back to main:
+### 4. Finalize Your Work
+When you are ready to submit or merge to `main`:
 
 ```bash
 git-pulsar finalize
 ```
+*This performs an **Octopus Merge**. It pulls the backup history from your Laptop, Desktop, and Lab PC, squashes them all together, and stages the result on `main`.*
 
-*This automates the squashing process: it switches to `main`, merges your backup history into a single commit, and resets the backup branch so you are ready for the next assignment.*
+---
+
+## 🛠 Command Reference
+
+| Command | Description |
+| :--- | :--- |
+| `git-pulsar` | Register current repo for backups. |
+| `git-pulsar now` | Force an immediate backup (e.g., before closing lid). |
+| `git-pulsar sync` | **New:** Pull latest work from any other machine. |
+| `git-pulsar status` | Check when the last backup occurred. |
+| `git-pulsar diff` | Show changes between working tree and last backup. |
+| `git-pulsar restore <file>` | Reset a file to its backed-up state. |
+| `git-pulsar finalize` | Squash-merge all backup streams into `main`. |
+| `git-pulsar log` | Tail the daemon logs in real-time. |
+
+---
 
 ## ⚙️ Configuration
 
-You can customize global behavior by creating `~/.config/git-pulsar/config.toml`.
+You can customize behavior via `~/.config/git-pulsar/config.toml`.
 
-**Default Configuration:**
 ```toml
 [core]
-backup_branch = "wip/pulsar"
 remote_name = "origin"
 
+[daemon]
+# Don't backup if battery is below 20% and unplugged
+eco_mode_percent = 20
+
 [limits]
-# 5MB log rotation
-max_log_size = 5242880
-# Skip files larger than 100MB
-large_file_threshold = 104857600
+# Prevent git from choking on massive files
+large_file_threshold = 104857600  # 100MB
 ```
 
-## 🛑 Stopping the Service
+## 🧩 Architecture: How it works
 
-To deregister the background daemon and stop all backups:
+Pulsar separates **Data Safety** from **Git History**.
 
-```bash
-git-pulsar uninstall-service
-```
+1.  **Isolation:** When the daemon wakes up, it sets `GIT_INDEX_FILE=.git/pulsar_index`. It stages your files *there*, leaving your actual staging area untouched.
+2.  **Plumbing:** It uses low-level commands (`write-tree`, `commit-tree`) to create a commit object.
+3.  **Namespacing:** This commit is pushed to a custom refspec:
+    `refs/heads/wip/pulsar/<machine-id>/<branch-name>`
+4.  **Topology:** Each backup commit has two parents: the previous backup (for history) and your current `HEAD` (for context), creating a "Zipper" graph that tracks your work alongside the project evolution.
 
-## 🔧 Requirements
+---
 
-- **Python 3.12+**
-- **Headless Auth:** Your git authentication must be non-interactive (SSH keys or a cached Credential Helper). Pulsar runs in the background and cannot prompt for passwords.
+## 🛑 Development
 
-## 🛠️ Development
+1.  **Clone & Sync:**
+    ```bash
+    git clone https://github.com/jacksonfergusondev/git-pulsar.git
+    cd git-pulsar
+    uv sync
+    ```
 
-This project uses modern Python tooling.
-
-1. **Clone and Install Dependencies:**
-   ```bash
-   git clone https://github.com/jacksonferguson/git-pulsar.git
-   cd git-pulsar
-   uv sync
-   ```
-
-2. **Setup Pre-commit Hooks:**
+2. **Set Up Pre-Commit Hooks**
    ```bash
    pre-commit install
    ```
 
-3. **Run Tests:**
-   We use `pytest` for testing and `hypothesis` for property-based testing.
-   ```bash
-   uv run pytest
-   ```
-
-## 📂 Project Structure
-
-```text
-.
-├── LICENSE
-├── pyproject.toml
-├── README.md
-├── uv.lock
-├── src
-│   ├── __init__.py
-│   ├── cli.py         # Entry point & repo setup logic
-│   ├── daemon.py      # Core backup loop & git operations
-│   └── service.py     # Background service installer (launchd/systemd)
-└── tests
-    ├── test_cli.py
-    ├── test_daemon.py
-    └── test_properties.py
-```
+3.  **Run Tests:**
+    ```bash
+    uv run pytest
+    ```
 
 ## 📄 License
 
-This project is licensed under the [MIT License](LICENSE).
+MIT © [Jackson Ferguson](https://github.com/jacksonfergusondev)

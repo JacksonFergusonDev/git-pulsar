@@ -59,17 +59,54 @@ class GitRepo:
     def add_all(self) -> None:
         self._run(["add", "."], capture=False)
 
-    def merge_squash(self, branch: str) -> None:
-        self._run(["merge", "--squash", branch], capture=False)
+    def merge_squash(self, *branches: str) -> None:
+        if not branches:
+            return
+        self._run(["merge", "--squash", *branches], capture=False)
 
     def branch_reset(self, branch: str, target: str) -> None:
         self._run(["branch", "-f", branch, target], capture=False)
+
+    def list_refs(self, pattern: str) -> list[str]:
+        """Returns a list of refs matching the pattern (e.g. 'refs/heads/wip/*')."""
+        try:
+            output = self._run(["for-each-ref", "--format=%(refname)", pattern])
+            return output.splitlines() if output else []
+        except Exception:
+            return []
 
     def get_last_commit_time(self, branch: str) -> str:
         try:
             return self._run(["log", "-1", "--format=%cr", branch])
         except Exception:
             return "Never"
+
+    def rev_parse(self, rev: str) -> Optional[str]:
+        """Resolves a revision to a full SHA-1."""
+        try:
+            return self._run(["rev-parse", rev])
+        except Exception:
+            return None
+
+    def write_tree(self, env: Optional[dict] = None) -> str:
+        """Writes the current index to a tree object."""
+        return self._run(["write-tree"], env=env)
+
+    def commit_tree(
+        self, tree: str, parents: list[str], message: str, env: Optional[dict] = None
+    ) -> str:
+        """Creates a commit object from a tree."""
+        cmd = ["commit-tree", tree, "-m", message]
+        for p in parents:
+            cmd.extend(["-p", p])
+        return self._run(cmd, env=env)
+
+    def update_ref(self, ref: str, new_oid: str, old_oid: Optional[str] = None) -> None:
+        """Safely updates a ref."""
+        cmd = ["update-ref", "-m", "Pulsar backup", ref, new_oid]
+        if old_oid:
+            cmd.append(old_oid)
+        self._run(cmd)
 
     def get_untracked_files(self) -> list[str]:
         output = self._run(["ls-files", "--others", "--exclude-standard"])

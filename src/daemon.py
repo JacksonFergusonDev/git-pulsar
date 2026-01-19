@@ -11,7 +11,7 @@ from types import FrameType
 
 from .constants import LOG_FILE, REGISTRY_FILE
 from .git_wrapper import GitRepo
-from .system import get_system
+from .system import get_machine_id, get_system
 
 SYSTEM = get_system()
 
@@ -232,7 +232,7 @@ def _should_skip(repo_path: Path, interactive: bool) -> str | None:
     return None
 
 
-def _attempt_push(repo: GitRepo, interactive: bool) -> None:
+def _attempt_push(repo: GitRepo, refspec: str, interactive: bool) -> None:
     # 1. Eco Mode Check
     percent, plugged = SYSTEM.get_battery()
     if not plugged and percent < CONFIG["daemon"]["eco_mode_percent"]:
@@ -250,10 +250,9 @@ def _attempt_push(repo: GitRepo, interactive: bool) -> None:
     try:
         env = os.environ.copy()
         env["GIT_SSH_COMMAND"] = "ssh -o BatchMode=yes"
-        branch = CONFIG["core"]["backup_branch"]
 
-        # We use repo._run to leverage the wrapper's error handling
-        repo._run(["push", remote_name, branch], capture=False, env=env)
+        # Push specific refspec
+        repo._run(["push", remote_name, refspec], capture=False, env=env)
         log(f"SUCCESS {repo.path.name}: Pushed.", interactive)
     except Exception as e:
         log(f"PUSH ERROR {repo.path.name}: {e}", interactive)
@@ -272,19 +271,64 @@ def run_backup(original_path_str: str, interactive: bool = False) -> None:
             log(f"SKIPPED {repo_path.name}: {reason}", interactive)
         return
 
-    # 2. Repo Interactions
+    # 2. Shadow Commit Logic
     try:
         repo = GitRepo(repo_path)
-        if repo.current_branch() != CONFIG["core"]["backup_branch"]:
-            return
+        current_branch = repo.current_branch()
+        if not current_branch:
+            return  # Detached HEAD or weird state
 
-        if not repo.status_porcelain():
-            return
+        # Construct Namespaced Ref: refs/heads/wip/pulsar/{machine_id}/{branch}
+        machine_id = get_machine_id()
+        backup_ref = f"refs/heads/wip/pulsar/{machine_id}/{current_branch}"
 
-        # 3. Action
-        repo.add_all()
-        repo.commit(f"Pulsar auto-backup: {datetime.datetime.now()}")
-        _attempt_push(repo, interactive)  # Extracted push logic
+        # 3. Isolation: Use a temporary index
+        temp_index = repo_path / ".git" / "pulsar_index"
+        env = os.environ.copy()
+        env["GIT_INDEX_FILE"] = str(temp_index)
+
+        try:
+            # Stage current working directory into temp index
+            repo._run(["add", "."], env=env)
+
+            # Write Tree
+            tree_oid = repo.write_tree(env=env)
+
+            # Determine Parents (Synthetic Merge)
+            # Parent 1: Previous backup (to keep backup history linear-ish)
+            # Parent 2: Current HEAD (to link to project history)
+            parents = []
+            if parent_backup := repo.rev_parse(backup_ref):
+                parents.append(parent_backup)
+            if parent_head := repo.rev_parse("HEAD"):
+                parents.append(parent_head)
+
+            # Check if we actually have changes compared to last backup
+            # (Optimization: Don't spam commits if tree is identical to parent_backup)
+            if parent_backup:
+                # Get tree of previous backup
+                prev_tree = repo._run(["rev-parse", f"{parent_backup}^{{tree}}"])
+                if prev_tree == tree_oid:
+                    # No changes since last backup
+                    return
+
+            # Commit Tree
+            timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            commit_oid = repo.commit_tree(
+                tree_oid, parents, f"Shadow backup {timestamp}", env=env
+            )
+
+            # Update Ref
+            repo.update_ref(backup_ref, commit_oid, parent_backup)
+
+            # 4. Push
+            # Push specifically this ref
+            _attempt_push(repo, f"{backup_ref}:{backup_ref}", interactive)
+
+        finally:
+            # Cleanup temp index
+            if temp_index.exists():
+                temp_index.unlink()
 
     except Exception as e:
         log(f"CRITICAL {repo_path.name}: {e}", interactive)
