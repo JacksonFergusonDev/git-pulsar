@@ -30,7 +30,11 @@ def bootstrap_env() -> None:
     if missing:
         print(f"❌ Missing tools: {', '.join(missing)}")
         print("   Please run:")
-        print(f"     brew install {' '.join(missing)}")
+        install_cmd = f"brew install {' '.join(missing)}"
+        if not shutil.which("brew"):
+            install_cmd = f"(Check your package manager) install {' '.join(missing)}"
+
+        print(f"     {install_cmd}")
         sys.exit(1)
 
     # 2. Project Scaffold (uv)
@@ -132,19 +136,26 @@ def finalize_work() -> None:
         sys.exit(1)
 
     try:
-        # 2. Checkout Main
+        # 2. Sync with Remote (Anti-Race)
+        print("-> Syncing with origin...")
+        try:
+            repo._run(["fetch", "origin", "main"], capture=False)
+        except Exception:
+            print("⚠️  Could not fetch origin. Proceeding with local refs.")
+
+        # 3. Checkout Main
         print("-> Switching to main...")
         repo.checkout("main")
 
-        # 3. Merge Squash
+        # 4. Merge Squash
         print(f"-> Squashing {BACKUP_BRANCH}...")
         repo.merge_squash(BACKUP_BRANCH)
 
-        # 4. Commit (Interactive)
+        # 5. Commit (Interactive)
         print("-> Committing (opens editor)...")
         repo.commit_interactive()
 
-        # 5. Reset Backup Branch
+        # 6. Reset Backup Branch
         print(f"-> Resetting {BACKUP_BRANCH} to main...")
         repo.branch_reset(BACKUP_BRANCH, "main")
 

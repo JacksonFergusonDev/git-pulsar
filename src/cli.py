@@ -134,7 +134,18 @@ def setup_repo(registry_path: Path = REGISTRY_FILE) -> None:
         with open(gitignore, "w") as f:
             f.write("\n".join(defaults) + "\n")
     else:
-        print("Existing .gitignore found. Skipping creation.")
+        print("Existing .gitignore found. Checking for missing defaults...")
+        with open(gitignore, "r") as f:
+            existing_content = f.read()
+
+        missing_defaults = [d for d in defaults if d not in existing_content]
+
+        if missing_defaults:
+            print(f"Appending {len(missing_defaults)} missing ignores...")
+            with open(gitignore, "a") as f:
+                f.write("\n" + "\n".join(missing_defaults) + "\n")
+        else:
+            print("All defaults present.")
 
     # 3. Create/Switch to the backup branch
     print(f"Switching to {BACKUP_BRANCH}...")

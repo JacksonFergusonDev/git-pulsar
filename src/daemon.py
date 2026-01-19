@@ -1,11 +1,13 @@
 import datetime
 import os
+import signal
 import socket
 import subprocess
 import sys
 import time
 import tomllib
 from pathlib import Path
+from types import FrameType
 
 from .constants import LOG_FILE, REGISTRY_FILE
 from .git_wrapper import GitRepo
@@ -297,8 +299,23 @@ def main(interactive: bool = False) -> None:
     with open(REGISTRY_FILE, "r") as f:
         repos = [line.strip() for line in f if line.strip()]
 
+    # Set a timeout handler for stalled mounts
+    def timeout_handler(_signum: int, _frame: FrameType | None) -> None:
+        raise TimeoutError("Repo access timed out")
+
+    signal.signal(signal.SIGALRM, timeout_handler)
+
     for repo_str in set(repos):
-        run_backup(repo_str, interactive=interactive)
+        try:
+            # 5 second timeout per repo to prevent hanging on network drives
+            signal.alarm(5)
+            run_backup(repo_str, interactive=interactive)
+            signal.alarm(0)  # Disable alarm
+        except TimeoutError:
+            log(f"TIMEOUT {repo_str}: Skipped (possible stalled mount).", interactive)
+        except Exception as e:
+            log(f"LOOP ERROR {repo_str}: {e}", interactive)
+            signal.alarm(0)
 
 
 if __name__ == "__main__":
