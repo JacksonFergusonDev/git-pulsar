@@ -28,8 +28,16 @@ class GitRepo:
     def current_branch(self) -> str:
         return self._run(["branch", "--show-current"])
 
-    def status_porcelain(self) -> str:
-        return self._run(["status", "--porcelain"])
+    def status_porcelain(self, path: Optional[str] = None) -> list[str]:
+        cmd = ["status", "--porcelain"]
+        if path:
+            cmd.append(path)
+        output = self._run(cmd)
+        return output.splitlines() if output else []
+
+    def commit_interactive(self) -> None:
+        """Opens the editor for a commit message."""
+        self._run(["commit"], capture=False)
 
     def checkout(
         self, branch: str, file: Optional[str] = None, force: bool = False
