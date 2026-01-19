@@ -3,8 +3,9 @@ import subprocess
 import sys
 from pathlib import Path
 
-from . import daemon, ops, service
+from . import daemon, service
 from .constants import BACKUP_BRANCH, REGISTRY_FILE
+from .git_wrapper import GitRepo
 
 
 def show_status() -> None:
@@ -129,6 +130,8 @@ def setup_repo(registry_path: Path = REGISTRY_FILE) -> None:
         print(f"Initializing git in {cwd}...")
         subprocess.run(["git", "init"], check=True)
 
+    repo = GitRepo(cwd)
+
     # 2. Check/Create .gitignore
     gitignore = cwd / ".gitignore"
     defaults = [
@@ -150,14 +153,13 @@ def setup_repo(registry_path: Path = REGISTRY_FILE) -> None:
     # 3. Create/Switch to the backup branch
     print(f"Switching to {BACKUP_BRANCH}...")
     try:
-        subprocess.run(
-            ["git", "checkout", BACKUP_BRANCH], check=True, stderr=subprocess.DEVNULL
-        )
-    except subprocess.CalledProcessError:
+        repo.checkout(BACKUP_BRANCH)
+    except Exception:
         try:
             # Create orphan if main doesn't exist, or branch off current
-            subprocess.run(["git", "checkout", "-b", BACKUP_BRANCH], check=True)
-        except subprocess.CalledProcessError as e:
+            # We use _run directly here for the specific flag "-b"
+            repo._run(["checkout", "-b", BACKUP_BRANCH], capture=False)
+        except Exception as e:
             print(f"❌ Error switching branches: {e}")
             sys.exit(1)
 
@@ -178,29 +180,15 @@ def setup_repo(registry_path: Path = REGISTRY_FILE) -> None:
 
     try:
         # Check if we can verify credentials (only if remote exists)
-        remotes = subprocess.check_output(["git", "remote"], cwd=cwd, text=True).strip()
+        remotes = repo._run(["remote"])
         if remotes:
             print("Verifying git access...")
-            subprocess.run(
-                ["git", "push", "--dry-run"],
-                cwd=cwd,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-                check=True,
-            )
-    except subprocess.CalledProcessError:
+            repo._run(["push", "--dry-run"], capture=False)
+    except Exception:
         print(
             "⚠️  WARNING: Git push failed. Ensure you have SSH keys set up or "
             "credentials cached."
         )
-        print(
-            "   Background backups will fail if authentication requires a password "
-            "prompt."
-        )
-
-    print("1. Add remote: git remote add origin <url>")
-    print("2. Work loop: code -> code (auto-commits happen)")
-    print(f"3. Milestone: git checkout main -> git merge --squash {BACKUP_BRANCH}")
 
 
 def main() -> None:
