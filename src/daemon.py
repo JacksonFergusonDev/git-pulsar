@@ -8,6 +8,9 @@ import tomllib
 from pathlib import Path
 
 from .constants import APP_NAME, LOG_FILE, REGISTRY_FILE
+from .system import get_system
+
+SYSTEM = get_system()
 
 DEFAULT_CONFIG = {
     "core": {
@@ -51,62 +54,6 @@ def load_config() -> dict:
 
 # Load once at module level
 CONFIG = load_config()
-
-
-def get_battery_status() -> tuple[int, bool]:
-    """
-    Returns (percentage, is_plugged_in).
-    Returns (100, True) if battery cannot be determined (desktop/error).
-    """
-    # macOS
-    if sys.platform == "darwin":
-        try:
-            out = subprocess.check_output(["pmset", "-g", "batt"], text=True)
-            is_plugged = "AC Power" in out
-
-            # Parse percentage manually to avoid regex dependency if desired,
-            # but usually regex is cleaner. Using simple split for robustness.
-            # Output fmt: ... 45%; discharging; ...
-            import re
-
-            match = re.search(r"(\d+)%", out)
-            percent = int(match.group(1)) if match else 100
-            return percent, is_plugged
-        except Exception:
-            return 100, True
-
-    # Linux
-    elif sys.platform.startswith("linux"):
-        try:
-            # Simple sysfs fallback for standard laptops
-            bat_path = Path("/sys/class/power_supply/BAT0")
-            if not bat_path.exists():
-                bat_path = Path("/sys/class/power_supply/BAT1")
-
-            if bat_path.exists():
-                with open(bat_path / "capacity", "r") as f:
-                    percent = int(f.read().strip())
-                with open(bat_path / "status", "r") as f:
-                    status = f.read().strip()
-                is_plugged = status != "Discharging"
-                return percent, is_plugged
-        except Exception:
-            pass
-
-    # Default/Desktop
-    return 100, True
-
-
-def is_system_under_load() -> bool:
-    """Returns True if 1-minute load average > 2.5x CPU count."""
-    if not hasattr(os, "getloadavg"):
-        return False  # Windows/non-Unix
-    try:
-        load_1m, _, _ = os.getloadavg()
-        cpu_count = os.cpu_count() or 1
-        return load_1m > (cpu_count * 2.5)
-    except OSError:
-        return False
 
 
 def get_remote_host(repo_path: Path, remote_name: str) -> str | None:
@@ -167,32 +114,6 @@ def log(message: str, interactive: bool = False) -> None:
 
     # 2. Echo to stderr (so Homebrew/Systemd captures it)
     print(formatted_msg, file=sys.stderr)
-
-
-def notify(title: str, message: str) -> None:
-    """Sends a desktop notification (macOS + Linux)."""
-    clean_msg = message.replace('"', "'")
-
-    # macOS
-    if sys.platform == "darwin":
-        script = (
-            f'display notification "{clean_msg}" with title "{title}" '
-            f'subtitle "{APP_NAME}"'
-        )
-        try:
-            subprocess.run(["osascript", "-e", script], stderr=subprocess.DEVNULL)
-        except Exception:
-            pass
-
-    # Linux
-    elif sys.platform.startswith("linux"):
-        try:
-            subprocess.run(
-                ["notify-send", title, clean_msg, "-a", APP_NAME],
-                stderr=subprocess.DEVNULL,
-            )
-        except FileNotFoundError:
-            pass
 
 
 def is_repo_busy(repo_path: Path, interactive: bool = False) -> bool:
