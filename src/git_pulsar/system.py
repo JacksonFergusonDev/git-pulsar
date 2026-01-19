@@ -4,7 +4,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-from constants import MACHINE_ID_FILE
+from .constants import MACHINE_ID_FILE
 
 
 class SystemStrategy:

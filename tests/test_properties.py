@@ -5,7 +5,7 @@ from unittest.mock import patch
 from hypothesis import given
 from hypothesis import strategies as st
 
-from src import daemon
+from git_pulsar import daemon
 
 # Strategy: Generate a list of non-empty strings that don't contain ANY line breaks.
 paths_strategy = st.lists(
@@ -40,8 +40,8 @@ def test_prune_registry_removes_only_target(
         # We patch REGISTRY_FILE to point to our temp file
         # We patch SYSTEM.notify to suppress desktop notifications
         with (
-            patch("src.daemon.REGISTRY_FILE", registry_file),
-            patch("src.daemon.SYSTEM.notify"),
+            patch("git_pulsar.daemon.REGISTRY_FILE", registry_file),
+            patch("git_pulsar.daemon.SYSTEM.notify"),
         ):
             # 3. Action
             daemon.prune_registry(target)
