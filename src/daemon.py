@@ -7,9 +7,7 @@ import time
 import tomllib
 from pathlib import Path
 
-APP_NAME = "git-pulsar"
-REGISTRY_FILE = Path.home() / ".git_pulsar_registry"
-LOG_FILE = Path.home() / ".git_pulsar_log"
+from .constants import APP_NAME, LOG_FILE, REGISTRY_FILE
 
 DEFAULT_CONFIG = {
     "core": {

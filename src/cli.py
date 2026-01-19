@@ -7,9 +7,7 @@ import textwrap
 from pathlib import Path
 
 from . import daemon, service
-
-REGISTRY_FILE = Path.home() / ".git_pulsar_registry"
-BACKUP_BRANCH = "wip/pulsar"
+from .constants import BACKUP_BRANCH, REGISTRY_FILE
 
 
 def show_status() -> None:
