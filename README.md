@@ -25,6 +25,24 @@ It ensures that even if your laptop dies (or you forget to push before leaving t
 
 ---
 
+## 🧬 Environment Bootstrap (macOS)
+
+Pulsar includes a one-click scaffolding tool to set up a modern, robust Python environment.
+
+```bash
+git-pulsar --env
+```
+
+This bootstraps the current directory with:
+
+- **uv:** Initializes a project with fast package management and Python 3.12+ pinning.
+
+- **direnv:** Creates an .envrc for auto-activating virtual environments and hooking into the shell.
+
+- **VS Code:** Generates a .vscode/settings.json pre-configured to exclude build artifacts and use the local venv.
+
+---
+
 ## 📦 Installation
 
 ### macOS (Recommended)
