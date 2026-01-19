@@ -29,24 +29,13 @@ def show_status() -> None:
     # 2. Repo Status (if we are in one)
     if Path(".git").exists():
         print("\n--- 📂 Repository Status ---")
+        repo = GitRepo(Path.cwd())
 
         # Last Backup Time
-        try:
-            last_time = subprocess.check_output(
-                ["git", "log", "-1", "--format=%cr", BACKUP_BRANCH],
-                stderr=subprocess.DEVNULL,
-                text=True,
-            ).strip()
-        except subprocess.CalledProcessError:
-            last_time = "Never"
-
-        print(f"Last Backup: {last_time}")
+        print(f"Last Backup: {repo.get_last_commit_time(BACKUP_BRANCH)}")
 
         # Pending Changes
-        status = subprocess.check_output(
-            ["git", "status", "--porcelain"], text=True
-        ).strip()
-        count = len(status.splitlines()) if status else 0
+        count = len(repo.status_porcelain())
         print(f"Pending:     {count} files changed")
 
         if (Path(".git") / "pulsar_paused").exists():
@@ -66,18 +55,15 @@ def show_diff() -> None:
         sys.exit(1)
 
     print(f"🔍 Diff vs {BACKUP_BRANCH}:\n")
+    repo = GitRepo(Path.cwd())
 
     # 1. Standard Diff (tracked files)
-    subprocess.run(["git", "diff", BACKUP_BRANCH])
+    repo.run_diff(BACKUP_BRANCH)
 
-    # 2. Untracked Files (often missed)
-    untracked = subprocess.check_output(
-        ["git", "ls-files", "--others", "--exclude-standard"], text=True
-    ).strip()
-
-    if untracked:
+    # 2. Untracked Files
+    if untracked := repo.get_untracked_files():
         print("\n🌱 Untracked (New) Files:")
-        for line in untracked.splitlines():
+        for line in untracked:
             print(f"   + {line}")
 
 

@@ -64,3 +64,17 @@ class GitRepo:
 
     def branch_reset(self, branch: str, target: str) -> None:
         self._run(["branch", "-f", branch, target], capture=False)
+
+    def get_last_commit_time(self, branch: str) -> str:
+        try:
+            return self._run(["log", "-1", "--format=%cr", branch])
+        except Exception:
+            return "Never"
+
+    def get_untracked_files(self) -> list[str]:
+        output = self._run(["ls-files", "--others", "--exclude-standard"])
+        return output.splitlines() if output else []
+
+    def run_diff(self, target: str) -> None:
+        """Runs git diff attached to stdout (no capture)."""
+        self._run(["diff", target], capture=False)

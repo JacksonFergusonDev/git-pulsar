@@ -2,6 +2,8 @@ import os
 from pathlib import Path
 from unittest.mock import MagicMock
 
+import pytest
+
 from src import cli
 
 
@@ -85,3 +87,44 @@ def test_pause_command(tmp_path: Path, mocker: MagicMock) -> None:
 
     cli.set_pause_state(paused=False)
     assert not (tmp_path / ".git" / "pulsar_paused").exists()
+
+
+def test_status_reports_pause_state(
+    tmp_path: Path, capsys: pytest.CaptureFixture, mocker: MagicMock
+) -> None:
+    """Ensure 'git-pulsar status' explicitly reports the PAUSED state."""
+    (tmp_path / ".git").mkdir()
+    (tmp_path / ".git" / "pulsar_paused").touch()
+    os.chdir(tmp_path)
+
+    # Mock GitRepo
+    mock_cls = mocker.patch("src.cli.GitRepo")
+    mock_repo = mock_cls.return_value
+    mock_repo.get_last_commit_time.return_value = "15 minutes ago"
+    mock_repo.status_porcelain.return_value = []
+
+    # Mock systemctl/launchctl check
+    mocker.patch("subprocess.run")
+
+    cli.show_status()
+
+    captured = capsys.readouterr()
+    assert "⏸️  PAUSED" in captured.out
+
+
+def test_diff_shows_untracked_files(
+    tmp_path: Path, capsys: pytest.CaptureFixture, mocker: MagicMock
+) -> None:
+    """Ensure 'git-pulsar diff' lists untracked files."""
+    (tmp_path / ".git").mkdir()
+    os.chdir(tmp_path)
+
+    mock_cls = mocker.patch("src.cli.GitRepo")
+    mock_repo = mock_cls.return_value
+    mock_repo.get_untracked_files.return_value = ["new_script.py"]
+
+    cli.show_diff()
+
+    captured = capsys.readouterr()
+    assert "Untracked (New) Files" in captured.out
+    assert "+ new_script.py" in captured.out
