@@ -1,15 +1,11 @@
 import argparse
-import os
-import shutil
 import subprocess
 import sys
-import textwrap
 from pathlib import Path
 
-from . import daemon, service
-
-REGISTRY_FILE = Path.home() / ".git_pulsar_registry"
-BACKUP_BRANCH = "wip/pulsar"
+from . import daemon, ops, service
+from .constants import BACKUP_BRANCH, REGISTRY_FILE
+from .git_wrapper import GitRepo
 
 
 def show_status() -> None:
@@ -33,24 +29,13 @@ def show_status() -> None:
     # 2. Repo Status (if we are in one)
     if Path(".git").exists():
         print("\n--- 📂 Repository Status ---")
+        repo = GitRepo(Path.cwd())
 
         # Last Backup Time
-        try:
-            last_time = subprocess.check_output(
-                ["git", "log", "-1", "--format=%cr", BACKUP_BRANCH],
-                stderr=subprocess.DEVNULL,
-                text=True,
-            ).strip()
-        except subprocess.CalledProcessError:
-            last_time = "Never"
-
-        print(f"Last Backup: {last_time}")
+        print(f"Last Backup: {repo.get_last_commit_time(BACKUP_BRANCH)}")
 
         # Pending Changes
-        status = subprocess.check_output(
-            ["git", "status", "--porcelain"], text=True
-        ).strip()
-        count = len(status.splitlines()) if status else 0
+        count = len(repo.status_porcelain())
         print(f"Pending:     {count} files changed")
 
         if (Path(".git") / "pulsar_paused").exists():
@@ -70,18 +55,15 @@ def show_diff() -> None:
         sys.exit(1)
 
     print(f"🔍 Diff vs {BACKUP_BRANCH}:\n")
+    repo = GitRepo(Path.cwd())
 
     # 1. Standard Diff (tracked files)
-    subprocess.run(["git", "diff", BACKUP_BRANCH])
+    repo.run_diff(BACKUP_BRANCH)
 
-    # 2. Untracked Files (often missed)
-    untracked = subprocess.check_output(
-        ["git", "ls-files", "--others", "--exclude-standard"], text=True
-    ).strip()
-
-    if untracked:
+    # 2. Untracked Files
+    if untracked := repo.get_untracked_files():
         print("\n🌱 Untracked (New) Files:")
-        for line in untracked.splitlines():
+        for line in untracked:
             print(f"   + {line}")
 
 
@@ -110,177 +92,6 @@ def tail_log() -> None:
         print("\nStopped.")
 
 
-def restore_file(path_str: str, force: bool = False) -> None:
-    path = Path(path_str)
-    if not path.exists():
-        # It might be a deleted file we want to recover,
-        # so we don't strictly require existence.
-        pass
-
-    # 1. Safety Check: Is the file dirty?
-    if not force and path.exists():
-        try:
-            # git status --porcelain <path> returns output if modified/staged
-            status = subprocess.check_output(
-                ["git", "status", "--porcelain", path_str], text=True
-            ).strip()
-            if status:
-                print(f"❌ Aborted: '{path_str}' has uncommitted changes.")
-                print("   Use --force to overwrite them.")
-                sys.exit(1)
-        except subprocess.CalledProcessError:
-            pass
-
-    # 2. Restore
-    print(f"🚑 Restoring '{path_str}' from {BACKUP_BRANCH}...")
-    try:
-        subprocess.run(["git", "checkout", BACKUP_BRANCH, "--", path_str], check=True)
-        print("✅ Restore complete.")
-    except subprocess.CalledProcessError as e:
-        print(f"❌ Failed to restore: {e}")
-        sys.exit(1)
-
-
-def finalize_work() -> None:
-    print("🚀 Finalizing work...")
-
-    # 1. Check we are in a repo
-    if not Path(".git").exists():
-        print("❌ Not a git repository.")
-        sys.exit(1)
-
-    try:
-        # 2. Ensure clean working state on current branch (usually wip/pulsar)
-        status = subprocess.check_output(
-            ["git", "status", "--porcelain"], text=True
-        ).strip()
-        if status:
-            print("⚠️  You have uncommitted changes.")
-            print("   Please commit or stash them before finalizing.")
-            sys.exit(1)
-
-        # 3. Checkout Main
-        print("-> Switching to main...")
-        subprocess.run(["git", "checkout", "main"], check=True)
-
-        # 4. Merge Squash
-        print(f"-> Squashing {BACKUP_BRANCH}...")
-        subprocess.run(["git", "merge", "--squash", BACKUP_BRANCH], check=True)
-
-        # 5. Commit (Interactive)
-        print("-> Committing (opens editor)...")
-        subprocess.run(["git", "commit"], check=True)
-
-        # 6. Reset Backup Branch
-        # We point wip/pulsar to the new main so the next session starts fresh.
-        print(f"-> Resetting {BACKUP_BRANCH} to main...")
-        subprocess.run(["git", "branch", "-f", BACKUP_BRANCH, "main"], check=True)
-
-        print("\n✅ Work finalized!")
-        print(
-            f"   You are now on 'main'. "
-            f"Run 'git-pulsar' to switch back to {BACKUP_BRANCH}."
-        )
-
-    except subprocess.CalledProcessError as e:
-        print(f"\n❌ Error during finalize: {e}")
-        sys.exit(1)
-
-
-def bootstrap_env() -> None:
-    """
-    Scaffolds a macOS Python environment: uv, direnv, and VS Code.
-    Triggered by `git-pulsar --env`.
-    """
-    if sys.platform != "darwin":
-        print("❌ The --env workflow is currently optimized for macOS.")
-        return
-
-    cwd = Path.cwd()
-    print(f"⚡ Setting up dev environment in {cwd.name}...")
-
-    # 1. Dependency Check
-    missing = []
-    if not shutil.which("uv"):
-        missing.append("uv")
-    if not shutil.which("direnv"):
-        missing.append("direnv")
-
-    if missing:
-        print(f"❌ Missing tools: {', '.join(missing)}")
-        print("   Please run:")
-        print(f"     brew install {' '.join(missing)}")
-        sys.exit(1)
-
-    # 2. Project Scaffold (uv)
-    if not (cwd / "pyproject.toml").exists():
-        print("📦 Initializing Python project...")
-        # 'uv init' is safe; it creates a standard pyproject.toml
-        subprocess.run(["uv", "init", "--no-workspace", "--python", "3.12"], check=True)
-    else:
-        print("   Existing pyproject.toml found. Skipping init.")
-
-    # 3. Direnv Configuration
-    envrc_path = cwd / ".envrc"
-    if not envrc_path.exists():
-        print("🔌 Creating .envrc...")
-        # We use a simplified config that handles the venv creation
-        envrc_content = textwrap.dedent("""\
-            # Auto-generated by git-pulsar
-            if [ ! -d ".venv" ]; then
-                echo "Creating virtual environment..."
-                uv sync
-            fi
-            source .venv/bin/activate
-            
-            source_env_if_exists .envrc.local
-        """)
-        with open(envrc_path, "w") as f:
-            f.write(envrc_content)
-
-        subprocess.run(["direnv", "allow"], check=True)
-    else:
-        print("   .envrc exists. Skipping.")
-
-    # 4. VS Code Settings (Optimized for Students)
-    vscode_dir = cwd / ".vscode"
-    settings_path = vscode_dir / "settings.json"
-
-    if not settings_path.exists():
-        vscode_dir.mkdir(exist_ok=True)
-        print("⚙️  Configuring VS Code...")
-        settings_content = textwrap.dedent("""\
-            {
-                "python.defaultInterpreterPath": ".venv/bin/python",
-                "python.terminal.activateEnvironment": true,
-                "files.exclude": {
-                    "**/__pycache__": true,
-                    "**/.ipynb_checkpoints": true,
-                    "**/.DS_Store": true,
-                    "**/.venv": true
-                },
-                "search.exclude": {
-                    "**/.venv": true
-                }
-            }
-        """)
-        with open(settings_path, "w") as f:
-            f.write(settings_content)
-
-    print("\n✅ Environment ready.")
-
-    # 5. The "Manual" Hook
-    # Check if direnv is likely hooked by checking for the env var it sets
-    if "DIRENV_DIR" not in os.environ:
-        print("\n👉 Action Required: Enable direnv")
-        print("   1. Open your config:")
-        print("      code ~/.zshrc  (or nano ~/.zshrc)")
-        print("   2. Add this line to the bottom:")
-        print('      eval "$(direnv hook zsh)"')
-        print("   3. Reload:")
-        print("      source ~/.zshrc")
-
-
 def set_pause_state(paused: bool) -> None:
     if not Path(".git").exists():
         print("❌ Not a git repository.")
@@ -305,6 +116,8 @@ def setup_repo(registry_path: Path = REGISTRY_FILE) -> None:
         print(f"Initializing git in {cwd}...")
         subprocess.run(["git", "init"], check=True)
 
+    repo = GitRepo(cwd)
+
     # 2. Check/Create .gitignore
     gitignore = cwd / ".gitignore"
     defaults = [
@@ -326,14 +139,13 @@ def setup_repo(registry_path: Path = REGISTRY_FILE) -> None:
     # 3. Create/Switch to the backup branch
     print(f"Switching to {BACKUP_BRANCH}...")
     try:
-        subprocess.run(
-            ["git", "checkout", BACKUP_BRANCH], check=True, stderr=subprocess.DEVNULL
-        )
-    except subprocess.CalledProcessError:
+        repo.checkout(BACKUP_BRANCH)
+    except Exception:
         try:
             # Create orphan if main doesn't exist, or branch off current
-            subprocess.run(["git", "checkout", "-b", BACKUP_BRANCH], check=True)
-        except subprocess.CalledProcessError as e:
+            # We use _run directly here for the specific flag "-b"
+            repo._run(["checkout", "-b", BACKUP_BRANCH], capture=False)
+        except Exception as e:
             print(f"❌ Error switching branches: {e}")
             sys.exit(1)
 
@@ -354,29 +166,15 @@ def setup_repo(registry_path: Path = REGISTRY_FILE) -> None:
 
     try:
         # Check if we can verify credentials (only if remote exists)
-        remotes = subprocess.check_output(["git", "remote"], cwd=cwd, text=True).strip()
+        remotes = repo._run(["remote"])
         if remotes:
             print("Verifying git access...")
-            subprocess.run(
-                ["git", "push", "--dry-run"],
-                cwd=cwd,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-                check=True,
-            )
-    except subprocess.CalledProcessError:
+            repo._run(["push", "--dry-run"], capture=False)
+    except Exception:
         print(
             "⚠️  WARNING: Git push failed. Ensure you have SSH keys set up or "
             "credentials cached."
         )
-        print(
-            "   Background backups will fail if authentication requires a password "
-            "prompt."
-        )
-
-    print("1. Add remote: git remote add origin <url>")
-    print("2. Work loop: code -> code (auto-commits happen)")
-    print(f"3. Milestone: git checkout main -> git merge --squash {BACKUP_BRANCH}")
 
 
 def main() -> None:
@@ -431,7 +229,7 @@ def main() -> None:
 
     # 1. Handle Environment Setup (Flag)
     if args.env:
-        bootstrap_env()
+        ops.bootstrap_env()
 
     # 2. Handle Subcommands
     if args.command == "install-service":
@@ -444,10 +242,10 @@ def main() -> None:
         daemon.main(interactive=True)
         return
     elif args.command == "restore":
-        restore_file(args.path, args.force)
+        ops.restore_file(args.path, args.force)
         return
     elif args.command == "finalize":
-        finalize_work()
+        ops.finalize_work()
         return
     elif args.command == "pause":
         set_pause_state(True)

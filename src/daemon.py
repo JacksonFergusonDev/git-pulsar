@@ -7,9 +7,11 @@ import time
 import tomllib
 from pathlib import Path
 
-APP_NAME = "git-pulsar"
-REGISTRY_FILE = Path.home() / ".git_pulsar_registry"
-LOG_FILE = Path.home() / ".git_pulsar_log"
+from .constants import LOG_FILE, REGISTRY_FILE
+from .git_wrapper import GitRepo
+from .system import get_system
+
+SYSTEM = get_system()
 
 DEFAULT_CONFIG = {
     "core": {
@@ -53,62 +55,6 @@ def load_config() -> dict:
 
 # Load once at module level
 CONFIG = load_config()
-
-
-def get_battery_status() -> tuple[int, bool]:
-    """
-    Returns (percentage, is_plugged_in).
-    Returns (100, True) if battery cannot be determined (desktop/error).
-    """
-    # macOS
-    if sys.platform == "darwin":
-        try:
-            out = subprocess.check_output(["pmset", "-g", "batt"], text=True)
-            is_plugged = "AC Power" in out
-
-            # Parse percentage manually to avoid regex dependency if desired,
-            # but usually regex is cleaner. Using simple split for robustness.
-            # Output fmt: ... 45%; discharging; ...
-            import re
-
-            match = re.search(r"(\d+)%", out)
-            percent = int(match.group(1)) if match else 100
-            return percent, is_plugged
-        except Exception:
-            return 100, True
-
-    # Linux
-    elif sys.platform.startswith("linux"):
-        try:
-            # Simple sysfs fallback for standard laptops
-            bat_path = Path("/sys/class/power_supply/BAT0")
-            if not bat_path.exists():
-                bat_path = Path("/sys/class/power_supply/BAT1")
-
-            if bat_path.exists():
-                with open(bat_path / "capacity", "r") as f:
-                    percent = int(f.read().strip())
-                with open(bat_path / "status", "r") as f:
-                    status = f.read().strip()
-                is_plugged = status != "Discharging"
-                return percent, is_plugged
-        except Exception:
-            pass
-
-    # Default/Desktop
-    return 100, True
-
-
-def is_system_under_load() -> bool:
-    """Returns True if 1-minute load average > 2.5x CPU count."""
-    if not hasattr(os, "getloadavg"):
-        return False  # Windows/non-Unix
-    try:
-        load_1m, _, _ = os.getloadavg()
-        cpu_count = os.cpu_count() or 1
-        return load_1m > (cpu_count * 2.5)
-    except OSError:
-        return False
 
 
 def get_remote_host(repo_path: Path, remote_name: str) -> str | None:
@@ -171,32 +117,6 @@ def log(message: str, interactive: bool = False) -> None:
     print(formatted_msg, file=sys.stderr)
 
 
-def notify(title: str, message: str) -> None:
-    """Sends a desktop notification (macOS + Linux)."""
-    clean_msg = message.replace('"', "'")
-
-    # macOS
-    if sys.platform == "darwin":
-        script = (
-            f'display notification "{clean_msg}" with title "{title}" '
-            f'subtitle "{APP_NAME}"'
-        )
-        try:
-            subprocess.run(["osascript", "-e", script], stderr=subprocess.DEVNULL)
-        except Exception:
-            pass
-
-    # Linux
-    elif sys.platform.startswith("linux"):
-        try:
-            subprocess.run(
-                ["notify-send", title, clean_msg, "-a", APP_NAME],
-                stderr=subprocess.DEVNULL,
-            )
-        except FileNotFoundError:
-            pass
-
-
 def is_repo_busy(repo_path: Path, interactive: bool = False) -> bool:
     git_dir = repo_path / ".git"
 
@@ -226,7 +146,7 @@ def is_repo_busy(repo_path: Path, interactive: bool = False) -> bool:
                 if interactive:
                     print(f"⚠️  {msg}\n   Run 'rm {lock_file}' to fix.")
                 else:
-                    notify("Pulsar Warning", f"Stale lock in {repo_path.name}")
+                    SYSTEM.notify("Pulsar Warning", f"Stale lock in {repo_path.name}")
                 return True
         except OSError:
             pass  # File vanished
@@ -261,7 +181,7 @@ def has_large_files(repo_path: Path) -> bool:
                     f"WARNING {repo_path.name}: Large file detected ({name}). "
                     "Backup aborted."
                 )
-                notify("Backup Aborted", f"File >100MB detected: {name}")
+                SYSTEM.notify("Backup Aborted", f"File >100MB detected: {name}")
                 return True
         except OSError:
             continue
@@ -286,149 +206,86 @@ def prune_registry(original_path_str: str) -> None:
                     f.write(line)
         repo_name = Path(original_path_str).name
         log(f"PRUNED: {original_path_str} removed from registry.")
-        notify("Backup Stopped", f"Removed missing repo: {repo_name}")
+        SYSTEM.notify("Backup Stopped", f"Removed missing repo: {repo_name}")
     except OSError as e:
         log(f"ERROR: Could not prune registry. {e}")
 
 
-def run_backup(original_path_str: str, interactive: bool = False) -> None:
-    # 1. Power Check
-    if not interactive:
-        percent, plugged_in = get_battery_status()
-        daemon_cfg = CONFIG.get("daemon", {})
-        min_batt = daemon_cfg.get("min_battery_percent", 10)
-        eco_batt = daemon_cfg.get("eco_mode_percent", 20)
-
-        # Critical Mode: Stop everything
-        if not plugged_in and percent < min_batt:
-            return
-
-        # Eco Mode: Commit only
-        is_eco_mode = (not plugged_in) and (percent < eco_batt)
-    else:
-        is_eco_mode = False
-
-    # 2. CPU Load Check
-    if not interactive and is_system_under_load():
-        # Silent skip - don't add to the load
-        return
-
-    try:
-        repo_path = Path(original_path_str).expanduser().resolve()
-    except Exception as e:
-        log(
-            f"ERROR: Could not resolve path {original_path_str}: {e}",
-            interactive=interactive,
-        )
-        return
-
-    repo_name = repo_path.name
-
+def _should_skip(repo_path: Path, interactive: bool) -> str | None:
     if not repo_path.exists():
-        log(
-            f"MISSING {original_path_str}: Path not found. Pruning.",
-            interactive=interactive,
-        )
-        prune_registry(original_path_str)
-        return
+        return "Path missing"
 
-    if not (repo_path / ".git").exists():
-        log(f"SKIPPED {repo_name}: Not a git repo anymore.", interactive=interactive)
-        return
-
-    # Check for pause file
     if (repo_path / ".git" / "pulsar_paused").exists():
-        log(
-            f"PAUSED {repo_name}: Backup skipped (user paused).",
-            interactive=interactive,
-        )
+        return "Paused by user"
+
+    if not interactive:
+        if SYSTEM.is_under_load():
+            return "System under load"
+
+        # Simple battery check (example of accessing system strategy)
+        pct, plugged = SYSTEM.get_battery()
+        if not plugged and pct < 10:
+            return "Battery critical"
+
+    return None
+
+
+def _attempt_push(repo: GitRepo, interactive: bool) -> None:
+    # 1. Eco Mode Check
+    percent, plugged = SYSTEM.get_battery()
+    if not plugged and percent < CONFIG["daemon"]["eco_mode_percent"]:
+        log(f"ECO MODE {repo.path.name}: Committed. Push skipped.", interactive)
         return
 
-    if is_repo_busy(repo_path, interactive=interactive):
-        log(
-            f"SKIPPED {repo_name}: Repo is busy.",
-            interactive=interactive,
-        )
-        return
-
-    if has_large_files(repo_path):
-        return
-
-    backup_branch = CONFIG["core"]["backup_branch"]
+    # 2. Network Check
     remote_name = CONFIG["core"]["remote_name"]
+    host = get_remote_host(repo.path, remote_name)
+    if host and not is_remote_reachable(host):
+        log(f"OFFLINE {repo.path.name}: Committed. Push skipped.", interactive)
+        return
 
+    # 3. Push
     try:
-        # Check branch
-        current_branch = subprocess.check_output(
-            ["git", "branch", "--show-current"], cwd=repo_path, text=True
-        ).strip()
-
-        if current_branch != backup_branch:
-            return
-
-        # Check status
-        status = subprocess.check_output(
-            ["git", "status", "--porcelain"], cwd=repo_path, text=True
-        )
-        if not status.strip():
-            return
-
-        # Commit
-        timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
-        subprocess.run(["git", "add", "."], cwd=repo_path, check=True)
-        subprocess.run(
-            # --no-verify to skip pre-commit hooks
-            ["git", "commit", "--no-verify", "-m", f"Pulsar auto-backup: {timestamp}"],
-            cwd=repo_path,
-            check=True,
-            stdout=subprocess.DEVNULL,
-        )
-
-        # PUSH LOGIC
-        # A. Eco Mode Check
-        if is_eco_mode:
-            log(
-                f"ECO MODE {repo_name}: Committed. Push skipped (Battery {percent}%).",
-                interactive=interactive,
-            )
-            return
-
-        # B. Network Check (The Targeted Way)
-        remote_host = get_remote_host(repo_path, remote_name)
-        if remote_host and not is_remote_reachable(remote_host):
-            log(
-                f"OFFLINE {repo_name}: Committed. "
-                f"Push skipped (Cannot reach {remote_host}).",
-                interactive=interactive,
-            )
-            return
-
-        # C. Push with Safe SSH
         env = os.environ.copy()
         env["GIT_SSH_COMMAND"] = "ssh -o BatchMode=yes"
+        branch = CONFIG["core"]["backup_branch"]
 
-        # NO INNER TRY HERE - Just run it
-        subprocess.run(
-            ["git", "push", remote_name, backup_branch],
-            cwd=repo_path,
-            check=True,
-            timeout=45,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.PIPE,
-            env=env,  # Inject BatchMode
-        )
-        log(f"SUCCESS {repo_name}: Pushed.", interactive=interactive)
-
-    # These except blocks catch errors from branch check, commit, AND push
-    except subprocess.TimeoutExpired:
-        log(f"TIMEOUT {repo_name}: Push timed out.", interactive=interactive)
-    except subprocess.CalledProcessError as e:
-        err_text = e.stderr.decode("utf-8") if e.stderr else "Unknown git error"
-        log(f"ERROR {repo_name}: {err_text.strip()}", interactive=interactive)
-        notify("Backup Failed", f"{repo_name}: Check logs.")
+        # We use repo._run to leverage the wrapper's error handling
+        repo._run(["push", remote_name, branch], capture=False, env=env)
+        log(f"SUCCESS {repo.path.name}: Pushed.", interactive)
     except Exception as e:
-        log(f"CRITICAL {repo_name}: {e}", interactive=interactive)
-        notify("Pulsar Crash", f"{repo_name}: {e}")
+        log(f"PUSH ERROR {repo.path.name}: {e}", interactive)
+
+
+def run_backup(original_path_str: str, interactive: bool = False) -> None:
+    repo_path = Path(original_path_str).resolve()
+
+    # 1. Guard Clauses
+    if reason := _should_skip(repo_path, interactive):
+        if reason == "Path missing":
+            prune_registry(original_path_str)
+        elif reason == "System under load":
+            pass  # Silent skip
+        else:
+            log(f"SKIPPED {repo_path.name}: {reason}", interactive)
+        return
+
+    # 2. Repo Interactions
+    try:
+        repo = GitRepo(repo_path)
+        if repo.current_branch() != CONFIG["core"]["backup_branch"]:
+            return
+
+        if not repo.status_porcelain():
+            return
+
+        # 3. Action
+        repo.add_all()
+        repo.commit(f"Pulsar auto-backup: {datetime.datetime.now()}")
+        _attempt_push(repo, interactive)  # Extracted push logic
+
+    except Exception as e:
+        log(f"CRITICAL {repo_path.name}: {e}", interactive)
 
 
 def main(interactive: bool = False) -> None:

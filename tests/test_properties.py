@@ -42,7 +42,7 @@ def test_prune_registry_removes_only_target(
         with (
             patch("src.daemon.REGISTRY_FILE", registry_file),
             patch("src.daemon.log"),
-            patch("src.daemon.notify"),
+            patch("src.daemon.SYSTEM.notify"),
         ):
             # 3. Action
             daemon.prune_registry(target)
