@@ -147,23 +147,49 @@ def finalize_work() -> None:
     # Resolve the backup ref for the branch we were just working on
     # (Assuming we are finalizing the *current* context)
     working_branch = repo.current_branch()
-    backup_ref = get_backup_ref(working_branch)
 
     try:
-        # 2. Sync with Remote (Anti-Race)
+        # 2. Sync with Remote (Anti-Race + Backup Aggregation)
         print("-> Syncing with origin...")
         try:
+            # Fetch main AND all pulsar backups to ensure we see 'library' work
             repo._run(["fetch", "origin", "main"], capture=False)
-        except Exception:
-            print("⚠️  Could not fetch origin. Proceeding with local refs.")
+            repo._run(
+                [
+                    "fetch",
+                    "origin",
+                    "refs/heads/wip/pulsar/*:refs/heads/wip/pulsar/*",
+                ],
+                capture=False,
+            )
+        except Exception as e:
+            print(f"⚠️  Fetch warning: {e}")
 
-        # 3. Checkout Main
+        # 3. Identify Backup Candidates
+        # Find ALL refs that match: refs/heads/wip/pulsar/*/current_branch
+        # e.g. refs/heads/wip/pulsar/macbook/main, refs/heads/wip/pulsar/library/main
+        candidates = repo.list_refs(f"refs/heads/wip/pulsar/*/{working_branch}")
+
+        if not candidates:
+            print("❌ No backups found for this branch.")
+            sys.exit(1)
+
+        print(f"-> Found {len(candidates)} backup stream(s):")
+        for c in candidates:
+            print(f"   • {c}")
+
+        # 4. Checkout Main
         print("-> Switching to main...")
         repo.checkout("main")
 
-        # 4. Merge Squash
-        print(f"-> Squashing {backup_ref}...")
-        repo.merge_squash(backup_ref)
+        # 5. Octopus Squash
+        print("-> Collapsing backup streams...")
+        try:
+            repo.merge_squash(*candidates)
+        except RuntimeError:
+            print("⚠️  Merge conflicts detected. Please resolve them, then commit.")
+            # We exit here to let the user resolve conflicts manually
+            sys.exit(0)
 
         # 5. Commit (Interactive)
         print("-> Committing (opens editor)...")

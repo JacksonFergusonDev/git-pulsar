@@ -59,11 +59,21 @@ class GitRepo:
     def add_all(self) -> None:
         self._run(["add", "."], capture=False)
 
-    def merge_squash(self, branch: str) -> None:
-        self._run(["merge", "--squash", branch], capture=False)
+    def merge_squash(self, *branches: str) -> None:
+        if not branches:
+            return
+        self._run(["merge", "--squash", *branches], capture=False)
 
     def branch_reset(self, branch: str, target: str) -> None:
         self._run(["branch", "-f", branch, target], capture=False)
+
+    def list_refs(self, pattern: str) -> list[str]:
+        """Returns a list of refs matching the pattern (e.g. 'refs/heads/wip/*')."""
+        try:
+            output = self._run(["for-each-ref", "--format=%(refname)", pattern])
+            return output.splitlines() if output else []
+        except Exception:
+            return []
 
     def get_last_commit_time(self, branch: str) -> str:
         try:
