@@ -20,9 +20,9 @@ def test_run_backup_skips_if_paused(tmp_path: Path, mocker: MagicMock) -> None:
 
     daemon.run_backup(str(tmp_path))
 
-    # Should log "PAUSED"
+    # Should log "SKIPPED ... Paused by user"
     args, _ = mock_log.call_args
-    assert "PAUSED" in args[0]
+    assert "Paused by user" in args[0]
     # Should NOT instantiate GitRepo (optimization check)
     mock_repo_cls.assert_not_called()
 
