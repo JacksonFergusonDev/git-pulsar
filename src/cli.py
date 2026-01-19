@@ -8,6 +8,7 @@ from pathlib import Path
 
 from . import daemon, service
 from .constants import BACKUP_BRANCH, REGISTRY_FILE
+from .git_wrapper import GitRepo
 
 
 def show_status() -> None:
@@ -132,9 +133,10 @@ def restore_file(path_str: str, force: bool = False) -> None:
     # 2. Restore
     print(f"🚑 Restoring '{path_str}' from {BACKUP_BRANCH}...")
     try:
-        subprocess.run(["git", "checkout", BACKUP_BRANCH, "--", path_str], check=True)
+        repo = GitRepo(Path.cwd())
+        repo.checkout(BACKUP_BRANCH, file=path_str)
         print("✅ Restore complete.")
-    except subprocess.CalledProcessError as e:
+    except Exception as e:
         print(f"❌ Failed to restore: {e}")
         sys.exit(1)
 

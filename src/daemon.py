@@ -7,7 +7,7 @@ import time
 import tomllib
 from pathlib import Path
 
-from .constants import APP_NAME, LOG_FILE, REGISTRY_FILE
+from .constants import LOG_FILE, REGISTRY_FILE
 from .system import get_system
 
 SYSTEM = get_system()
