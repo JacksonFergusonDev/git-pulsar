@@ -3,6 +3,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+from .constants import LOG_FILE
+
 APP_LABEL = "com.jacksonferguson.gitpulsar"
 
 
@@ -24,12 +26,12 @@ def get_paths() -> tuple[Path, Path]:
     if sys.platform == "darwin":
         return (
             home / f"Library/LaunchAgents/{APP_LABEL}.plist",
-            home / ".git_pulsar.log",
+            LOG_FILE,
         )
     elif sys.platform.startswith("linux"):
         return (
             home / f".config/systemd/user/{APP_LABEL}.service",
-            home / ".git_pulsar.log",
+            LOG_FILE,
         )
     else:
         print(f"❌ OS {sys.platform} not supported for auto-scheduling yet.")
