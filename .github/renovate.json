@@ -11,28 +11,22 @@
   ],
   "packageRules": [
     {
-      "description": "Group all python dev-dependencies (ruff, mypy, pytest) into one PR.",
+      "description": "Group all python dev-dependencies (ruff, mypy, pytest) into one PR and automerge them.",
       "matchFileNames": [
         "pyproject.toml"
       ],
       "matchDepTypes": [
         "dependency-groups"
       ],
-      "groupName": "python-dev-tools"
+      "groupName": "python-dev-tools",
+      "automerge": true
     },
     {
-      "description": "Group GitHub Actions updates.",
+      "description": "Group GitHub Actions updates and automerge them.",
       "matchManagers": [
         "github-actions"
       ],
-      "groupName": "github-actions"
-    },
-    {
-      "description": "Automerge dev dependencies if tests pass.",
-      "matchGroupName": [
-        "python-dev-tools",
-        "github-actions"
-      ],
+      "groupName": "github-actions",
       "automerge": true
     }
   ]
