@@ -65,7 +65,36 @@ If you want to force a backup immediately (e.g., right before closing your lapto
 git-pulsar now
 ```
 
-### 4. Restore a File
+### 4. Monitoring & Control
+Pulsar provides tools to check what's happening behind the scenes.
+
+**Check Status:**
+See if the background daemon is running and when the last backup happened.
+```bash
+git-pulsar status
+```
+
+**View Changes:**
+See exactly what is different between your current work and the last backup (includes untracked files).
+```bash
+git-pulsar diff
+```
+
+**Pause Backups:**
+Stop Pulsar from running on a specific repo during heavy refactoring.
+```bash
+git-pulsar pause
+# ... do messy work ...
+git-pulsar resume
+```
+
+**View Logs:**
+Tail the background service logs in real-time.
+```bash
+git-pulsar log
+```
+
+### 5. Restore a File
 If you messed up a file and need to grab the latest version from the backup:
 
 ```bash
@@ -73,7 +102,7 @@ git-pulsar restore src/main.py
 ```
 *This pulls the file from `wip/pulsar` into your working directory. It will warn you if you have uncommitted changes.*
 
-### 5. Finalize Your Work
+### 6. Finalize Your Work
 When you are ready to submit or merge your work back to main:
 
 ```bash
