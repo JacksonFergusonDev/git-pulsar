@@ -83,7 +83,7 @@ def get_system() -> SystemStrategy:
 
 
 def get_machine_id_file() -> Path:
-    return MACHINE_ID_FILE
+    return Path(MACHINE_ID_FILE)
 
 
 def get_machine_id() -> str:
