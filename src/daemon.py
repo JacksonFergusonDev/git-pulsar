@@ -11,7 +11,7 @@ from types import FrameType
 
 from .constants import LOG_FILE, REGISTRY_FILE
 from .git_wrapper import GitRepo
-from .system import get_system
+from .system import get_machine_id, get_system
 
 SYSTEM = get_system()
 
@@ -278,9 +278,9 @@ def run_backup(original_path_str: str, interactive: bool = False) -> None:
         if not current_branch:
             return  # Detached HEAD or weird state
 
-        # Construct Namespaced Ref: refs/heads/wip/pulsar/{hostname}/{branch}
-        hostname = socket.gethostname()
-        backup_ref = f"refs/heads/wip/pulsar/{hostname}/{current_branch}"
+        # Construct Namespaced Ref: refs/heads/wip/pulsar/{machine_id}/{branch}
+        machine_id = get_machine_id()
+        backup_ref = f"refs/heads/wip/pulsar/{machine_id}/{current_branch}"
 
         # 3. Isolation: Use a temporary index
         temp_index = repo_path / ".git" / "pulsar_index"
