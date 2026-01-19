@@ -14,8 +14,8 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project.scripts]
-git-pulsar = "src.cli:main"
-git-pulsar-daemon = "src.daemon:main"
+git-pulsar = "git_pulsar.cli:main"
+git-pulsar-daemon = "git_pulsar.daemon:main"
 
 [dependency-groups]
 dev = [
