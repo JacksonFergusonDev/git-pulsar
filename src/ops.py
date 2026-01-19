@@ -163,6 +163,87 @@ def restore_file(path_str: str, force: bool = False) -> None:
         sys.exit(1)
 
 
+def sync_session() -> None:
+    """
+    Smart Handoff: Scans ALL machine backups for the current branch
+    and resets the working directory to the absolute latest version.
+    """
+    repo = GitRepo(Path.cwd())
+    current_branch = repo.current_branch()
+
+    print(f"📡 Scanning for latest session on '{current_branch}'...")
+
+    # 1. Fetch everything (all machines)
+    try:
+        repo._run(
+            ["fetch", "origin", "refs/heads/wip/pulsar/*:refs/heads/wip/pulsar/*"],
+            capture=False,
+        )
+    except Exception:
+        print("⚠️  Fetch warning: network might be down.")
+
+    # 2. Find candidates
+    # Pattern: refs/heads/wip/pulsar/{machine}/{branch}
+    candidates = repo.list_refs(f"refs/heads/wip/pulsar/*/{current_branch}")
+
+    if not candidates:
+        print("❌ No backups found anywhere.")
+        return
+
+    # 3. Sort by commit date (newest first)
+    # We need to parse the commit timestamp for each ref
+    latest_ref = None
+    latest_time = 0
+
+    for ref in candidates:
+        # Get unix timestamp
+        try:
+            ts_str = repo._run(["log", "-1", "--format=%ct", ref])
+            ts = int(ts_str.strip())
+            if ts > latest_time:
+                latest_time = ts
+                latest_ref = ref
+        except Exception:
+            continue
+
+    if not latest_ref:
+        print("❌ Could not determine latest backup.")
+        return
+
+    # 4. Compare with local
+    machine_name = latest_ref.split("/")[-2]
+    human_time = repo._run(["log", "-1", "--format=%cr", latest_ref])
+
+    print("\n🎯 Found latest session:")
+    print(f"   • Source: {machine_name}")
+    print(f"   • Time:   {human_time}")
+
+    # Check if this IS our current state (approx)
+    local_tree = repo.write_tree()  # Current worktree state
+    remote_tree = repo._run(["rev-parse", f"{latest_ref}^{{tree}}"])
+
+    if local_tree == remote_tree:
+        print("✅ You are already up to date.")
+        return
+
+    # 5. Confirmation
+    print("\n⚠️  WARNING: This will overwrite your local changes to match the backup.")
+    confirm = input("   Proceed with sync? [y/N] ").lower()
+    if confirm != "y":
+        print("❌ Aborted.")
+        sys.exit(0)
+
+    # 6. execution
+    try:
+        # Checkout the contents of the backup ref to the worktree
+        # We use checkout with path '.' to update files without switching HEAD
+        repo._run(["checkout", latest_ref, "--", "."])
+        print("✅ Session synced. You may resume work.")
+    except Exception as e:
+        print(f"❌ Sync failed: {e}")
+        sys.exit(1)
+
+
 def finalize_work() -> None:
     print("🚀 Finalizing work...")
     repo = GitRepo(Path.cwd())
