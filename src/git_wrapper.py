@@ -71,6 +71,33 @@ class GitRepo:
         except Exception:
             return "Never"
 
+    def rev_parse(self, rev: str) -> Optional[str]:
+        """Resolves a revision to a full SHA-1."""
+        try:
+            return self._run(["rev-parse", rev])
+        except Exception:
+            return None
+
+    def write_tree(self, env: Optional[dict] = None) -> str:
+        """Writes the current index to a tree object."""
+        return self._run(["write-tree"], env=env)
+
+    def commit_tree(
+        self, tree: str, parents: list[str], message: str, env: Optional[dict] = None
+    ) -> str:
+        """Creates a commit object from a tree."""
+        cmd = ["commit-tree", tree, "-m", message]
+        for p in parents:
+            cmd.extend(["-p", p])
+        return self._run(cmd, env=env)
+
+    def update_ref(self, ref: str, new_oid: str, old_oid: Optional[str] = None) -> None:
+        """Safely updates a ref."""
+        cmd = ["update-ref", "-m", "Pulsar backup", ref, new_oid]
+        if old_oid:
+            cmd.append(old_oid)
+        self._run(cmd)
+
     def get_untracked_files(self) -> list[str]:
         output = self._run(["ls-files", "--others", "--exclude-standard"])
         return output.splitlines() if output else []
