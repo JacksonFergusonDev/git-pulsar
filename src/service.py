@@ -3,9 +3,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-from .constants import LOG_FILE
-
-APP_LABEL = "com.jacksonferguson.gitpulsar"
+from .constants import APP_LABEL, LOG_FILE
 
 
 def get_executable() -> str:

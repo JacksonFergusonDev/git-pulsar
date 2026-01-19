@@ -12,13 +12,19 @@ from logging.handlers import RotatingFileHandler
 from pathlib import Path
 from types import FrameType
 
-from .constants import LOG_FILE, REGISTRY_FILE
+from .constants import (
+    APP_NAME,
+    CONFIG_FILE,
+    GIT_LOCK_FILES,
+    LOG_FILE,
+    REGISTRY_FILE,
+)
 from .git_wrapper import GitRepo
 from .system import get_machine_id, get_system
 
 SYSTEM = get_system()
 
-logger = logging.getLogger("git-pulsar")
+logger = logging.getLogger(APP_NAME)
 logger.setLevel(logging.INFO)
 
 
@@ -48,12 +54,11 @@ class Config:
 
     @classmethod
     def load(cls) -> "Config":
-        config_path = Path.home() / ".config/git-pulsar/config.toml"
         instance = cls()
 
-        if config_path.exists():
+        if CONFIG_FILE.exists():
             try:
-                with open(config_path, "rb") as f:
+                with open(CONFIG_FILE, "rb") as f:
                     data = tomllib.load(f)
 
                 # Selective update
@@ -109,15 +114,7 @@ def is_repo_busy(repo_path: Path, interactive: bool = False) -> bool:
     git_dir = repo_path / ".git"
 
     # 1. Check for operational locks
-    critical_files = [
-        "MERGE_HEAD",
-        "REBASE_HEAD",
-        "CHERRY_PICK_HEAD",
-        "BISECT_LOG",
-        "rebase-merge",
-        "rebase-apply",
-    ]
-    for f in critical_files:
+    for f in GIT_LOCK_FILES:
         if (git_dir / f).exists():
             return True
 

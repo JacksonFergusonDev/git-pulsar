@@ -4,6 +4,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+from constants import MACHINE_ID_FILE
+
 
 class SystemStrategy:
     def get_battery(self) -> tuple[int, bool]:
@@ -81,7 +83,7 @@ def get_system() -> SystemStrategy:
 
 
 def get_machine_id_file() -> Path:
-    return Path.home() / ".config/git-pulsar/machine_id"
+    return MACHINE_ID_FILE
 
 
 def get_machine_id() -> str:
