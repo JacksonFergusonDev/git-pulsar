@@ -194,7 +194,7 @@ def prune_registry(original_path_str: str) -> None:
             for line in lines:
                 clean_line = line.strip()
                 if clean_line and clean_line != target:
-                    f.write(line + "\n")
+                    f.write(clean_line + "\n")
             f.flush()
             os.fsync(f.fileno())  # Force write to disk
 
