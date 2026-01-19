@@ -1,12 +1,18 @@
 import os
 import shutil
+import socket
 import subprocess
 import sys
 import textwrap
 from pathlib import Path
 
-from .constants import BACKUP_BRANCH
 from .git_wrapper import GitRepo
+
+
+def get_backup_ref(branch: str) -> str:
+    """Constructs the namespaced ref for the current machine/branch."""
+    hostname = socket.gethostname()
+    return f"refs/heads/wip/pulsar/{hostname}/{branch}"
 
 
 def bootstrap_env() -> None:
@@ -107,6 +113,9 @@ def restore_file(path_str: str, force: bool = False) -> None:
     repo = GitRepo(Path.cwd())
     path = Path(path_str)
 
+    current_branch = repo.current_branch()
+    backup_ref = get_backup_ref(current_branch)
+
     # 1. Safety Check: Is the file dirty?
     if not force and path.exists():
         # Check specifically for this file
@@ -116,9 +125,9 @@ def restore_file(path_str: str, force: bool = False) -> None:
             sys.exit(1)
 
     # 2. Restore
-    print(f"🚑 Restoring '{path_str}' from {BACKUP_BRANCH}...")
+    print(f"🚑 Restoring '{path_str}' from {backup_ref}...")
     try:
-        repo.checkout(BACKUP_BRANCH, file=path_str)
+        repo.checkout(backup_ref, file=path_str)
         print("✅ Restore complete.")
     except Exception as e:
         print(f"❌ Failed to restore: {e}")
@@ -135,6 +144,11 @@ def finalize_work() -> None:
         print("   Please commit or stash them before finalizing.")
         sys.exit(1)
 
+    # Resolve the backup ref for the branch we were just working on
+    # (Assuming we are finalizing the *current* context)
+    working_branch = repo.current_branch()
+    backup_ref = get_backup_ref(working_branch)
+
     try:
         # 2. Sync with Remote (Anti-Race)
         print("-> Syncing with origin...")
@@ -148,22 +162,19 @@ def finalize_work() -> None:
         repo.checkout("main")
 
         # 4. Merge Squash
-        print(f"-> Squashing {BACKUP_BRANCH}...")
-        repo.merge_squash(BACKUP_BRANCH)
+        print(f"-> Squashing {backup_ref}...")
+        repo.merge_squash(backup_ref)
 
         # 5. Commit (Interactive)
         print("-> Committing (opens editor)...")
         repo.commit_interactive()
 
-        # 6. Reset Backup Branch
-        print(f"-> Resetting {BACKUP_BRANCH} to main...")
-        repo.branch_reset(BACKUP_BRANCH, "main")
+        # 6. No Reset Needed
+        # In the shadow-commit model, we don't reset the backup ref manually.
+        # It continues to grow as a history log, or is abandoned if the branch dies.
 
         print("\n✅ Work finalized!")
-        print(
-            f"   You are now on 'main'. "
-            f"Run 'git-pulsar' to switch back to {BACKUP_BRANCH}."
-        )
+        print("   Your backup history remains in refs/wip/pulsar/...")
 
     except Exception as e:
         print(f"\n❌ Error during finalize: {e}")
