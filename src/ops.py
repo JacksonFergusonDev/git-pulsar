@@ -3,8 +3,7 @@ import sys
 import textwrap
 from pathlib import Path
 
-from .constants import BACKUP_BRANCH, REGISTRY_FILE
-from .git_wrapper import GitRepo
+from .constants import BACKUP_BRANCH
 
 
 def bootstrap_env() -> None:

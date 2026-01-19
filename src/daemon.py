@@ -8,6 +8,7 @@ import tomllib
 from pathlib import Path
 
 from .constants import LOG_FILE, REGISTRY_FILE
+from .git_wrapper import GitRepo
 from .system import get_system
 
 SYSTEM = get_system()
@@ -210,144 +211,50 @@ def prune_registry(original_path_str: str) -> None:
         log(f"ERROR: Could not prune registry. {e}")
 
 
-def run_backup(original_path_str: str, interactive: bool = False) -> None:
-    # 1. Power Check
-    if not interactive:
-        percent, plugged_in = get_battery_status()
-        daemon_cfg = CONFIG.get("daemon", {})
-        min_batt = daemon_cfg.get("min_battery_percent", 10)
-        eco_batt = daemon_cfg.get("eco_mode_percent", 20)
-
-        # Critical Mode: Stop everything
-        if not plugged_in and percent < min_batt:
-            return
-
-        # Eco Mode: Commit only
-        is_eco_mode = (not plugged_in) and (percent < eco_batt)
-    else:
-        is_eco_mode = False
-
-    # 2. CPU Load Check
-    if not interactive and is_system_under_load():
-        # Silent skip - don't add to the load
-        return
-
-    try:
-        repo_path = Path(original_path_str).expanduser().resolve()
-    except Exception as e:
-        log(
-            f"ERROR: Could not resolve path {original_path_str}: {e}",
-            interactive=interactive,
-        )
-        return
-
-    repo_name = repo_path.name
-
+def _should_skip(repo_path: Path, interactive: bool) -> str | None:
     if not repo_path.exists():
-        log(
-            f"MISSING {original_path_str}: Path not found. Pruning.",
-            interactive=interactive,
-        )
-        prune_registry(original_path_str)
-        return
+        return "Path missing"
 
-    if not (repo_path / ".git").exists():
-        log(f"SKIPPED {repo_name}: Not a git repo anymore.", interactive=interactive)
-        return
-
-    # Check for pause file
     if (repo_path / ".git" / "pulsar_paused").exists():
-        log(
-            f"PAUSED {repo_name}: Backup skipped (user paused).",
-            interactive=interactive,
-        )
+        return "Paused by user"
+
+    if not interactive:
+        if SYSTEM.is_under_load():
+            return "System under load"
+
+        # Simple battery check (example of accessing system strategy)
+        pct, plugged = SYSTEM.get_battery()
+        if not plugged and pct < 10:
+            return "Battery critical"
+
+    return None
+
+
+def run_backup(original_path_str: str, interactive: bool = False) -> None:
+    repo_path = Path(original_path_str).resolve()
+
+    # 1. Guard Clauses
+    if reason := _should_skip(repo_path, interactive):
+        if reason == "Path missing":
+            prune_registry(original_path_str)
         return
 
-    if is_repo_busy(repo_path, interactive=interactive):
-        log(
-            f"SKIPPED {repo_name}: Repo is busy.",
-            interactive=interactive,
-        )
-        return
-
-    if has_large_files(repo_path):
-        return
-
-    backup_branch = CONFIG["core"]["backup_branch"]
-    remote_name = CONFIG["core"]["remote_name"]
-
+    # 2. Repo Interactions
     try:
-        # Check branch
-        current_branch = subprocess.check_output(
-            ["git", "branch", "--show-current"], cwd=repo_path, text=True
-        ).strip()
-
-        if current_branch != backup_branch:
+        repo = GitRepo(repo_path)
+        if repo.current_branch() != CONFIG["core"]["backup_branch"]:
             return
 
-        # Check status
-        status = subprocess.check_output(
-            ["git", "status", "--porcelain"], cwd=repo_path, text=True
-        )
-        if not status.strip():
+        if not repo.status_porcelain():
             return
 
-        # Commit
-        timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
-        subprocess.run(["git", "add", "."], cwd=repo_path, check=True)
-        subprocess.run(
-            # --no-verify to skip pre-commit hooks
-            ["git", "commit", "--no-verify", "-m", f"Pulsar auto-backup: {timestamp}"],
-            cwd=repo_path,
-            check=True,
-            stdout=subprocess.DEVNULL,
-        )
+        # 3. Action
+        repo.add_all()
+        repo.commit(f"Pulsar auto-backup: {datetime.datetime.now()}")
+        _attempt_push(repo, interactive)  # Extracted push logic
 
-        # PUSH LOGIC
-        # A. Eco Mode Check
-        if is_eco_mode:
-            log(
-                f"ECO MODE {repo_name}: Committed. Push skipped (Battery {percent}%).",
-                interactive=interactive,
-            )
-            return
-
-        # B. Network Check (The Targeted Way)
-        remote_host = get_remote_host(repo_path, remote_name)
-        if remote_host and not is_remote_reachable(remote_host):
-            log(
-                f"OFFLINE {repo_name}: Committed. "
-                f"Push skipped (Cannot reach {remote_host}).",
-                interactive=interactive,
-            )
-            return
-
-        # C. Push with Safe SSH
-        env = os.environ.copy()
-        env["GIT_SSH_COMMAND"] = "ssh -o BatchMode=yes"
-
-        # NO INNER TRY HERE - Just run it
-        subprocess.run(
-            ["git", "push", remote_name, backup_branch],
-            cwd=repo_path,
-            check=True,
-            timeout=45,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.PIPE,
-            env=env,  # Inject BatchMode
-        )
-        log(f"SUCCESS {repo_name}: Pushed.", interactive=interactive)
-
-    # These except blocks catch errors from branch check, commit, AND push
-    except subprocess.TimeoutExpired:
-        log(f"TIMEOUT {repo_name}: Push timed out.", interactive=interactive)
-    except subprocess.CalledProcessError as e:
-        err_text = e.stderr.decode("utf-8") if e.stderr else "Unknown git error"
-        log(f"ERROR {repo_name}: {err_text.strip()}", interactive=interactive)
-        notify("Backup Failed", f"{repo_name}: Check logs.")
     except Exception as e:
-        log(f"CRITICAL {repo_name}: {e}", interactive=interactive)
-        notify("Pulsar Crash", f"{repo_name}: {e}")
+        log(f"CRITICAL {repo_path.name}: {e}", interactive)
 
 
 def main(interactive: bool = False) -> None:
