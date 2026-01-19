@@ -264,6 +264,10 @@ def run_backup(original_path_str: str, interactive: bool = False) -> None:
     if reason := _should_skip(repo_path, interactive):
         if reason == "Path missing":
             prune_registry(original_path_str)
+        elif reason == "System under load":
+            pass  # Silent skip
+        else:
+            log(f"SKIPPED {repo_path.name}: {reason}", interactive)
         return
 
     # 2. Repo Interactions
