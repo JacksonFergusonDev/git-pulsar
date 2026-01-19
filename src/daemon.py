@@ -336,6 +336,14 @@ def run_backup(original_path_str: str, interactive: bool = False) -> None:
         log(f"SKIPPED {repo_name}: Not a git repo anymore.", interactive=interactive)
         return
 
+    # Check for pause file
+    if (repo_path / ".git" / "pulsar_paused").exists():
+        log(
+            f"PAUSED {repo_name}: Backup skipped (user paused).",
+            interactive=interactive,
+        )
+        return
+
     if is_repo_busy(repo_path, interactive=interactive):
         log(
             f"SKIPPED {repo_name}: Repo is busy.",

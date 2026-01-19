@@ -169,3 +169,21 @@ def test_run_backup_offline_skips_push(tmp_path: Path, mocker: MagicMock) -> Non
         args, _ = call
         if args[0][0] == "git" and args[0][1] == "push":
             assert False, "Should not push when offline"
+
+
+def test_run_backup_respects_pause_file(tmp_path: Path, mocker: MagicMock) -> None:
+    """Daemon should abort immediately if .git/pulsar_paused exists."""
+    (tmp_path / ".git").mkdir()
+    (tmp_path / ".git" / "pulsar_paused").touch()
+
+    # Mock dependencies to verify we abort EARLY
+    mock_busy = mocker.patch("src.daemon.is_repo_busy")
+    mock_log = mocker.patch("src.daemon.log")
+
+    daemon.run_backup(str(tmp_path))
+
+    # Verify:
+    # 1. We logged the pause event
+    # 2. We did NOT check if repo is busy (proof we aborted early)
+    assert "PAUSED" in mock_log.call_args[0][0]
+    mock_busy.assert_not_called()

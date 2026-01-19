@@ -12,6 +12,104 @@ REGISTRY_FILE = Path.home() / ".git_pulsar_registry"
 BACKUP_BRANCH = "wip/pulsar"
 
 
+def show_status() -> None:
+    # 1. Daemon Health
+    print("--- 🩺 System Status ---")
+    is_running = False
+    if sys.platform == "darwin":
+        res = subprocess.run(["launchctl", "list"], capture_output=True, text=True)
+        is_running = "com.jacksonferguson.gitpulsar" in res.stdout
+    elif sys.platform.startswith("linux"):
+        res = subprocess.run(
+            ["systemctl", "--user", "is-active", "com.jacksonferguson.gitpulsar.timer"],
+            capture_output=True,
+            text=True,
+        )
+        is_running = res.stdout.strip() == "active"
+
+    state_icon = "🟢 Running" if is_running else "🔴 Stopped"
+    print(f"Daemon: {state_icon}")
+
+    # 2. Repo Status (if we are in one)
+    if Path(".git").exists():
+        print("\n--- 📂 Repository Status ---")
+
+        # Last Backup Time
+        try:
+            last_time = subprocess.check_output(
+                ["git", "log", "-1", "--format=%cr", BACKUP_BRANCH],
+                stderr=subprocess.DEVNULL,
+                text=True,
+            ).strip()
+        except subprocess.CalledProcessError:
+            last_time = "Never"
+
+        print(f"Last Backup: {last_time}")
+
+        # Pending Changes
+        status = subprocess.check_output(
+            ["git", "status", "--porcelain"], text=True
+        ).strip()
+        count = len(status.splitlines()) if status else 0
+        print(f"Pending:     {count} files changed")
+
+        if (Path(".git") / "pulsar_paused").exists():
+            print("Mode:        ⏸️  PAUSED")
+
+    # 3. Global Summary (if not in a repo)
+    else:
+        if REGISTRY_FILE.exists():
+            with open(REGISTRY_FILE) as f:
+                count = len([line for line in f if line.strip()])
+            print(f"\nwatching {count} repositories.")
+
+
+def show_diff() -> None:
+    if not Path(".git").exists():
+        print("❌ Not a git repository.")
+        sys.exit(1)
+
+    print(f"🔍 Diff vs {BACKUP_BRANCH}:\n")
+
+    # 1. Standard Diff (tracked files)
+    subprocess.run(["git", "diff", BACKUP_BRANCH])
+
+    # 2. Untracked Files (often missed)
+    untracked = subprocess.check_output(
+        ["git", "ls-files", "--others", "--exclude-standard"], text=True
+    ).strip()
+
+    if untracked:
+        print("\n🌱 Untracked (New) Files:")
+        for line in untracked.splitlines():
+            print(f"   + {line}")
+
+
+def list_repos() -> None:
+    if not REGISTRY_FILE.exists():
+        print("📭 Registry is empty.")
+        return
+
+    print("📚 Registered Repositories:")
+    with open(REGISTRY_FILE, "r") as f:
+        for line in f:
+            if line.strip():
+                print(f"  • {line.strip()}")
+
+
+def tail_log() -> None:
+    log_file = Path.home() / ".git_pulsar_log"
+    if not log_file.exists():
+        print("❌ No log file found yet.")
+        return
+
+    print(f"📜 Tailing {log_file} (Ctrl+C to stop)...")
+    try:
+        subprocess.run(["tail", "-f", str(log_file)])
+    except KeyboardInterrupt:
+        print("\nStopped.")
+
+
 def restore_file(path_str: str, force: bool = False) -> None:
     path = Path(path_str)
     if not path.exists():
@@ -183,6 +281,21 @@ def bootstrap_env() -> None:
         print("      source ~/.zshrc")
 
 
+def set_pause_state(paused: bool) -> None:
+    if not Path(".git").exists():
+        print("❌ Not a git repository.")
+        sys.exit(1)
+
+    pause_file = Path(".git/pulsar_paused")
+    if paused:
+        pause_file.touch()
+        print("⏸️  Pulsar paused. Backups suspended for this repo.")
+    else:
+        if pause_file.exists():
+            pause_file.unlink()
+        print("▶️  Pulsar resumed. Backups active.")
+
+
 def setup_repo(registry_path: Path = REGISTRY_FILE) -> None:
     cwd = Path.cwd()
     print(f"🔭 Git Pulsar: activating for {cwd.name}...")
@@ -307,6 +420,13 @@ def main() -> None:
         "finalize", help="Squash wip/pulsar into main and reset backup history"
     )
 
+    subparsers.add_parser("pause", help="Suspend backups for current repo")
+    subparsers.add_parser("resume", help="Resume backups for current repo")
+    subparsers.add_parser("status", help="Show daemon and repo status")
+    subparsers.add_parser("diff", help="Show changes between working dir and backup")
+    subparsers.add_parser("list", help="List registered repositories")
+    subparsers.add_parser("log", help="Tail the daemon log file")
+
     args = parser.parse_args()
 
     # 1. Handle Environment Setup (Flag)
@@ -328,6 +448,24 @@ def main() -> None:
         return
     elif args.command == "finalize":
         finalize_work()
+        return
+    elif args.command == "pause":
+        set_pause_state(True)
+        return
+    elif args.command == "resume":
+        set_pause_state(False)
+        return
+    elif args.command == "status":
+        show_status()
+        return
+    elif args.command == "diff":
+        show_diff()
+        return
+    elif args.command == "list":
+        list_repos()
+        return
+    elif args.command == "log":
+        tail_log()
         return
 
     # 3. Default Action (if no subcommand is run, or after --env)

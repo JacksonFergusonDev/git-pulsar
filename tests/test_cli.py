@@ -256,3 +256,59 @@ def test_finalize_dirty_fails(mocker: MagicMock) -> None:
 
     with pytest.raises(SystemExit):
         cli.finalize_work()
+
+
+def test_pause_creates_marker_file(tmp_path: Path) -> None:
+    """Ensure 'git-pulsar pause' creates the .git/pulsar_paused file."""
+    (tmp_path / ".git").mkdir()
+    os.chdir(tmp_path)
+
+    cli.set_pause_state(paused=True)
+    assert (tmp_path / ".git" / "pulsar_paused").exists()
+
+
+def test_resume_removes_marker_file(tmp_path: Path) -> None:
+    """Ensure 'git-pulsar resume' deletes the .git/pulsar_paused file."""
+    (tmp_path / ".git").mkdir()
+    marker = tmp_path / ".git" / "pulsar_paused"
+    marker.touch()
+    os.chdir(tmp_path)
+
+    cli.set_pause_state(paused=False)
+    assert not marker.exists()
+
+
+def test_status_reports_pause_state(
+    tmp_path: Path, capsys: pytest.CaptureFixture, mocker: MagicMock
+) -> None:
+    """Ensure 'git-pulsar status' explicitly reports the PAUSED state."""
+    (tmp_path / ".git").mkdir()
+    (tmp_path / ".git" / "pulsar_paused").touch()
+    os.chdir(tmp_path)
+
+    # Mock git calls to avoid system errors
+    mocker.patch("subprocess.run")
+    mocker.patch("subprocess.check_output", return_value="15 minutes ago")
+
+    cli.show_status()
+
+    captured = capsys.readouterr()
+    assert "⏸️  PAUSED" in captured.out
+
+
+def test_diff_shows_untracked_files(
+    tmp_path: Path, capsys: pytest.CaptureFixture, mocker: MagicMock
+) -> None:
+    """Ensure 'git-pulsar diff' lists untracked files."""
+    (tmp_path / ".git").mkdir()
+    os.chdir(tmp_path)
+
+    mocker.patch("subprocess.run")
+    # Simulate git ls-files returning a new file
+    mocker.patch("subprocess.check_output", return_value="new_script.py")
+
+    cli.show_diff()
+
+    captured = capsys.readouterr()
+    assert "Untracked (New) Files" in captured.out
+    assert "+ new_script.py" in captured.out
