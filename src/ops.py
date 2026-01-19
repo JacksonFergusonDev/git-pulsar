@@ -7,12 +7,41 @@ import textwrap
 from pathlib import Path
 
 from .git_wrapper import GitRepo
+from .system import get_machine_id, get_machine_id_file
 
 
 def get_backup_ref(branch: str) -> str:
     """Constructs the namespaced ref for the current machine/branch."""
-    hostname = socket.gethostname()
-    return f"refs/heads/wip/pulsar/{hostname}/{branch}"
+    machine_id = get_machine_id()
+    return f"refs/heads/wip/pulsar/{machine_id}/{branch}"
+
+
+def configure_identity() -> None:
+    """Interactive setup to establish machine identity."""
+    id_file = get_machine_id_file()
+    if id_file.exists():
+        return
+
+    print("🤖 Git Pulsar Machine Identity Setup")
+    print("   To enable seamless roaming, this machine needs a unique name.")
+
+    # 1. Fetch existing identities from remote
+    # We need a repo context to fetch, but we might not be in one.
+    # We'll try to guess or just let the user type.
+    # For robust implementation, we'd need to find a valid git repo to query the remote.
+    # Simulating the list for now based on user intent:
+
+    default_name = socket.gethostname().split(".")[0]
+    print(f"\n   Suggested name: [bold]{default_name}[/bold]")
+
+    choice = input("   Enter name (or press Enter to accept): ").strip()
+    name = choice if choice else default_name
+
+    # 2. Persist
+    id_file.parent.mkdir(parents=True, exist_ok=True)
+    with open(id_file, "w") as f:
+        f.write(name)
+    print(f"✅ Machine ID set to: '{name}'\n")
 
 
 def bootstrap_env() -> None:

@@ -73,4 +73,22 @@ class LinuxStrategy(SystemStrategy):
 def get_system() -> SystemStrategy:
     if sys.platform == "darwin":
         return MacOSStrategy()
-    return LinuxStrategy()
+    elif sys.platform.startswith("linux"):
+        return LinuxStrategy()
+    else:
+        return SystemStrategy()
+
+
+def get_machine_id_file() -> Path:
+    return Path.home() / ".config/git-pulsar/machine_id"
+
+
+def get_machine_id() -> str:
+    """
+    Returns the persistent machine ID.
+    Falls back to hostname if not configured (legacy behavior).
+    """
+    id_file = get_machine_id_file()
+    if id_file.exists():
+        return id_file.read_text().strip()
+    return socket.gethostname()
