@@ -1,4 +1,5 @@
 import datetime
+import logging
 import os
 import signal
 import socket
@@ -7,6 +8,7 @@ import sys
 import time
 import tomllib
 from dataclasses import dataclass, field
+from logging.handlers import RotatingFileHandler
 from pathlib import Path
 from types import FrameType
 
@@ -15,6 +17,9 @@ from .git_wrapper import GitRepo
 from .system import get_machine_id, get_system
 
 SYSTEM = get_system()
+
+logger = logging.getLogger("git-pulsar")
+logger.setLevel(logging.INFO)
 
 
 @dataclass
@@ -100,33 +105,6 @@ def is_remote_reachable(host: str) -> bool:
     return False
 
 
-def log(message: str, interactive: bool = False) -> None:
-    """Logs to file and stderr, rotating if too large."""
-    max_size = CONFIG.limits.max_log_size
-    if LOG_FILE.exists() and LOG_FILE.stat().st_size > max_size:
-        try:
-            os.remove(LOG_FILE)
-        except OSError:
-            pass
-
-    timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    formatted_msg = f"[{timestamp}] {message}"
-
-    if interactive:
-        print(formatted_msg)  # Print to stdout for user visibility
-        return  # Skip file writing in interactive mode
-
-    # 1. Write to internal log file
-    try:
-        with open(LOG_FILE, "a") as f:
-            f.write(f"{formatted_msg}\n")
-    except OSError:
-        pass
-
-    # 2. Echo to stderr (so Homebrew/Systemd captures it)
-    print(formatted_msg, file=sys.stderr)
-
-
 def is_repo_busy(repo_path: Path, interactive: bool = False) -> bool:
     git_dir = repo_path / ".git"
 
@@ -152,7 +130,7 @@ def is_repo_busy(repo_path: Path, interactive: bool = False) -> bool:
             age_hours = (time.time() - mtime) / 3600
             if age_hours > 24:
                 msg = f"Stale lock detected in {repo_path.name} ({age_hours:.1f}h old)."
-                log(f"WARNING: {msg}")
+                logger.warning(msg)
                 if interactive:
                     print(f"⚠️  {msg}\n   Run 'rm {lock_file}' to fix.")
                 else:
@@ -187,7 +165,7 @@ def has_large_files(repo_path: Path) -> bool:
         file_path = repo_path / name
         try:
             if file_path.stat().st_size > limit:
-                log(
+                logger.warning(
                     f"WARNING {repo_path.name}: Large file detected ({name}). "
                     "Backup aborted."
                 )
@@ -215,10 +193,10 @@ def prune_registry(original_path_str: str) -> None:
                 if clean_line and clean_line != target:
                     f.write(line)
         repo_name = Path(original_path_str).name
-        log(f"PRUNED: {original_path_str} removed from registry.")
+        logger.info(f"PRUNED: {original_path_str} removed from registry.")
         SYSTEM.notify("Backup Stopped", f"Removed missing repo: {repo_name}")
     except OSError as e:
-        log(f"ERROR: Could not prune registry. {e}")
+        logger.error(f"ERROR: Could not prune registry. {e}")
 
 
 def _should_skip(repo_path: Path, interactive: bool) -> str | None:
@@ -244,14 +222,16 @@ def _attempt_push(repo: GitRepo, refspec: str, interactive: bool) -> None:
     # 1. Eco Mode Check
     percent, plugged = SYSTEM.get_battery()
     if not plugged and percent < CONFIG.daemon.eco_mode_percent:
-        log(f"ECO MODE {repo.path.name}: Committed. Push skipped.", interactive)
+        logger.info(
+            f"ECO MODE {repo.path.name}: Committed. Push skipped."
+        )  # Removed 'interactive' arg
         return
 
     # 2. Network Check
     remote_name = CONFIG.core.remote_name
     host = get_remote_host(repo.path, remote_name)
     if host and not is_remote_reachable(host):
-        log(f"OFFLINE {repo.path.name}: Committed. Push skipped.", interactive)
+        logger.info(f"OFFLINE {repo.path.name}: Committed. Push skipped.")
         return
 
     # 3. Push
@@ -261,9 +241,9 @@ def _attempt_push(repo: GitRepo, refspec: str, interactive: bool) -> None:
 
         # Push specific refspec
         repo._run(["push", remote_name, refspec], capture=False, env=env)
-        log(f"SUCCESS {repo.path.name}: Pushed.", interactive)
+        logger.info(f"SUCCESS {repo.path.name}: Pushed.")
     except Exception as e:
-        log(f"PUSH ERROR {repo.path.name}: {e}", interactive)
+        logger.error(f"PUSH ERROR {repo.path.name}: {e}")
 
 
 def run_backup(original_path_str: str, interactive: bool = False) -> None:
@@ -276,7 +256,7 @@ def run_backup(original_path_str: str, interactive: bool = False) -> None:
         elif reason == "System under load":
             pass  # Silent skip
         else:
-            log(f"SKIPPED {repo_path.name}: {reason}", interactive)
+            logger.info(f"SKIPPED {repo_path.name}: {reason}")
         return
 
     # 2. Shadow Commit Logic
@@ -339,10 +319,32 @@ def run_backup(original_path_str: str, interactive: bool = False) -> None:
                 temp_index.unlink()
 
     except Exception as e:
-        log(f"CRITICAL {repo_path.name}: {e}", interactive)
+        logger.critical(f"CRITICAL {repo_path.name}: {e}")
 
 
 def main(interactive: bool = False) -> None:
+    # 1. Setup Logging Strategy
+    formatter = logging.Formatter("[%(asctime)s] %(message)s", "%Y-%m-%d %H:%M:%S")
+
+    if interactive:
+        # Interactive Mode: Log to stdout only
+        handler = logging.StreamHandler(sys.stdout)
+        handler.setFormatter(formatter)
+        logger.addHandler(handler)
+    else:
+        # Daemon Mode: Log to File + Stderr (for systemd capture)
+        # File Handler (Rotating)
+        file_handler = RotatingFileHandler(
+            LOG_FILE, maxBytes=CONFIG.limits.max_log_size, backupCount=1
+        )
+        file_handler.setFormatter(formatter)
+        logger.addHandler(file_handler)
+
+        # Stderr Handler (Systemd/Launchd)
+        stderr_handler = logging.StreamHandler(sys.stderr)
+        stderr_handler.setFormatter(formatter)
+        logger.addHandler(stderr_handler)
+
     if not REGISTRY_FILE.exists():
         if interactive:
             print("Registry empty. Run 'git-pulsar' in a repo to register it.")
@@ -364,10 +366,9 @@ def main(interactive: bool = False) -> None:
             run_backup(repo_str, interactive=interactive)
             signal.alarm(0)  # Disable alarm
         except TimeoutError:
-            log(f"TIMEOUT {repo_str}: Skipped (possible stalled mount).", interactive)
+            logger.warning(f"TIMEOUT {repo_str}: Skipped (possible stalled mount).")
         except Exception as e:
-            log(f"LOOP ERROR {repo_str}: {e}", interactive)
-            signal.alarm(0)
+            logger.error(f"LOOP ERROR {repo_str}: {e}")
 
 
 if __name__ == "__main__":
