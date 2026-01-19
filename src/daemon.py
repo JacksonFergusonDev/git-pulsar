@@ -6,6 +6,7 @@ import subprocess
 import sys
 import time
 import tomllib
+from dataclasses import dataclass, field
 from pathlib import Path
 from types import FrameType
 
@@ -15,48 +16,55 @@ from .system import get_machine_id, get_system
 
 SYSTEM = get_system()
 
-DEFAULT_CONFIG = {
-    "core": {
-        "backup_branch": "wip/pulsar",
-        "remote_name": "origin",
-    },
-    "limits": {
-        "max_log_size": 5 * 1024 * 1024,
-        "large_file_threshold": 100 * 1024 * 1024,
-    },
-    "daemon": {
-        "min_battery_percent": 10,
-        "eco_mode_percent": 20,
-    },
-}
+
+@dataclass
+class CoreConfig:
+    backup_branch: str = "wip/pulsar"
+    remote_name: str = "origin"
 
 
-def load_config() -> dict:
-    config_path = Path.home() / ".config/git-pulsar/config.toml"
-    config = DEFAULT_CONFIG.copy()
-
-    if config_path.exists():
-        try:
-            with open(config_path, "rb") as f:
-                user_config = tomllib.load(f)
-
-            # recursive update for sections
-            for section, values in user_config.items():
-                if section in config and isinstance(values, dict):
-                    # Assign to local variable so mypy can narrow the type
-                    target_section = config[section]
-                    if isinstance(target_section, dict):
-                        target_section.update(values)
-
-        except Exception as e:
-            # Fallback to defaults on parse error, but log it
-            print(f"Config Error: {e}", file=sys.stderr)
-
-    return config
+@dataclass
+class LimitsConfig:
+    max_log_size: int = 5 * 1024 * 1024
+    large_file_threshold: int = 100 * 1024 * 1024
 
 
-# Load once at module level
-CONFIG = load_config()
+@dataclass
+class DaemonConfig:
+    min_battery_percent: int = 10
+    eco_mode_percent: int = 20
+
+
+@dataclass
+class Config:
+    core: CoreConfig = field(default_factory=CoreConfig)
+    limits: LimitsConfig = field(default_factory=LimitsConfig)
+    daemon: DaemonConfig = field(default_factory=DaemonConfig)
+
+    @classmethod
+    def load(cls) -> "Config":
+        config_path = Path.home() / ".config/git-pulsar/config.toml"
+        instance = cls()
+
+        if config_path.exists():
+            try:
+                with open(config_path, "rb") as f:
+                    data = tomllib.load(f)
+
+                # Selective update
+                if "core" in data:
+                    instance.core = CoreConfig(**data["core"])
+                if "limits" in data:
+                    instance.limits = LimitsConfig(**data["limits"])
+                if "daemon" in data:
+                    instance.daemon = DaemonConfig(**data["daemon"])
+            except Exception as e:
+                print(f"Config Error: {e}", file=sys.stderr)
+
+        return instance
+
+
+CONFIG = Config.load()
 
 
 def get_remote_host(repo_path: Path, remote_name: str) -> str | None:
@@ -94,7 +102,7 @@ def is_remote_reachable(host: str) -> bool:
 
 def log(message: str, interactive: bool = False) -> None:
     """Logs to file and stderr, rotating if too large."""
-    max_size = CONFIG["limits"]["max_log_size"]
+    max_size = CONFIG.limits.max_log_size
     if LOG_FILE.exists() and LOG_FILE.stat().st_size > max_size:
         try:
             os.remove(LOG_FILE)
@@ -166,7 +174,7 @@ def has_large_files(repo_path: Path) -> bool:
     Scans for files larger than GitHub's 100MB limit.
     Returns True if a large file is found (and notifies user).
     """
-    limit = CONFIG["limits"]["large_file_threshold"]
+    limit = CONFIG.limits.large_file_threshold
 
     # Only scan files git knows about or sees as untracked
     try:
@@ -235,12 +243,12 @@ def _should_skip(repo_path: Path, interactive: bool) -> str | None:
 def _attempt_push(repo: GitRepo, refspec: str, interactive: bool) -> None:
     # 1. Eco Mode Check
     percent, plugged = SYSTEM.get_battery()
-    if not plugged and percent < CONFIG["daemon"]["eco_mode_percent"]:
+    if not plugged and percent < CONFIG.daemon.eco_mode_percent:
         log(f"ECO MODE {repo.path.name}: Committed. Push skipped.", interactive)
         return
 
     # 2. Network Check
-    remote_name = CONFIG["core"]["remote_name"]
+    remote_name = CONFIG.core.remote_name
     host = get_remote_host(repo.path, remote_name)
     if host and not is_remote_reachable(host):
         log(f"OFFLINE {repo.path.name}: Committed. Push skipped.", interactive)
