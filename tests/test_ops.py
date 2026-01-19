@@ -59,8 +59,11 @@ def test_restore_clean(mocker: MagicMock) -> None:
     mock_repo.checkout.assert_called_with(BACKUP_BRANCH, file="script.py")
 
 
-def test_restore_dirty_fails(mocker: MagicMock) -> None:
+def test_restore_dirty_fails(tmp_path: Path, mocker: MagicMock) -> None:
     """Should abort if the file has local changes."""
+    os.chdir(tmp_path)
+    (tmp_path / "script.py").touch()  # File must exist for dirty check to trigger
+
     mock_cls = mocker.patch("src.ops.GitRepo")
     mock_repo = mock_cls.return_value
     # Simulate dirty status
