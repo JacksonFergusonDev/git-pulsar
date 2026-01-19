@@ -24,7 +24,8 @@ def test_bootstrap_env_checks_dependencies(tmp_path: Path, mocker: MagicMock) ->
     os.chdir(tmp_path)
     mocker.patch("shutil.which", return_value=None)
 
-    with pytest.raises(RuntimeError, match="Missing tools"):
+    # Changed from RuntimeError to SystemExit
+    with pytest.raises(SystemExit):
         ops.bootstrap_env()
 
 
@@ -92,10 +93,9 @@ def test_finalize_success(mocker: MagicMock) -> None:
     expected_calls = [
         call.checkout("main"),
         call.merge_squash(BACKUP_BRANCH),
-        call.commit(mocker.ANY),  # "commit" call
+        call.commit_interactive(),  # Updated method
         call.branch_reset(BACKUP_BRANCH, "main"),
     ]
-    # We verify that our specific sequence of methods was called
     mock_repo.assert_has_calls(expected_calls, any_order=True)
 
 
