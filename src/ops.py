@@ -106,9 +106,7 @@ def restore_file(path_str: str, force: bool = False) -> None:
     # 1. Safety Check: Is the file dirty?
     if not force and path.exists():
         # Check specifically for this file
-        # We rely on _run to pass arguments since status_porcelain() is parameterless
-        changes = repo._run(["status", "--porcelain", path_str])
-        if changes.strip():
+        if repo.status_porcelain(path_str):
             print(f"❌ Aborted: '{path_str}' has uncommitted changes.")
             print("   Use --force to overwrite them.")
             sys.exit(1)
@@ -144,8 +142,7 @@ def finalize_work() -> None:
 
         # 4. Commit (Interactive)
         print("-> Committing (opens editor)...")
-        # Direct _run call to allow interactive editor (no -m flag)
-        repo._run(["commit"], capture=False)
+        repo.commit_interactive()
 
         # 5. Reset Backup Branch
         print(f"-> Resetting {BACKUP_BRANCH} to main...")
