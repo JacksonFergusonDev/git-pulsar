@@ -4,7 +4,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from src import cli
+from git_pulsar import cli
 
 
 def test_setup_repo_initializes_git(tmp_path: Path, mocker: MagicMock) -> None:
@@ -15,7 +15,7 @@ def test_setup_repo_initializes_git(tmp_path: Path, mocker: MagicMock) -> None:
     mock_run = mocker.patch("subprocess.run")
 
     # 2. Mock GitRepo for subsequent operations
-    mock_git_cls = mocker.patch("src.cli.GitRepo")
+    mock_git_cls = mocker.patch("git_pulsar.cli.GitRepo")
     mock_repo = mock_git_cls.return_value
 
     fake_registry = tmp_path / ".registry"
@@ -35,7 +35,7 @@ def test_setup_repo_initializes_git(tmp_path: Path, mocker: MagicMock) -> None:
 
 def test_main_triggers_bootstrap(mocker: MagicMock) -> None:
     """Ensure --env flag calls ops.bootstrap_env."""
-    mock_bootstrap = mocker.patch("src.cli.ops.bootstrap_env")
+    mock_bootstrap = mocker.patch("git_pulsar.cli.ops.bootstrap_env")
 
     mocker.patch("sys.argv", ["git-pulsar", "--env"])
     cli.main()
@@ -45,7 +45,7 @@ def test_main_triggers_bootstrap(mocker: MagicMock) -> None:
 
 def test_main_default_behavior(mocker: MagicMock) -> None:
     """Ensure running without flags defaults to setup_repo."""
-    mock_setup = mocker.patch("src.cli.setup_repo")
+    mock_setup = mocker.patch("git_pulsar.cli.setup_repo")
     mocker.patch("sys.argv", ["git-pulsar"])
 
     cli.main()
@@ -55,7 +55,7 @@ def test_main_default_behavior(mocker: MagicMock) -> None:
 
 def test_finalize_command(mocker: MagicMock) -> None:
     """Ensure 'finalize' command calls ops.finalize_work."""
-    mock_finalize = mocker.patch("src.cli.ops.finalize_work")
+    mock_finalize = mocker.patch("git_pulsar.cli.ops.finalize_work")
     mocker.patch("sys.argv", ["git-pulsar", "finalize"])
 
     cli.main()
@@ -65,7 +65,7 @@ def test_finalize_command(mocker: MagicMock) -> None:
 
 def test_restore_command(mocker: MagicMock) -> None:
     """Ensure 'restore' command calls ops.restore_file."""
-    mock_restore = mocker.patch("src.cli.ops.restore_file")
+    mock_restore = mocker.patch("git_pulsar.cli.ops.restore_file")
     mocker.patch("sys.argv", ["git-pulsar", "restore", "file.py"])
 
     cli.main()
@@ -98,7 +98,7 @@ def test_status_reports_pause_state(
     os.chdir(tmp_path)
 
     # Mock GitRepo
-    mock_cls = mocker.patch("src.cli.GitRepo")
+    mock_cls = mocker.patch("git_pulsar.cli.GitRepo")
     mock_repo = mock_cls.return_value
     mock_repo.get_last_commit_time.return_value = "15 minutes ago"
     mock_repo.status_porcelain.return_value = []
@@ -119,7 +119,7 @@ def test_diff_shows_untracked_files(
     (tmp_path / ".git").mkdir()
     os.chdir(tmp_path)
 
-    mock_cls = mocker.patch("src.cli.GitRepo")
+    mock_cls = mocker.patch("git_pulsar.cli.GitRepo")
     mock_repo = mock_cls.return_value
     mock_repo.get_untracked_files.return_value = ["new_script.py"]
 

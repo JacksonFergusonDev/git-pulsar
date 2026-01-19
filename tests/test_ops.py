@@ -5,7 +5,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from src import ops
+from git_pulsar import ops
 
 
 def test_bootstrap_env_enforces_macos(mocker: MagicMock) -> None:
@@ -52,7 +52,7 @@ def test_configure_identity_creates_file(tmp_path: Path, mocker: MagicMock) -> N
     """Should create machine_id file if missing."""
     mocker.patch("builtins.input", return_value="my-laptop")
     mock_id_file = tmp_path / "machine_id"
-    mocker.patch("src.ops.get_machine_id_file", return_value=mock_id_file)
+    mocker.patch("git_pulsar.ops.get_machine_id_file", return_value=mock_id_file)
 
     ops.configure_identity()
 
@@ -63,7 +63,7 @@ def test_configure_identity_skips_existing(tmp_path: Path, mocker: MagicMock) ->
     """Should do nothing if file exists."""
     mock_id_file = tmp_path / "machine_id"
     mock_id_file.write_text("existing-id")
-    mocker.patch("src.ops.get_machine_id_file", return_value=mock_id_file)
+    mocker.patch("git_pulsar.ops.get_machine_id_file", return_value=mock_id_file)
     mock_input = mocker.patch("builtins.input")
 
     ops.configure_identity()
@@ -76,13 +76,13 @@ def test_configure_identity_skips_existing(tmp_path: Path, mocker: MagicMock) ->
 
 def test_restore_clean(mocker: MagicMock) -> None:
     """Should checkout the file if working tree is clean."""
-    mock_cls = mocker.patch("src.ops.GitRepo")
+    mock_cls = mocker.patch("git_pulsar.ops.GitRepo")
     mock_repo = mock_cls.return_value
     mock_repo.status_porcelain.return_value = []
 
     # Mock current branch and machine ID for ref construction
     mock_repo.current_branch.return_value = "main"
-    mocker.patch("src.ops.get_machine_id", return_value="test-unit")
+    mocker.patch("git_pulsar.ops.get_machine_id", return_value="test-unit")
 
     ops.restore_file("script.py")
 
@@ -95,7 +95,7 @@ def test_restore_dirty_fails(tmp_path: Path, mocker: MagicMock) -> None:
     os.chdir(tmp_path)
     (tmp_path / "script.py").touch()
 
-    mock_cls = mocker.patch("src.ops.GitRepo")
+    mock_cls = mocker.patch("git_pulsar.ops.GitRepo")
     mock_repo = mock_cls.return_value
     mock_repo.status_porcelain.return_value = ["M script.py"]
     mock_repo.current_branch.return_value = "main"
@@ -106,8 +106,8 @@ def test_restore_dirty_fails(tmp_path: Path, mocker: MagicMock) -> None:
 
 def test_sync_session_success(mocker: MagicMock) -> None:
     """Should find latest backup and checkout."""
-    mocker.patch("src.ops.GitRepo")
-    repo = mocker.patch("src.ops.GitRepo").return_value
+    mocker.patch("git_pulsar.ops.GitRepo")
+    repo = mocker.patch("git_pulsar.ops.GitRepo").return_value
     repo.current_branch.return_value = "main"
 
     # 1. Setup candidates
@@ -157,7 +157,7 @@ def test_sync_session_success(mocker: MagicMock) -> None:
 
 def test_finalize_octopus_merge(mocker: MagicMock) -> None:
     """Should squash merge multiple backup streams."""
-    repo = mocker.patch("src.ops.GitRepo").return_value
+    repo = mocker.patch("git_pulsar.ops.GitRepo").return_value
     repo.status_porcelain.return_value = []
     repo.current_branch.return_value = "main"
 
