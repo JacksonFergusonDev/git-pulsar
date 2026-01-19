@@ -146,7 +146,7 @@ def is_repo_busy(repo_path: Path, interactive: bool = False) -> bool:
                 if interactive:
                     print(f"⚠️  {msg}\n   Run 'rm {lock_file}' to fix.")
                 else:
-                    notify("Pulsar Warning", f"Stale lock in {repo_path.name}")
+                    SYSTEM.notify("Pulsar Warning", f"Stale lock in {repo_path.name}")
                 return True
         except OSError:
             pass  # File vanished
@@ -181,7 +181,7 @@ def has_large_files(repo_path: Path) -> bool:
                     f"WARNING {repo_path.name}: Large file detected ({name}). "
                     "Backup aborted."
                 )
-                notify("Backup Aborted", f"File >100MB detected: {name}")
+                SYSTEM.notify("Backup Aborted", f"File >100MB detected: {name}")
                 return True
         except OSError:
             continue
@@ -206,7 +206,7 @@ def prune_registry(original_path_str: str) -> None:
                     f.write(line)
         repo_name = Path(original_path_str).name
         log(f"PRUNED: {original_path_str} removed from registry.")
-        notify("Backup Stopped", f"Removed missing repo: {repo_name}")
+        SYSTEM.notify("Backup Stopped", f"Removed missing repo: {repo_name}")
     except OSError as e:
         log(f"ERROR: Could not prune registry. {e}")
 
@@ -228,6 +228,33 @@ def _should_skip(repo_path: Path, interactive: bool) -> str | None:
             return "Battery critical"
 
     return None
+
+
+def _attempt_push(repo: GitRepo, interactive: bool) -> None:
+    # 1. Eco Mode Check
+    percent, plugged = SYSTEM.get_battery()
+    if not plugged and percent < CONFIG["daemon"]["eco_mode_percent"]:
+        log(f"ECO MODE {repo.path.name}: Committed. Push skipped.", interactive)
+        return
+
+    # 2. Network Check
+    remote_name = CONFIG["core"]["remote_name"]
+    host = get_remote_host(repo.path, remote_name)
+    if host and not is_remote_reachable(host):
+        log(f"OFFLINE {repo.path.name}: Committed. Push skipped.", interactive)
+        return
+
+    # 3. Push
+    try:
+        env = os.environ.copy()
+        env["GIT_SSH_COMMAND"] = "ssh -o BatchMode=yes"
+        branch = CONFIG["core"]["backup_branch"]
+
+        # We use repo._run to leverage the wrapper's error handling
+        repo._run(["push", remote_name, branch], capture=False, env=env)
+        log(f"SUCCESS {repo.path.name}: Pushed.", interactive)
+    except Exception as e:
+        log(f"PUSH ERROR {repo.path.name}: {e}", interactive)
 
 
 def run_backup(original_path_str: str, interactive: bool = False) -> None:
