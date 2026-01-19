@@ -30,7 +30,11 @@ def bootstrap_env() -> None:
     if missing:
         print(f"❌ Missing tools: {', '.join(missing)}")
         print("   Please run:")
-        print(f"     brew install {' '.join(missing)}")
+        install_cmd = f"brew install {' '.join(missing)}"
+        if not shutil.which("brew"):
+            install_cmd = f"(Check your package manager) install {' '.join(missing)}"
+
+        print(f"     {install_cmd}")
         sys.exit(1)
 
     # 2. Project Scaffold (uv)
