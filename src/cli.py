@@ -4,7 +4,13 @@ import sys
 from pathlib import Path
 
 from . import daemon, ops, service
-from .constants import BACKUP_BRANCH, REGISTRY_FILE
+from .constants import (
+    APP_LABEL,
+    BACKUP_BRANCH,
+    DEFAULT_IGNORES,
+    LOG_FILE,
+    REGISTRY_FILE,
+)
 from .git_wrapper import GitRepo
 
 
@@ -14,10 +20,11 @@ def show_status() -> None:
     is_running = False
     if sys.platform == "darwin":
         res = subprocess.run(["launchctl", "list"], capture_output=True, text=True)
-        is_running = "com.jacksonferguson.gitpulsar" in res.stdout
+        is_running = APP_LABEL in res.stdout
     elif sys.platform.startswith("linux"):
+        # Note: systemd service usually matches the label
         res = subprocess.run(
-            ["systemctl", "--user", "is-active", "com.jacksonferguson.gitpulsar.timer"],
+            ["systemctl", "--user", "is-active", f"{APP_LABEL}.timer"],
             capture_output=True,
             text=True,
         )
@@ -80,14 +87,13 @@ def list_repos() -> None:
 
 
 def tail_log() -> None:
-    log_file = Path.home() / ".git_pulsar_log"
-    if not log_file.exists():
-        print("❌ No log file found yet.")
+    if not LOG_FILE.exists():
+        print(f"❌ No log file found yet at {LOG_FILE}.")
         return
 
-    print(f"📜 Tailing {log_file} (Ctrl+C to stop)...")
+    print(f"📜 Tailing {LOG_FILE} (Ctrl+C to stop)...")
     try:
-        subprocess.run(["tail", "-f", str(log_file)])
+        subprocess.run(["tail", "-f", str(LOG_FILE)])
     except KeyboardInterrupt:
         print("\nStopped.")
 
@@ -120,25 +126,17 @@ def setup_repo(registry_path: Path = REGISTRY_FILE) -> None:
 
     # 2. Check/Create .gitignore
     gitignore = cwd / ".gitignore"
-    defaults = [
-        "__pycache__/",
-        "*.ipynb_checkpoints",
-        "*.pdf",
-        "*.aux",
-        "*.log",
-        ".DS_Store",
-    ]
 
     if not gitignore.exists():
         print("Creating basic .gitignore...")
         with open(gitignore, "w") as f:
-            f.write("\n".join(defaults) + "\n")
+            f.write("\n".join(DEFAULT_IGNORES) + "\n")
     else:
         print("Existing .gitignore found. Checking for missing defaults...")
         with open(gitignore, "r") as f:
             existing_content = f.read()
 
-        missing_defaults = [d for d in defaults if d not in existing_content]
+        missing_defaults = [d for d in DEFAULT_IGNORES if d not in existing_content]
 
         if missing_defaults:
             print(f"Appending {len(missing_defaults)} missing ignores...")
