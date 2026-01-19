@@ -56,6 +56,13 @@ def show_status() -> None:
         if (Path(".git") / "pulsar_paused").exists():
             print("Mode:        ⏸️  PAUSED")
 
+    # 3. Global Summary (if not in a repo)
+    else:
+        if REGISTRY_FILE.exists():
+            with open(REGISTRY_FILE) as f:
+                count = len([line for line in f if line.strip()])
+            print(f"\nwatching {count} repositories.")
+
 
 def show_diff() -> None:
     if not Path(".git").exists():
