@@ -5,11 +5,31 @@
     ":semanticCommits",
     ":prHourlyLimit2"
   ],
+  "schedule": [
+    "before 4am on the first day of the month"
+  ],
   "labels": [
     "dependencies",
     "chore"
   ],
+  "vulnerabilityAlerts": {
+    "schedule": [
+      "at any time"
+    ]
+  },
   "packageRules": [
+    {
+      "description": "Require a package to be 2 weeks old before updating, but exclude vulnerability remediation from this wait.",
+      "matchUpdateTypes": [
+        "major",
+        "minor",
+        "patch",
+        "pin",
+        "digest",
+        "lockFileMaintenance"
+      ],
+      "minimumReleaseAge": "2 weeks"
+    },
     {
       "description": "Group all python dev-dependencies (ruff, mypy, pytest) into one PR and automerge them.",
       "matchFileNames": [
