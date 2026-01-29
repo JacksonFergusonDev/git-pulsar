@@ -79,11 +79,127 @@ def list_repos() -> None:
         print("📭 Registry is empty.")
         return
 
-    print("📚 Registered Repositories:")
+    print(f"{'Repository':<50} {'Status':<12} {'Last Backup'}")
+    print("-" * 80)
+
     with open(REGISTRY_FILE, "r") as f:
-        for line in f:
-            if line.strip():
-                print(f"  • {line.strip()}")
+        lines = [line.strip() for line in f if line.strip()]
+
+    for path_str in lines:
+        path = Path(path_str)
+        display_path = str(path).replace(str(Path.home()), "~")
+
+        # Truncate path for display
+        if len(display_path) > 48:
+            display_path = "..." + display_path[-45:]
+
+        status = "❓ Unknown"
+        last_backup = "-"
+
+        if not path.exists():
+            status = "🔴 Missing"
+        else:
+            if (path / ".git" / "pulsar_paused").exists():
+                status = "⏸️  Paused"
+            else:
+                status = "🟢 Active"
+
+            # Try to read last backup time
+            try:
+                r = GitRepo(path)
+                last_backup = r.get_last_commit_time(BACKUP_BRANCH)
+            except Exception:
+                pass
+
+        print(f"{display_path:<50} {status:<12} {last_backup}")
+
+
+def unregister_repo() -> None:
+    cwd = str(Path.cwd())
+    if not REGISTRY_FILE.exists():
+        print("📭 Registry is empty.")
+        return
+
+    with open(REGISTRY_FILE, "r") as f:
+        lines = [line.strip() for line in f if line.strip()]
+
+    if cwd not in lines:
+        print(f"⚠️  Current path not registered: {cwd}")
+        return
+
+    with open(REGISTRY_FILE, "w") as f:
+        for line in lines:
+            if line != cwd:
+                f.write(f"{line}\n")
+    print(f"✅ Unregistered: {cwd}")
+
+
+def run_doctor() -> None:
+    print("🚑 Pulsar Doctor\n")
+
+    # 1. Registry Hygiene
+    print("1. Checking Registry...")
+    if not REGISTRY_FILE.exists():
+        print("   • Registry empty.")
+    else:
+        with open(REGISTRY_FILE, "r") as f:
+            lines = [line.strip() for line in f if line.strip()]
+
+        valid_lines = []
+        fixed = False
+        for line in lines:
+            if Path(line).exists():
+                valid_lines.append(line)
+            else:
+                print(f"   ❌ Removing ghost entry: {line}")
+                fixed = True
+
+        if fixed:
+            with open(REGISTRY_FILE, "w") as f:
+                f.write("\n".join(valid_lines) + "\n")
+            print("   ✅ Registry cleaned.")
+        else:
+            print("   ✅ Registry healthy.")
+
+    # 2. Daemon Status
+    print("\n2. Checking Daemon...")
+    is_running = False
+    if sys.platform == "darwin":
+        res = subprocess.run(["launchctl", "list"], capture_output=True, text=True)
+        is_running = APP_LABEL in res.stdout
+    elif sys.platform.startswith("linux"):
+        res = subprocess.run(
+            ["systemctl", "--user", "is-active", f"{APP_LABEL}.timer"],
+            capture_output=True,
+            text=True,
+        )
+        is_running = res.stdout.strip() == "active"
+
+    if is_running:
+        print("   ✅ Daemon is active.")
+    else:
+        print("   🔴 Daemon is STOPPED. Run 'git pulsar install-service'.")
+
+    # 3. Connectivity
+    print("\n3. Checking Connectivity...")
+    try:
+        # Simple ssh hello to github (returns status 1 but prints success message)
+        res = subprocess.run(
+            ["ssh", "-T", "git@github.com"], capture_output=True, text=True, timeout=5
+        )
+        if "successfully authenticated" in res.stderr:
+            print("   ✅ GitHub SSH connection successful.")
+        else:
+            print("   ⚠️  GitHub SSH check didn't return standard greeting.")
+    except Exception as e:
+        print(f"   ❌ SSH Check failed: {e}")
+
+
+def add_ignore_cli(pattern: str) -> None:
+    if not Path(".git").exists():
+        print("❌ Not a git repository.")
+        return
+    ops.add_ignore(pattern)
 
 
 def tail_log() -> None:
@@ -234,6 +350,19 @@ def main() -> None:
     subparsers.add_parser("list", help="List registered repositories")
     subparsers.add_parser("log", help="Tail the daemon log file")
 
+    subparsers.add_parser("help", help="Show this help message")
+    subparsers.add_parser("remove", help="Stop tracking current repo")
+    subparsers.add_parser("sync", help="Sync with latest session")
+    subparsers.add_parser("doctor", help="Clean registry and check health")
+
+    ignore_parser = subparsers.add_parser("ignore", help="Add pattern to .gitignore")
+    ignore_parser.add_argument("pattern", help="File pattern (e.g. '*.log')")
+
+    prune_parser = subparsers.add_parser("prune", help="Clean up old backup refs")
+    prune_parser.add_argument(
+        "--days", type=int, default=30, help="Age in days (default: 30)"
+    )
+
     args = parser.parse_args()
 
     # 1. Handle Environment Setup (Flag)
@@ -243,6 +372,24 @@ def main() -> None:
     # 2. Handle Subcommands
     if args.command == "install-service":
         service.install(interval=args.interval)
+        return
+    elif args.command == "help":
+        parser.print_help()
+        return
+    elif args.command == "remove":
+        unregister_repo()
+        return
+    elif args.command == "sync":
+        ops.sync_session()
+        return
+    elif args.command == "doctor":
+        run_doctor()
+        return
+    elif args.command == "ignore":
+        add_ignore_cli(args.pattern)
+        return
+    elif args.command == "prune":
+        ops.prune_backups(args.days)
         return
     elif args.command == "uninstall-service":
         service.uninstall()
