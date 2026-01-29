@@ -30,7 +30,7 @@ It ensures that even if your laptop dies (or you forget to push before leaving t
 Pulsar includes a one-click scaffolding tool to set up a modern, robust Python environment.
 
 ```bash
-git-pulsar --env
+git pulsar --env
 ```
 
 This bootstraps the current directory with:
@@ -59,19 +59,21 @@ Install via `uv` (or `pipx`) and register the systemd timer.
 
 ```bash
 uv tool install git-pulsar
-git-pulsar install-service --interval 300  # Check every 5 mins (default: 15m)
+git pulsar install-service --interval 300  # Check every 5 mins (default: 15m)
 ```
 
 ---
 
 ## 🚀 The Pulsar Workflow
 
+Pulsar is designed to feel like a native git command.
+
 ### 1. Initialize & Identify
 Navigate to your project. The first time you run Pulsar, it will ask for a **Machine ID** (e.g., `macbook`, `lab-pc`) to namespace your backups.
 
 ```bash
 cd ~/University/Astro401
-git-pulsar
+git pulsar
 ```
 *You are now protected. The daemon will silently snapshot your work every 15 minutes.*
 
@@ -79,7 +81,7 @@ git-pulsar
 You worked on your **Desktop** all night but forgot to push. You open your **Laptop** at class.
 
 ```bash
-git-pulsar sync
+git pulsar sync
 ```
 *Pulsar checks the remote, finds the newer session from `desktop`, and asks to fast-forward your working directory to match it. You just recovered your homework.*
 
@@ -88,14 +90,14 @@ Mess up a script? Grab the version from 15 minutes ago.
 
 ```bash
 # Restore specific file from the latest shadow backup
-git-pulsar restore src/main.py
+git pulsar restore src/main.py
 ```
 
 ### 4. Finalize Your Work
 When you are ready to submit or merge to `main`:
 
 ```bash
-git-pulsar finalize
+git pulsar finalize
 ```
 *This performs an **Octopus Merge**. It pulls the backup history from your Laptop, Desktop, and Lab PC, squashes them all together, and stages the result on `main`.*
 
@@ -103,16 +105,38 @@ git-pulsar finalize
 
 ## 🛠 Command Reference
 
+### Backup Management
 | Command | Description |
 | :--- | :--- |
-| `git-pulsar` | Register current repo for backups. |
-| `git-pulsar now` | Force an immediate backup (e.g., before closing lid). |
-| `git-pulsar sync` | **New:** Pull latest work from any other machine. |
-| `git-pulsar status` | Check when the last backup occurred. |
-| `git-pulsar diff` | Show changes between working tree and last backup. |
-| `git-pulsar restore <file>` | Reset a file to its backed-up state. |
-| `git-pulsar finalize` | Squash-merge all backup streams into `main`. |
-| `git-pulsar log` | Tail the daemon logs in real-time. |
+| `git pulsar` | **Default.** Registers the current repo and ensures the daemon is watching it. |
+| `git pulsar now` | Force an immediate backup (e.g., before closing lid). |
+| `git pulsar sync` | Pull the latest session from *any* machine to your current directory. |
+| `git pulsar restore <file>` | Restore a specific file from the latest backup. |
+| `git pulsar diff` | See what has changed since the last backup. |
+| `git pulsar finalize` | Squash-merge all backup streams into `main`. |
+
+### Repository Control
+| Command | Description |
+| :--- | :--- |
+| `git pulsar list` | Show all watched repositories and their status. |
+| `git pulsar pause` | Temporarily suspend backups for this repo. |
+| `git pulsar resume` | Resume backups. |
+| `git pulsar remove` | Stop tracking this repository entirely (keeps files). |
+| `git pulsar ignore <glob>` | Add a pattern to `.gitignore` (and untrack it if needed). |
+
+### Maintenance
+| Command | Description |
+| :--- | :--- |
+| `git pulsar status` | Show daemon health and backup status for the current repo. |
+| `git pulsar doctor` | Clean up the registry and check system health. |
+| `git pulsar prune` | Delete old backup history (>30 days) to save disk space. |
+| `git pulsar log` | Tail the background daemon log. |
+
+### Service
+| Command | Description |
+| :--- | :--- |
+| `git pulsar install-service` | Register the background daemon (LaunchAgent/Systemd). |
+| `git pulsar uninstall-service` | Remove the background daemon. |
 
 ---
 
