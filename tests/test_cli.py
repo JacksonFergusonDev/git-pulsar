@@ -1,4 +1,3 @@
-import os
 import subprocess
 import sys
 from pathlib import Path
@@ -9,9 +8,11 @@ import pytest
 from git_pulsar import cli
 
 
-def test_setup_repo_initializes_git(tmp_path: Path, mocker: MagicMock) -> None:
+def test_setup_repo_initializes_git(
+    tmp_path: Path, mocker: MagicMock, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """Ensure git init is called and registry is updated."""
-    os.chdir(tmp_path)
+    monkeypatch.chdir(tmp_path)
 
     # 1. Mock subprocess for the initial 'git init'
     mock_run = mocker.patch("subprocess.run")
@@ -38,11 +39,13 @@ def test_setup_repo_initializes_git(tmp_path: Path, mocker: MagicMock) -> None:
 def test_main_triggers_bootstrap(mocker: MagicMock) -> None:
     """Ensure --env flag calls ops.bootstrap_env."""
     mock_bootstrap = mocker.patch("git_pulsar.cli.ops.bootstrap_env")
+    mock_setup = mocker.patch("git_pulsar.cli.setup_repo")
 
     mocker.patch("sys.argv", ["git-pulsar", "--env"])
     cli.main()
 
     mock_bootstrap.assert_called_once()
+    mock_setup.assert_called_once()
 
 
 def test_main_default_behavior(mocker: MagicMock) -> None:
@@ -75,14 +78,12 @@ def test_restore_command(mocker: MagicMock) -> None:
     mock_restore.assert_called_once_with("file.py", False)
 
 
-def test_pause_command(tmp_path: Path, mocker: MagicMock) -> None:
+def test_pause_command(
+    tmp_path: Path, mocker: MagicMock, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """Test pausing creates the pause file (direct CLI logic)."""
     (tmp_path / ".git").mkdir()
-    os.chdir(tmp_path)
-
-    # Mock GitRepo to pass the "is git repo" check if strictly enforced,
-    # though pause/resume might just use pathlib.
-    # Based on previous code, set_pause_state used pathlib directly.
+    monkeypatch.chdir(tmp_path)
 
     cli.set_pause_state(paused=True)
     assert (tmp_path / ".git" / "pulsar_paused").exists()
@@ -92,12 +93,15 @@ def test_pause_command(tmp_path: Path, mocker: MagicMock) -> None:
 
 
 def test_status_reports_pause_state(
-    tmp_path: Path, capsys: pytest.CaptureFixture, mocker: MagicMock
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture,
+    mocker: MagicMock,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Ensure 'git-pulsar status' explicitly reports the PAUSED state."""
     (tmp_path / ".git").mkdir()
     (tmp_path / ".git" / "pulsar_paused").touch()
-    os.chdir(tmp_path)
+    monkeypatch.chdir(tmp_path)
 
     # Mock GitRepo
     mock_cls = mocker.patch("git_pulsar.cli.GitRepo")
@@ -115,11 +119,14 @@ def test_status_reports_pause_state(
 
 
 def test_diff_shows_untracked_files(
-    tmp_path: Path, capsys: pytest.CaptureFixture, mocker: MagicMock
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture,
+    mocker: MagicMock,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Ensure 'git-pulsar diff' lists untracked files."""
     (tmp_path / ".git").mkdir()
-    os.chdir(tmp_path)
+    monkeypatch.chdir(tmp_path)
 
     mock_cls = mocker.patch("git_pulsar.cli.GitRepo")
     mock_repo = mock_cls.return_value
