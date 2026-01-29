@@ -50,7 +50,6 @@ def install_macos(
         <string>{executable}</string>
     </array>
     <key>StartInterval</key>
-    <key>StartInterval</key>
     <integer>{interval}</integer>
     <key>RunAtLoad</key>
     <true/>
@@ -64,6 +63,13 @@ def install_macos(
     plist_path.parent.mkdir(parents=True, exist_ok=True)
     with open(plist_path, "w") as f:
         f.write(content)
+
+    # 🔍 Validate the plist syntax before asking launchd to eat it
+    try:
+        subprocess.run(["plutil", "-lint", str(plist_path)], check=True)
+    except subprocess.CalledProcessError:
+        print(f"❌ Generated plist is invalid: {plist_path}")
+        sys.exit(1)
 
     subprocess.run(["launchctl", "unload", str(plist_path)], stderr=subprocess.DEVNULL)
     subprocess.run(["launchctl", "load", str(plist_path)], check=True)
