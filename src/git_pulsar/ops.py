@@ -4,6 +4,7 @@ import socket
 import subprocess
 import sys
 import textwrap
+import time
 from pathlib import Path
 
 from .git_wrapper import GitRepo
@@ -315,3 +316,67 @@ def finalize_work() -> None:
     except Exception as e:
         print(f"\n❌ Error during finalize: {e}")
         sys.exit(1)
+
+
+def prune_backups(days: int) -> None:
+    """Garbage collects backup refs older than the specified retention period."""
+    repo = GitRepo(Path.cwd())
+    cutoff = time.time() - (days * 86400)
+
+    print(f"🧹 Scanning for backups older than {days} days...")
+
+    refs = repo.list_refs("refs/heads/wip/pulsar/*")
+    deleted_count = 0
+
+    for ref in refs:
+        try:
+            ts_str = repo._run(["log", "-1", "--format=%ct", ref])
+            ts = int(ts_str.strip())
+
+            if ts < cutoff:
+                age_days = (time.time() - ts) / 86400
+                print(f"   Deleting {ref} (Age: {age_days:.1f} days)")
+                repo._run(["update-ref", "-d", ref], capture=False)
+                deleted_count += 1
+        except Exception:
+            continue
+
+    if deleted_count == 0:
+        print("✨ No stale backups found.")
+    else:
+        print(f"💀 Dropped {deleted_count} stale refs. Running git gc...")
+        repo._run(["gc", "--auto"], capture=False)
+
+
+def add_ignore(pattern: str) -> None:
+    """Adds a pattern to .gitignore and ensures it's untracked."""
+    cwd = Path.cwd()
+    gitignore = cwd / ".gitignore"
+
+    # 1. Append to .gitignore
+    content = ""
+    if gitignore.exists():
+        with open(gitignore, "r") as f:
+            content = f.read()
+
+    if pattern in content:
+        print(f"ℹ️  '{pattern}' is already in .gitignore.")
+    else:
+        with open(gitignore, "a") as f:
+            prefix = "\n" if content and not content.endswith("\n") else ""
+            f.write(f"{prefix}{pattern}\n")
+        print(f"✅ Added '{pattern}' to .gitignore.")
+
+    # 2. Check if currently tracked (common mistake)
+    repo = GitRepo(cwd)
+    try:
+        # Check if git knows about files matching this pattern
+        tracked = repo._run(["ls-files", pattern])
+        if tracked:
+            print(f"⚠️  Files matching '{pattern}' are currently tracked by git.")
+            confirm = input("   Stop tracking them (keep local file)? [y/N] ").lower()
+            if confirm == "y":
+                repo._run(["rm", "--cached", pattern], capture=False)
+                print("   Removed from index (file preserved on disk).")
+    except Exception:
+        pass
