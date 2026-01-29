@@ -1,4 +1,6 @@
 import os
+import subprocess
+import sys
 from pathlib import Path
 from unittest.mock import MagicMock
 
@@ -128,3 +130,22 @@ def test_diff_shows_untracked_files(
     captured = capsys.readouterr()
     assert "Untracked (New) Files" in captured.out
     assert "+ new_script.py" in captured.out
+
+
+def test_cli_full_cycle(tmp_path: Path) -> None:
+    """
+    Black-box test: Run the actual CLI command in a subprocess.
+    """
+    # 1. Create a fake repo
+    repo_dir = tmp_path / "my_project"
+    repo_dir.mkdir()
+
+    result = subprocess.run(
+        [sys.executable, "-m", "git_pulsar.cli", "status"],
+        cwd=repo_dir,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 0
+    assert "System Status" in result.stdout
