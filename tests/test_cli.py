@@ -9,9 +9,11 @@ import pytest
 from git_pulsar import cli
 
 
-def test_setup_repo_initializes_git(tmp_path: Path, mocker: MagicMock) -> None:
+def test_setup_repo_initializes_git(
+    tmp_path: Path, mocker: MagicMock, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """Ensure git init is called and registry is updated."""
-    os.chdir(tmp_path)
+    monkeypatch.chdir(tmp_path)
 
     # 1. Mock subprocess for the initial 'git init'
     mock_run = mocker.patch("subprocess.run")
