@@ -44,7 +44,11 @@ def show_status() -> None:
 
         # Last Backup Time
         ref = _get_ref(repo)
-        print(f"Last Backup: {repo.get_last_commit_time(ref)}")
+        try:
+            time_str = repo.get_last_commit_time(ref)
+        except Exception:
+            time_str = "None (No backup found)"
+        print(f"Last Backup: {time_str}")
 
         # Pending Changes
         count = len(repo.status_porcelain())
@@ -117,6 +121,17 @@ def list_repos() -> None:
                 ref = _get_ref(r)
                 last_backup = r.get_last_commit_time(ref)
             except Exception:
+                # Distinguish between "Active but no backup" and "Broken"
+                # If GitRepo failed, it's a Repo Error.
+                # If get_last_commit_time failed, it might just be a fresh branch.
+                if status == "🟢 Active":
+                    try:
+                        # Quick check if repo is actually valid
+                        GitRepo(path)
+                    except Exception:
+                        status = "🔴 Error"
+
+                # If simply no backup exists yet, keep "-"
                 pass
 
         print(f"{display_path:<50} {status:<12} {last_backup}")
