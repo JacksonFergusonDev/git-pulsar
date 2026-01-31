@@ -326,9 +326,9 @@ def finalize_work() -> None:
         sys.exit(1)
 
 
-def prune_backups(days: int) -> None:
+def prune_backups(days: int, repo_path: Path | None = None) -> None:
     """Garbage collects backup refs older than the specified retention period."""
-    repo = GitRepo(Path.cwd())
+    repo = GitRepo(repo_path or Path.cwd())
     cutoff = time.time() - (days * 86400)
 
     print(f"🧹 Scanning for backups older than {days} days...")
