@@ -40,3 +40,5 @@ GIT_LOCK_FILES = [
     "rebase-merge",
     "rebase-apply",
 ]
+
+PID_FILE = REGISTRY_FILE.parent / "daemon.pid"

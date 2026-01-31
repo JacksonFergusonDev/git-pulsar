@@ -1,3 +1,4 @@
+import atexit
 import datetime
 import logging
 import os
@@ -21,6 +22,7 @@ from .constants import (
     CONFIG_FILE,
     GIT_LOCK_FILES,
     LOG_FILE,
+    PID_FILE,
     REGISTRY_FILE,
 )
 from .git_wrapper import GitRepo
@@ -415,6 +417,18 @@ def main(interactive: bool = False) -> None:
         raise TimeoutError("Repo access timed out")
 
     signal.signal(signal.SIGALRM, timeout_handler)
+
+    # PID File Management
+    if not interactive:
+        # Write PID
+        try:
+            with open(PID_FILE, "w") as f:
+                f.write(str(os.getpid()))
+
+            # Register cleanup
+            atexit.register(lambda: PID_FILE.unlink(missing_ok=True))
+        except OSError as e:
+            logger.warning(f"Could not write PID file: {e}")
 
     for repo_str in set(repos):
         try:

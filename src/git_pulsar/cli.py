@@ -1,15 +1,11 @@
 import argparse
+import os
 import subprocess
 import sys
 from pathlib import Path
 
 from . import daemon, ops, service
-from .constants import (
-    APP_LABEL,
-    DEFAULT_IGNORES,
-    LOG_FILE,
-    REGISTRY_FILE,
-)
+from .constants import APP_LABEL, DEFAULT_IGNORES, LOG_FILE, PID_FILE, REGISTRY_FILE
 from .git_wrapper import GitRepo
 
 
@@ -22,17 +18,16 @@ def show_status() -> None:
     # 1. Daemon Health
     print("--- 🩺 System Status ---")
     is_running = False
-    if sys.platform == "darwin":
-        res = subprocess.run(["launchctl", "list"], capture_output=True, text=True)
-        is_running = APP_LABEL in res.stdout
-    elif sys.platform.startswith("linux"):
-        # Note: systemd service usually matches the label
-        res = subprocess.run(
-            ["systemctl", "--user", "is-active", f"{APP_LABEL}.timer"],
-            capture_output=True,
-            text=True,
-        )
-        is_running = res.stdout.strip() == "active"
+    if PID_FILE.exists():
+        try:
+            with open(PID_FILE, "r") as f:
+                pid = int(f.read().strip())
+            # signal 0 is a no-op that checks if process exists
+            os.kill(pid, 0)
+            is_running = True
+        except (ValueError, OSError):
+            # PID file stale or process dead
+            is_running = False
 
     state_icon = "🟢 Running" if is_running else "🔴 Stopped"
     print(f"Daemon: {state_icon}")
