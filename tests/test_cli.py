@@ -17,6 +17,9 @@ def test_setup_repo_initializes_git(
     # 1. Mock subprocess for the initial 'git init'
     mock_run = mocker.patch("subprocess.run")
 
+    # 2. Mock GitRepo for subsequent operations
+    mocker.patch("git_pulsar.cli.GitRepo")
+
     fake_registry = tmp_path / ".registry"
     cli.setup_repo(registry_path=fake_registry)
 
