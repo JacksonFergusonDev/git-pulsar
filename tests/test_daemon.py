@@ -2,6 +2,7 @@ from pathlib import Path
 from unittest.mock import MagicMock
 
 from git_pulsar import daemon
+from git_pulsar.constants import BACKUP_NAMESPACE
 from git_pulsar.daemon import Config
 
 
@@ -55,14 +56,17 @@ def test_run_backup_shadow_commit_flow(tmp_path: Path, mocker: MagicMock) -> Non
 
     # C. Check Ref Update
     repo.update_ref.assert_called_once()
-    assert "refs/heads/wip/pulsar/test-unit/main" in repo.update_ref.call_args[0][0]
+    assert (
+        f"refs/heads/{BACKUP_NAMESPACE}/test-unit/main"
+        in repo.update_ref.call_args[0][0]
+    )
 
     # D. Check Push
     push_call = repo._run.call_args_list[-1]
     cmd = push_call[0][0]
     assert "push" in cmd
     assert (
-        "refs/heads/wip/pulsar/test-unit/main:refs/heads/wip/pulsar/test-unit/main"
+        f"refs/heads/{BACKUP_NAMESPACE}/test-unit/main:refs/heads/{BACKUP_NAMESPACE}/test-unit/main"
         in cmd
     )
 
