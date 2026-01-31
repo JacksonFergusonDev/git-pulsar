@@ -6,6 +6,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from git_pulsar import ops
+from git_pulsar.constants import BACKUP_NAMESPACE
 
 
 def test_bootstrap_env_enforces_macos(mocker: MagicMock) -> None:
@@ -86,8 +87,8 @@ def test_restore_clean(mocker: MagicMock) -> None:
 
     ops.restore_file("script.py")
 
-    # Expect namespaced ref: refs/heads/wip/pulsar/test-unit/main
-    expected_ref = "refs/heads/wip/pulsar/test-unit/main"
+    # Expect namespaced ref
+    expected_ref = f"refs/heads/{BACKUP_NAMESPACE}/test-unit/main"
     mock_repo.checkout.assert_called_with(expected_ref, file="script.py")
 
 
@@ -112,8 +113,8 @@ def test_sync_session_success(mocker: MagicMock) -> None:
 
     # 1. Setup candidates
     repo.list_refs.return_value = [
-        "refs/heads/wip/pulsar/laptop/main",
-        "refs/heads/wip/pulsar/desktop/main",
+        f"refs/heads/{BACKUP_NAMESPACE}/laptop/main",
+        f"refs/heads/{BACKUP_NAMESPACE}/desktop/main",
     ]
 
     # 2. Setup timestamps (desktop is newer)
@@ -137,7 +138,11 @@ def test_sync_session_success(mocker: MagicMock) -> None:
 
     # Verify we fetched all namespaces
     repo._run.assert_any_call(
-        ["fetch", "origin", "refs/heads/wip/pulsar/*:refs/heads/wip/pulsar/*"],
+        [
+            "fetch",
+            "origin",
+            f"refs/heads/{BACKUP_NAMESPACE}/*:refs/heads/{BACKUP_NAMESPACE}/*",
+        ],
         capture=False,
     )
 
@@ -149,7 +154,7 @@ def test_sync_session_success(mocker: MagicMock) -> None:
     assert checkout_call, "Checkout was never called!"
 
     cmd_args = checkout_call[0][0][0]  # extract the list passed to _run
-    assert "refs/heads/wip/pulsar/desktop/main" in cmd_args
+    assert f"refs/heads/{BACKUP_NAMESPACE}/desktop/main" in cmd_args
 
 
 # Finalize Tests
@@ -168,7 +173,11 @@ def test_finalize_octopus_merge(mocker: MagicMock) -> None:
 
     # 1. Verify Fetch
     repo._run.assert_any_call(
-        ["fetch", "origin", "refs/heads/wip/pulsar/*:refs/heads/wip/pulsar/*"],
+        [
+            "fetch",
+            "origin",
+            f"refs/heads/{BACKUP_NAMESPACE}/*:refs/heads/{BACKUP_NAMESPACE}/*",
+        ],
         capture=False,
     )
 

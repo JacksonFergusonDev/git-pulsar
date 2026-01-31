@@ -18,18 +18,13 @@ def test_setup_repo_initializes_git(
     mock_run = mocker.patch("subprocess.run")
 
     # 2. Mock GitRepo for subsequent operations
-    mock_git_cls = mocker.patch("git_pulsar.cli.GitRepo")
-    mock_repo = mock_git_cls.return_value
+    mocker.patch("git_pulsar.cli.GitRepo")
 
     fake_registry = tmp_path / ".registry"
     cli.setup_repo(registry_path=fake_registry)
 
     # Assert 'git init' called
     mock_run.assert_any_call(["git", "init"], check=True)
-
-    # Assert we switched branches using the wrapper
-    # Note: setup_repo likely calls repo.checkout(BACKUP_BRANCH)
-    assert mock_repo.checkout.called
 
     # Assert registry updated
     assert fake_registry.exists()

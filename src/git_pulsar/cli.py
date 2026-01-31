@@ -6,12 +6,16 @@ from pathlib import Path
 from . import daemon, ops, service
 from .constants import (
     APP_LABEL,
-    BACKUP_BRANCH,
     DEFAULT_IGNORES,
     LOG_FILE,
     REGISTRY_FILE,
 )
 from .git_wrapper import GitRepo
+
+
+def _get_ref(repo: GitRepo) -> str:
+    """Helper to resolve the namespaced backup ref for the current repo state."""
+    return ops.get_backup_ref(repo.current_branch())
 
 
 def show_status() -> None:
@@ -39,7 +43,8 @@ def show_status() -> None:
         repo = GitRepo(Path.cwd())
 
         # Last Backup Time
-        print(f"Last Backup: {repo.get_last_commit_time(BACKUP_BRANCH)}")
+        ref = _get_ref(repo)
+        print(f"Last Backup: {repo.get_last_commit_time(ref)}")
 
         # Pending Changes
         count = len(repo.status_porcelain())
@@ -61,11 +66,13 @@ def show_diff() -> None:
         print("❌ Not a git repository.")
         sys.exit(1)
 
-    print(f"🔍 Diff vs {BACKUP_BRANCH}:\n")
     repo = GitRepo(Path.cwd())
 
     # 1. Standard Diff (tracked files)
-    repo.run_diff(BACKUP_BRANCH)
+    ref = _get_ref(repo)
+
+    print(f"🔍 Diff vs {ref}:\n")
+    repo.run_diff(ref)
 
     # 2. Untracked Files
     if untracked := repo.get_untracked_files():
@@ -107,7 +114,8 @@ def list_repos() -> None:
             # Try to read last backup time
             try:
                 r = GitRepo(path)
-                last_backup = r.get_last_commit_time(BACKUP_BRANCH)
+                ref = _get_ref(r)
+                last_backup = r.get_last_commit_time(ref)
             except Exception:
                 pass
 
@@ -261,20 +269,7 @@ def setup_repo(registry_path: Path = REGISTRY_FILE) -> None:
         else:
             print("All defaults present.")
 
-    # 3. Create/Switch to the backup branch
-    print(f"Switching to {BACKUP_BRANCH}...")
-    try:
-        repo.checkout(BACKUP_BRANCH)
-    except Exception:
-        try:
-            # Create orphan if main doesn't exist, or branch off current
-            # We use _run directly here for the specific flag "-b"
-            repo._run(["checkout", "-b", BACKUP_BRANCH], capture=False)
-        except Exception as e:
-            print(f"❌ Error switching branches: {e}")
-            sys.exit(1)
-
-    # 4. Add to Registry
+    # 3. Add to Registry
     print("Registering path...")
     if not registry_path.exists():
         registry_path.touch()
@@ -340,7 +335,7 @@ def main() -> None:
     )
 
     subparsers.add_parser(
-        "finalize", help="Squash wip/pulsar into main and reset backup history"
+        "finalize", help="Squash backup stream into main and reset history"
     )
 
     subparsers.add_parser("pause", help="Suspend backups for current repo")

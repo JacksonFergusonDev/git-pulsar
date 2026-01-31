@@ -7,6 +7,7 @@ import textwrap
 import time
 from pathlib import Path
 
+from .constants import BACKUP_NAMESPACE
 from .git_wrapper import GitRepo
 from .system import get_machine_id, get_machine_id_file
 
@@ -14,7 +15,7 @@ from .system import get_machine_id, get_machine_id_file
 def get_backup_ref(branch: str) -> str:
     """Constructs the namespaced ref for the current machine/branch."""
     machine_id = get_machine_id()
-    return f"refs/heads/wip/pulsar/{machine_id}/{branch}"
+    return f"refs/heads/{BACKUP_NAMESPACE}/{machine_id}/{branch}"
 
 
 def configure_identity() -> None:
@@ -177,15 +178,19 @@ def sync_session() -> None:
     # 1. Fetch everything (all machines)
     try:
         repo._run(
-            ["fetch", "origin", "refs/heads/wip/pulsar/*:refs/heads/wip/pulsar/*"],
+            [
+                "fetch",
+                "origin",
+                f"refs/heads/{BACKUP_NAMESPACE}/*:refs/heads/{BACKUP_NAMESPACE}/*",
+            ],
             capture=False,
         )
     except Exception:
         print("⚠️  Fetch warning: network might be down.")
 
     # 2. Find candidates
-    # Pattern: refs/heads/wip/pulsar/{machine}/{branch}
-    candidates = repo.list_refs(f"refs/heads/wip/pulsar/*/{current_branch}")
+    # Pattern: refs/heads/{namespace}/{machine}/{branch}
+    candidates = repo.list_refs(f"refs/heads/{BACKUP_NAMESPACE}/*/{current_branch}")
 
     if not candidates:
         print("❌ No backups found anywhere.")
@@ -269,7 +274,7 @@ def finalize_work() -> None:
                 [
                     "fetch",
                     "origin",
-                    "refs/heads/wip/pulsar/*:refs/heads/wip/pulsar/*",
+                    f"refs/heads/{BACKUP_NAMESPACE}/*:refs/heads/{BACKUP_NAMESPACE}/*",
                 ],
                 capture=False,
             )
@@ -277,9 +282,8 @@ def finalize_work() -> None:
             print(f"⚠️  Fetch warning: {e}")
 
         # 3. Identify Backup Candidates
-        # Find ALL refs that match: refs/heads/wip/pulsar/*/current_branch
-        # e.g. refs/heads/wip/pulsar/macbook/main, refs/heads/wip/pulsar/library/main
-        candidates = repo.list_refs(f"refs/heads/wip/pulsar/*/{working_branch}")
+        # Find ALL refs that match: refs/heads/{namespace}/*/current_branch
+        candidates = repo.list_refs(f"refs/heads/{BACKUP_NAMESPACE}/*/{working_branch}")
 
         if not candidates:
             print("❌ No backups found for this branch.")
@@ -290,8 +294,12 @@ def finalize_work() -> None:
             print(f"   • {c}")
 
         # 4. Checkout Main
-        print("-> Switching to main...")
-        repo.checkout("main")
+        target = "main"
+        if not repo.rev_parse("main") and repo.rev_parse("master"):
+            target = "master"
+
+        print(f"-> Switching to {target}...")
+        repo.checkout(target)
 
         # 5. Octopus Squash
         print("-> Collapsing backup streams...")
@@ -311,7 +319,7 @@ def finalize_work() -> None:
         # It continues to grow as a history log, or is abandoned if the branch dies.
 
         print("\n✅ Work finalized!")
-        print("   Your backup history remains in refs/wip/pulsar/...")
+        print(f"   Your backup history remains in refs/{BACKUP_NAMESPACE}/...")
 
     except Exception as e:
         print(f"\n❌ Error during finalize: {e}")
@@ -325,7 +333,7 @@ def prune_backups(days: int) -> None:
 
     print(f"🧹 Scanning for backups older than {days} days...")
 
-    refs = repo.list_refs("refs/heads/wip/pulsar/*")
+    refs = repo.list_refs(f"refs/heads/{BACKUP_NAMESPACE}/")
     deleted_count = 0
 
     for ref in refs:
