@@ -7,10 +7,12 @@ import subprocess
 import sys
 import time
 import tomllib
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
 from types import FrameType
+from typing import Iterator
 
 from . import ops
 from .constants import (
@@ -77,6 +79,19 @@ class Config:
 
 
 CONFIG = Config.load()
+
+
+@contextmanager
+def temporary_index(repo_path: Path) -> Iterator[dict[str, str]]:
+    """Context manager for isolated git index operations."""
+    temp_index = repo_path / ".git" / "pulsar_index"
+    env = os.environ.copy()
+    env["GIT_INDEX_FILE"] = str(temp_index)
+    try:
+        yield env
+    finally:
+        if temp_index.exists():
+            temp_index.unlink()
 
 
 def run_maintenance(repos: list[str]) -> None:
@@ -301,19 +316,14 @@ def run_backup(original_path_str: str, interactive: bool = False) -> None:
         repo = GitRepo(repo_path)
         current_branch = repo.current_branch()
         if not current_branch:
-            return  # Detached HEAD or weird state
+            return
 
-        # Construct Namespaced Ref: refs/heads/{namespace}/{machine_id}/{branch}
         machine_id = get_machine_id()
         namespace = CONFIG.core.backup_branch
         backup_ref = f"refs/heads/{namespace}/{machine_id}/{current_branch}"
 
         # 3. Isolation: Use a temporary index
-        temp_index = repo_path / ".git" / "pulsar_index"
-        env = os.environ.copy()
-        env["GIT_INDEX_FILE"] = str(temp_index)
-
-        try:
+        with temporary_index(repo_path) as env:
             # Stage current working directory into temp index
             repo._run(["add", "."], env=env)
 
@@ -350,11 +360,6 @@ def run_backup(original_path_str: str, interactive: bool = False) -> None:
             # 4. Push
             # Push specifically this ref
             _attempt_push(repo, f"{backup_ref}:{backup_ref}", interactive)
-
-        finally:
-            # Cleanup temp index
-            if temp_index.exists():
-                temp_index.unlink()
 
     except Exception as e:
         logger.critical(f"CRITICAL {repo_path.name}: {e}")
