@@ -438,8 +438,8 @@ def main(interactive: bool = False) -> None:
             signal.alarm(0)  # Disable alarm
         except TimeoutError:
             logger.warning(f"TIMEOUT {repo_str}: Skipped (possible stalled mount).")
-        except Exception as e:
-            logger.error(f"LOOP ERROR {repo_str}: {e}")
+        except Exception:
+            logger.exception(f"LOOP ERROR {repo_str}")
 
     # Run maintenance tasks (pruning)
     run_maintenance(repos)
