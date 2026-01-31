@@ -12,6 +12,7 @@ from logging.handlers import RotatingFileHandler
 from pathlib import Path
 from types import FrameType
 
+from . import ops
 from .constants import (
     APP_NAME,
     BACKUP_NAMESPACE,
@@ -76,6 +77,32 @@ class Config:
 
 
 CONFIG = Config.load()
+
+
+def run_maintenance(repos: list[str]) -> None:
+    """Checks if weekly maintenance (pruning) is due."""
+    # Use registry directory for state tracking
+    state_file = REGISTRY_FILE.parent / "last_prune"
+
+    # Check if 7 days have passed
+    if state_file.exists():
+        age = time.time() - state_file.stat().st_mtime
+        if age < 7 * 86400:
+            return
+
+    logger.info("MAINTENANCE: Running weekly prune (30d retention)...")
+
+    for repo_str in set(repos):
+        try:
+            ops.prune_backups(30, Path(repo_str))
+        except Exception as e:
+            logger.error(f"PRUNE ERROR {repo_str}: {e}")
+
+    # Update timestamp
+    try:
+        state_file.touch()
+    except OSError as e:
+        logger.error(f"MAINTENANCE ERROR: Could not update state file: {e}")
 
 
 def get_remote_host(repo_path: Path, remote_name: str) -> str | None:
@@ -380,6 +407,9 @@ def main(interactive: bool = False) -> None:
             logger.warning(f"TIMEOUT {repo_str}: Skipped (possible stalled mount).")
         except Exception as e:
             logger.error(f"LOOP ERROR {repo_str}: {e}")
+
+    # Run maintenance tasks (pruning)
+    run_maintenance(repos)
 
 
 if __name__ == "__main__":
