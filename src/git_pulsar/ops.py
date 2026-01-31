@@ -189,7 +189,7 @@ def sync_session() -> None:
         print("⚠️  Fetch warning: network might be down.")
 
     # 2. Find candidates
-    # Pattern: refs/heads/wip/pulsar/{machine}/{branch}
+    # Pattern: refs/heads/{namespace}/{machine}/{branch}
     candidates = repo.list_refs(f"refs/heads/{BACKUP_NAMESPACE}/*/{current_branch}")
 
     if not candidates:
@@ -282,8 +282,7 @@ def finalize_work() -> None:
             print(f"⚠️  Fetch warning: {e}")
 
         # 3. Identify Backup Candidates
-        # Find ALL refs that match: refs/heads/wip/pulsar/*/current_branch
-        # e.g. refs/heads/wip/pulsar/macbook/main, refs/heads/wip/pulsar/library/main
+        # Find ALL refs that match: refs/heads/{namespace}/*/current_branch
         candidates = repo.list_refs(f"refs/heads/{BACKUP_NAMESPACE}/*/{working_branch}")
 
         if not candidates:

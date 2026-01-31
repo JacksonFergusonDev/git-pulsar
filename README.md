@@ -15,7 +15,7 @@ It ensures that even if your laptop dies (or you forget to push before leaving t
 
 ## ⚡ Features
 
-* **👻 Ghost Mode (Shadow Commits):** Backups are stored in a hidden namespace (`refs/heads/wip/pulsar/...`). Your `git status`, `git branch`, and `git log` remain completely clean.
+* **👻 Ghost Mode (Shadow Commits):** Backups are stored in a configured namespace (default: `refs/heads/wip/pulsar/...`). Your `git status`, `git branch`, and `git log` remain completely clean.
 * **🌍 Roaming Profiles:** Hop between your laptop, desktop, and university lab computer. Pulsar tracks sessions per machine and lets you `sync` to pick up exactly where you left off.
 * **🛡 Zero-Interference:**
     * Uses a temporary index so it never messes up your partial `git add`.

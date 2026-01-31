@@ -335,7 +335,7 @@ def main() -> None:
     )
 
     subparsers.add_parser(
-        "finalize", help="Squash wip/pulsar into main and reset backup history"
+        "finalize", help="Squash backup stream into main and reset history"
     )
 
     subparsers.add_parser("pause", help="Suspend backups for current repo")

@@ -276,7 +276,7 @@ def run_backup(original_path_str: str, interactive: bool = False) -> None:
         if not current_branch:
             return  # Detached HEAD or weird state
 
-        # Construct Namespaced Ref: refs/heads/wip/pulsar/{machine_id}/{branch}
+        # Construct Namespaced Ref: refs/heads/{namespace}/{machine_id}/{branch}
         machine_id = get_machine_id()
         namespace = CONFIG.core.backup_branch
         backup_ref = f"refs/heads/{namespace}/{machine_id}/{current_branch}"

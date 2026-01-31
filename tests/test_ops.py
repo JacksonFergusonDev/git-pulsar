@@ -87,7 +87,7 @@ def test_restore_clean(mocker: MagicMock) -> None:
 
     ops.restore_file("script.py")
 
-    # Expect namespaced ref: refs/heads/wip/pulsar/test-unit/main
+    # Expect namespaced ref
     expected_ref = f"refs/heads/{BACKUP_NAMESPACE}/test-unit/main"
     mock_repo.checkout.assert_called_with(expected_ref, file="script.py")
 
