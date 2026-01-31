@@ -76,10 +76,11 @@ class GitRepo:
             return []
 
     def get_last_commit_time(self, branch: str) -> str:
-        try:
-            return self._run(["log", "-1", "--format=%cr", branch])
-        except Exception:
-            return "Never"
+        """
+        Returns relative time string (e.g. '2 hours ago').
+        Raises RuntimeError if branch doesn't exist or git fails.
+        """
+        return self._run(["log", "-1", "--format=%cr", branch])
 
     def rev_parse(self, rev: str) -> Optional[str]:
         """Resolves a revision to a full SHA-1."""

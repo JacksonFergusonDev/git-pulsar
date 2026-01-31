@@ -1,3 +1,4 @@
+import atexit
 import datetime
 import logging
 import os
@@ -7,10 +8,12 @@ import subprocess
 import sys
 import time
 import tomllib
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
 from types import FrameType
+from typing import Iterator
 
 from . import ops
 from .constants import (
@@ -19,6 +22,7 @@ from .constants import (
     CONFIG_FILE,
     GIT_LOCK_FILES,
     LOG_FILE,
+    PID_FILE,
     REGISTRY_FILE,
 )
 from .git_wrapper import GitRepo
@@ -70,13 +74,37 @@ class Config:
                     instance.limits = LimitsConfig(**data["limits"])
                 if "daemon" in data:
                     instance.daemon = DaemonConfig(**data["daemon"])
+
+            except tomllib.TOMLDecodeError as e:
+                print(
+                    f"❌ FATAL: Config syntax error in {CONFIG_FILE}:\n   {e}",
+                    file=sys.stderr,
+                )
+                sys.exit(1)
             except Exception as e:
-                print(f"Config Error: {e}", file=sys.stderr)
+                print(
+                    f"❌ Config Error: {e}",
+                    file=sys.stderr,
+                )
+                # We assume other errors might be recoverable or partial
 
         return instance
 
 
 CONFIG = Config.load()
+
+
+@contextmanager
+def temporary_index(repo_path: Path) -> Iterator[dict[str, str]]:
+    """Context manager for isolated git index operations."""
+    temp_index = repo_path / ".git" / "pulsar_index"
+    env = os.environ.copy()
+    env["GIT_INDEX_FILE"] = str(temp_index)
+    try:
+        yield env
+    finally:
+        if temp_index.exists():
+            temp_index.unlink()
 
 
 def run_maintenance(repos: list[str]) -> None:
@@ -301,19 +329,14 @@ def run_backup(original_path_str: str, interactive: bool = False) -> None:
         repo = GitRepo(repo_path)
         current_branch = repo.current_branch()
         if not current_branch:
-            return  # Detached HEAD or weird state
+            return
 
-        # Construct Namespaced Ref: refs/heads/{namespace}/{machine_id}/{branch}
         machine_id = get_machine_id()
         namespace = CONFIG.core.backup_branch
         backup_ref = f"refs/heads/{namespace}/{machine_id}/{current_branch}"
 
         # 3. Isolation: Use a temporary index
-        temp_index = repo_path / ".git" / "pulsar_index"
-        env = os.environ.copy()
-        env["GIT_INDEX_FILE"] = str(temp_index)
-
-        try:
+        with temporary_index(repo_path) as env:
             # Stage current working directory into temp index
             repo._run(["add", "."], env=env)
 
@@ -351,37 +374,35 @@ def run_backup(original_path_str: str, interactive: bool = False) -> None:
             # Push specifically this ref
             _attempt_push(repo, f"{backup_ref}:{backup_ref}", interactive)
 
-        finally:
-            # Cleanup temp index
-            if temp_index.exists():
-                temp_index.unlink()
-
     except Exception as e:
         logger.critical(f"CRITICAL {repo_path.name}: {e}")
 
 
-def main(interactive: bool = False) -> None:
-    # 1. Setup Logging Strategy
-    formatter = logging.Formatter("[%(asctime)s] %(message)s", "%Y-%m-%d %H:%M:%S")
+def setup_logging(interactive: bool) -> None:
+    formatter = logging.Formatter(
+        "[%(asctime)s] %(levelname)s: %(message)s", "%Y-%m-%d %H:%M:%S"
+    )
 
-    if interactive:
-        # Interactive Mode: Log to stdout only
-        handler = logging.StreamHandler(sys.stdout)
-        handler.setFormatter(formatter)
-        logger.addHandler(handler)
-    else:
-        # Daemon Mode: Log to File + Stderr (for systemd capture)
-        # File Handler (Rotating)
+    # Always log to stderr (captured by systemd/launchd)
+    stream_handler = logging.StreamHandler(
+        sys.stderr if not interactive else sys.stdout
+    )
+    stream_handler.setFormatter(formatter)
+    logger.addHandler(stream_handler)
+
+    if not interactive:
+        # In daemon mode, also rotate logs to file
         file_handler = RotatingFileHandler(
-            LOG_FILE, maxBytes=CONFIG.limits.max_log_size, backupCount=1
+            LOG_FILE,
+            maxBytes=CONFIG.limits.max_log_size,
+            backupCount=5,  # Increased from 1
         )
         file_handler.setFormatter(formatter)
         logger.addHandler(file_handler)
 
-        # Stderr Handler (Systemd/Launchd)
-        stderr_handler = logging.StreamHandler(sys.stderr)
-        stderr_handler.setFormatter(formatter)
-        logger.addHandler(stderr_handler)
+
+def main(interactive: bool = False) -> None:
+    setup_logging(interactive)
 
     if not REGISTRY_FILE.exists():
         if interactive:
@@ -397,6 +418,18 @@ def main(interactive: bool = False) -> None:
 
     signal.signal(signal.SIGALRM, timeout_handler)
 
+    # PID File Management
+    if not interactive:
+        # Write PID
+        try:
+            with open(PID_FILE, "w") as f:
+                f.write(str(os.getpid()))
+
+            # Register cleanup
+            atexit.register(lambda: PID_FILE.unlink(missing_ok=True))
+        except OSError as e:
+            logger.warning(f"Could not write PID file: {e}")
+
     for repo_str in set(repos):
         try:
             # 5 second timeout per repo to prevent hanging on network drives
@@ -405,8 +438,8 @@ def main(interactive: bool = False) -> None:
             signal.alarm(0)  # Disable alarm
         except TimeoutError:
             logger.warning(f"TIMEOUT {repo_str}: Skipped (possible stalled mount).")
-        except Exception as e:
-            logger.error(f"LOOP ERROR {repo_str}: {e}")
+        except Exception:
+            logger.exception(f"LOOP ERROR {repo_str}")
 
     # Run maintenance tasks (pruning)
     run_maintenance(repos)
