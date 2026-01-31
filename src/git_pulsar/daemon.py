@@ -72,8 +72,19 @@ class Config:
                     instance.limits = LimitsConfig(**data["limits"])
                 if "daemon" in data:
                     instance.daemon = DaemonConfig(**data["daemon"])
+
+            except tomllib.TOMLDecodeError as e:
+                print(
+                    f"❌ FATAL: Config syntax error in {CONFIG_FILE}:\n   {e}",
+                    file=sys.stderr,
+                )
+                sys.exit(1)
             except Exception as e:
-                print(f"Config Error: {e}", file=sys.stderr)
+                print(
+                    f"❌ Config Error: {e}",
+                    file=sys.stderr,
+                )
+                # We assume other errors might be recoverable or partial
 
         return instance
 
