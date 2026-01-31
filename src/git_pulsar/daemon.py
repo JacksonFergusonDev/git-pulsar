@@ -365,28 +365,31 @@ def run_backup(original_path_str: str, interactive: bool = False) -> None:
         logger.critical(f"CRITICAL {repo_path.name}: {e}")
 
 
-def main(interactive: bool = False) -> None:
-    # 1. Setup Logging Strategy
-    formatter = logging.Formatter("[%(asctime)s] %(message)s", "%Y-%m-%d %H:%M:%S")
+def setup_logging(interactive: bool) -> None:
+    formatter = logging.Formatter(
+        "[%(asctime)s] %(levelname)s: %(message)s", "%Y-%m-%d %H:%M:%S"
+    )
 
-    if interactive:
-        # Interactive Mode: Log to stdout only
-        handler = logging.StreamHandler(sys.stdout)
-        handler.setFormatter(formatter)
-        logger.addHandler(handler)
-    else:
-        # Daemon Mode: Log to File + Stderr (for systemd capture)
-        # File Handler (Rotating)
+    # Always log to stderr (captured by systemd/launchd)
+    stream_handler = logging.StreamHandler(
+        sys.stderr if not interactive else sys.stdout
+    )
+    stream_handler.setFormatter(formatter)
+    logger.addHandler(stream_handler)
+
+    if not interactive:
+        # In daemon mode, also rotate logs to file
         file_handler = RotatingFileHandler(
-            LOG_FILE, maxBytes=CONFIG.limits.max_log_size, backupCount=1
+            LOG_FILE,
+            maxBytes=CONFIG.limits.max_log_size,
+            backupCount=5,  # Increased from 1
         )
         file_handler.setFormatter(formatter)
         logger.addHandler(file_handler)
 
-        # Stderr Handler (Systemd/Launchd)
-        stderr_handler = logging.StreamHandler(sys.stderr)
-        stderr_handler.setFormatter(formatter)
-        logger.addHandler(stderr_handler)
+
+def main(interactive: bool = False) -> None:
+    setup_logging(interactive)
 
     if not REGISTRY_FILE.exists():
         if interactive:
