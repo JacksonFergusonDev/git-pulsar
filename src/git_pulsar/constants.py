@@ -4,7 +4,7 @@ from pathlib import Path
 # --- Identity ---
 APP_NAME = "git-pulsar"
 APP_LABEL = "com.jacksonferguson.gitpulsar"
-BACKUP_BRANCH = "wip/pulsar"
+BACKUP_NAMESPACE = "wip/pulsar"
 
 # --- Paths ---
 _XDG_STATE = os.environ.get("XDG_STATE_HOME")

@@ -14,6 +14,7 @@ from types import FrameType
 
 from .constants import (
     APP_NAME,
+    BACKUP_NAMESPACE,
     CONFIG_FILE,
     GIT_LOCK_FILES,
     LOG_FILE,
@@ -30,7 +31,7 @@ logger.setLevel(logging.INFO)
 
 @dataclass
 class CoreConfig:
-    backup_branch: str = "wip/pulsar"
+    backup_branch: str = BACKUP_NAMESPACE
     remote_name: str = "origin"
 
 
@@ -277,7 +278,8 @@ def run_backup(original_path_str: str, interactive: bool = False) -> None:
 
         # Construct Namespaced Ref: refs/heads/wip/pulsar/{machine_id}/{branch}
         machine_id = get_machine_id()
-        backup_ref = f"refs/heads/wip/pulsar/{machine_id}/{current_branch}"
+        namespace = CONFIG.core.backup_branch
+        backup_ref = f"refs/heads/{namespace}/{machine_id}/{current_branch}"
 
         # 3. Isolation: Use a temporary index
         temp_index = repo_path / ".git" / "pulsar_index"
