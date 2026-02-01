@@ -1,4 +1,5 @@
 import os
+import plistlib
 import socket
 import subprocess
 import sys
@@ -89,9 +90,44 @@ def get_machine_id_file() -> Path:
 def get_machine_id() -> str:
     """
     Returns the persistent machine ID.
-    Falls back to hostname if not configured (legacy behavior).
+    1. Checks config file (~/.config/git-pulsar/machine_id)
+    2. macOS: Falls back to hardware UUID (IOPlatformUUID)
+    3. macOS: Falls back to LocalHostName (scutil)
+    4. Others: Falls back to socket.gethostname() (Network Name)
     """
     id_file = get_machine_id_file()
     if id_file.exists():
         return id_file.read_text().strip()
-    return socket.gethostname()
+
+    if sys.platform == "darwin":
+        # Preferred: hardware UUID from IORegistry (IOPlatformUUID)
+        try:
+            xml = subprocess.check_output(
+                ["ioreg", "-c", "IOPlatformExpertDevice", "-d", "1", "-r", "-a"],
+                text=False,
+                timeout=1,
+            )
+            data = plistlib.loads(xml)
+            uuid = data[0].get("IOPlatformUUID")
+            if isinstance(uuid, str) and uuid.strip():
+                return uuid.strip()
+        except Exception:
+            pass
+
+        # Secondary: stable-ish local name
+        # This ignores the DNS name assigned by university networks.
+        try:
+            res = subprocess.run(
+                ["scutil", "--get", "LocalHostName"],
+                capture_output=True,
+                text=True,
+                timeout=1,
+            )
+            if res.returncode == 0 and res.stdout.strip():
+                return res.stdout.strip()
+        except Exception:
+            pass
+
+    # Last resort: Network hostname (can change on DHCP, e.g. w134-...)
+    name = socket.gethostname()
+    return name.split(".")[0]
