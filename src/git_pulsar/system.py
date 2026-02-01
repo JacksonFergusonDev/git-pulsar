@@ -91,14 +91,36 @@ def get_machine_id() -> str:
     """
     Returns the persistent machine ID.
     1. Checks config file (~/.config/git-pulsar/machine_id)
-    2. macOS: Falls back to hardware UUID (IOPlatformUUID)
-    3. macOS: Falls back to LocalHostName (scutil)
-    4. Others: Falls back to socket.gethostname() (Network Name)
+    2. Linux: /etc/machine-id (fallback: /var/lib/dbus/machine-id)
+    3. macOS: hardware UUID (IOPlatformUUID)
+    4. Others: socket.gethostname() (Network Name)
     """
     id_file = get_machine_id_file()
     if id_file.exists():
         return id_file.read_text().strip()
 
+    # Linux: systemd/dbus machine-id
+    if sys.platform.startswith("linux"):
+        for p in (Path("/etc/machine-id"), Path("/var/lib/dbus/machine-id")):
+            try:
+                if p.exists():
+                    mid = p.read_text().strip()
+                    if mid:
+                        return mid
+            except Exception:
+                pass
+
+        # Optional extra fallback: product_uuid (common on x86)
+        try:
+            p = Path("/sys/class/dmi/id/product_uuid")
+            if p.exists():
+                v = p.read_text().strip()
+                if v:
+                    return v
+        except Exception:
+            pass
+
+    # macOS: hardware UUID from IORegistry (IOPlatformUUID)
     if sys.platform == "darwin":
         # Preferred: hardware UUID from IORegistry (IOPlatformUUID)
         try:
@@ -115,7 +137,6 @@ def get_machine_id() -> str:
             pass
 
         # Secondary: stable-ish local name
-        # This ignores the DNS name assigned by university networks.
         try:
             res = subprocess.run(
                 ["scutil", "--get", "LocalHostName"],
@@ -128,6 +149,6 @@ def get_machine_id() -> str:
         except Exception:
             pass
 
-    # Last resort: Network hostname (can change on DHCP, e.g. w134-...)
+    # Generic fallback (not a true machine ID)
     name = socket.gethostname()
     return name.split(".")[0]
