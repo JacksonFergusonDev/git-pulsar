@@ -6,6 +6,7 @@ from pathlib import Path
 
 from rich.console import Console
 from rich.panel import Panel
+from rich.table import Table
 from rich.text import Text
 
 from . import daemon, ops, service
@@ -95,11 +96,13 @@ def show_diff() -> None:
 
 def list_repos() -> None:
     if not REGISTRY_FILE.exists():
-        print("📭 Registry is empty.")
+        console.print("[yellow]Registry is empty.[/yellow]")
         return
 
-    print(f"{'Repository':<50} {'Status':<12} {'Last Backup'}")
-    print("-" * 80)
+    table = Table(show_header=True, header_style="bold magenta")
+    table.add_column("Repository", style="cyan")
+    table.add_column("Status")
+    table.add_column("Last Backup", justify="right", style="dim")
 
     with open(REGISTRY_FILE, "r") as f:
         lines = [line.strip() for line in f if line.strip()]
@@ -108,41 +111,38 @@ def list_repos() -> None:
         path = Path(path_str)
         display_path = str(path).replace(str(Path.home()), "~")
 
-        # Truncate path for display
-        if len(display_path) > 48:
-            display_path = "..." + display_path[-45:]
-
-        status = "❓ Unknown"
+        status_text = "Unknown"
+        status_style = "white"
         last_backup = "-"
 
         if not path.exists():
-            status = "🔴 Missing"
+            status_text = "Missing"
+            status_style = "red"
         else:
             if (path / ".git" / "pulsar_paused").exists():
-                status = "⏸️  Paused"
+                status_text = "Paused"
+                status_style = "yellow"
             else:
-                status = "🟢 Active"
+                status_text = "Active"
+                status_style = "green"
 
-            # Try to read last backup time
             try:
                 r = GitRepo(path)
                 ref = _get_ref(r)
                 last_backup = r.get_last_commit_time(ref)
             except Exception:
-                # Distinguish between "Active but no backup" and "Broken"
-                # If GitRepo failed, it's a Repo Error.
-                # If get_last_commit_time failed, it might just be a fresh branch.
-                if status == "🟢 Active":
+                if status_text == "Active":
                     try:
-                        # Quick check if repo is actually valid
                         GitRepo(path)
                     except Exception:
-                        status = "🔴 Error"
+                        status_text = "Error"
+                        status_style = "bold red"
 
-                # If simply no backup exists yet, keep "-"
-                pass
+        table.add_row(
+            display_path, f"[{status_style}]{status_text}[/{status_style}]", last_backup
+        )
 
-        print(f"{display_path:<50} {status:<12} {last_backup}")
+    console.print(table)
 
 
 def unregister_repo() -> None:
