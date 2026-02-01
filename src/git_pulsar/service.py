@@ -3,16 +3,20 @@ import subprocess
 import sys
 from pathlib import Path
 
+from rich.console import Console
+
 from .constants import APP_LABEL, LOG_FILE
+
+console = Console()
 
 
 def get_executable() -> str:
     """Locates the installed daemon executable."""
     exe = shutil.which("git-pulsar-daemon")
     if not exe:
-        print(
-            "❌ Error: Could not find 'git-pulsar-daemon'. Ensure the package is "
-            "installed."
+        console.print(
+            "[bold red]❌ Error: Could not find 'git-pulsar-daemon'.[/bold red] "
+            "Ensure the package is installed."
         )
         sys.exit(1)
     return exe
@@ -21,59 +25,13 @@ def get_executable() -> str:
 def get_paths() -> tuple[Path, Path]:
     """Returns (service_file_path, log_path) based on OS."""
     home = Path.home()
-    if sys.platform == "darwin":
-        return (
-            home / f"Library/LaunchAgents/{APP_LABEL}.plist",
-            LOG_FILE,
-        )
-    elif sys.platform.startswith("linux"):
+    if sys.platform.startswith("linux"):
         return (
             home / f".config/systemd/user/{APP_LABEL}.service",
             LOG_FILE,
         )
-    else:
-        print(f"❌ OS {sys.platform} not supported for auto-scheduling yet.")
-        sys.exit(1)
 
-
-def install_macos(
-    plist_path: Path, log_path: Path, executable: str, interval: int
-) -> None:
-    content = f"""<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-    <key>Label</key>
-    <string>{APP_LABEL}</string>
-    <key>ProgramArguments</key>
-    <array>
-        <string>{executable}</string>
-    </array>
-    <key>StartInterval</key>
-    <integer>{interval}</integer>
-    <key>RunAtLoad</key>
-    <true/>
-    <key>StandardOutPath</key>
-    <string>{log_path}</string>
-    <key>StandardErrorPath</key>
-    <string>{log_path}</string>
-</dict>
-</plist>"""
-
-    plist_path.parent.mkdir(parents=True, exist_ok=True)
-    with open(plist_path, "w") as f:
-        f.write(content)
-
-    # 🔍 Validate the plist syntax before asking launchd to eat it
-    try:
-        subprocess.run(["plutil", "-lint", str(plist_path)], check=True)
-    except subprocess.CalledProcessError:
-        print(f"❌ Generated plist is invalid: {plist_path}")
-        sys.exit(1)
-
-    subprocess.run(["launchctl", "unload", str(plist_path)], stderr=subprocess.DEVNULL)
-    subprocess.run(["launchctl", "load", str(plist_path)], check=True)
-    print(f"✅ Pulsar background service active (macOS).\nLogs: {log_path}")
+    raise NotImplementedError("Service installation is managed by Homebrew on macOS.")
 
 
 def install_linux(
@@ -119,22 +77,34 @@ WantedBy=timers.target
 
 
 def install(interval: int = 900) -> None:
+    if sys.platform == "darwin":
+        console.print(
+            "\n[bold yellow]On macOS, the background service "
+            "is managed by Homebrew.[/bold yellow]"
+        )
+        console.print("To start the service, run:")
+        console.print("   [green]brew services start git-pulsar[/green]\n")
+        return
+
     exe = get_executable()
     path, log = get_paths()
 
-    print(f"Installing background service (interval: {interval}s)...")
-    if sys.platform == "darwin":
-        install_macos(path, log, exe, interval)
-    elif sys.platform.startswith("linux"):
+    console.print(f"Installing background service (interval: {interval}s)...")
+    if sys.platform.startswith("linux"):
         install_linux(path, log, exe, interval)
 
 
 def uninstall() -> None:
     path, _ = get_paths()
     if sys.platform == "darwin":
-        subprocess.run(["launchctl", "unload", str(path)], stderr=subprocess.DEVNULL)
-        if path.exists():
-            path.unlink()
+        console.print(
+            "\n[bold yellow]On macOS, the background service "
+            "is managed by Homebrew.[/bold yellow]"
+        )
+        console.print("To stop the service, run:")
+        console.print("   [green]brew services stop git-pulsar[/green]\n")
+        return
+
     elif sys.platform.startswith("linux"):
         timer_name = f"{APP_LABEL}.timer"
         subprocess.run(

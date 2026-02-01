@@ -10,7 +10,14 @@ from rich.table import Table
 from rich.text import Text
 
 from . import daemon, ops, service
-from .constants import APP_LABEL, DEFAULT_IGNORES, LOG_FILE, PID_FILE, REGISTRY_FILE
+from .constants import (
+    APP_LABEL,
+    DEFAULT_IGNORES,
+    HOMEBREW_LABEL,
+    LOG_FILE,
+    PID_FILE,
+    REGISTRY_FILE,
+)
 from .git_wrapper import GitRepo
 
 console = Console()
@@ -200,7 +207,8 @@ def run_doctor() -> None:
         is_running = False
         if sys.platform == "darwin":
             res = subprocess.run(["launchctl", "list"], capture_output=True, text=True)
-            is_running = APP_LABEL in res.stdout
+            # Check Homebrew label instead of internal label
+            is_running = HOMEBREW_LABEL in res.stdout
         elif sys.platform.startswith("linux"):
             res = subprocess.run(
                 ["systemctl", "--user", "is-active", f"{APP_LABEL}.timer"],

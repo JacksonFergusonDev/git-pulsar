@@ -1,4 +1,4 @@
-# 🔭 Git Pulsar (v0.12.0)
+# 🔭 Git Pulsar (v0.12.1)
 
 [![Tests](https://github.com/jacksonfergusondev/git-pulsar/actions/workflows/ci.yml/badge.svg)](https://github.com/jacksonfergusondev/git-pulsar/actions)
 [![Python 3.12+](https://img.shields.io/badge/python-3.12+-blue.svg)](https://www.python.org/downloads/)
@@ -45,8 +45,8 @@ This bootstraps the current directory with:
 
 ## 📦 Installation
 
-### macOS (Recommended)
-Install via Homebrew to handle the background service registration automatically.
+### macOS
+Install via Homebrew. This automatically manages the background service.
 
 ```bash
 brew tap jacksonfergusondev/tap
@@ -55,11 +55,12 @@ brew services start git-pulsar
 ```
 
 ### Linux / Generic
-Install via `uv` (or `pipx`) and register the systemd timer.
+Install via `uv` (or `pipx`) and use the built-in service manager to register the systemd timer.
 
 ```bash
 uv tool install git-pulsar
-git pulsar install-service --interval 300  # Check every 5 mins (default: 15m)
+# This generates and enables a systemd user timer
+git pulsar install-service --interval 300
 ```
 
 ---
