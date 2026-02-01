@@ -281,21 +281,22 @@ def finalize_work() -> None:
     working_branch = repo.current_branch()
 
     try:
-        # 2. Sync with Remote (Anti-Race + Backup Aggregation)
-        print("-> Syncing with origin...")
-        try:
-            # Fetch main AND all pulsar backups to ensure we see 'library' work
-            repo._run(["fetch", "origin", "main"], capture=False)
-            repo._run(
-                [
-                    "fetch",
-                    "origin",
-                    f"refs/heads/{BACKUP_NAMESPACE}/*:refs/heads/{BACKUP_NAMESPACE}/*",
-                ],
-                capture=False,
-            )
-        except Exception as e:
-            print(f"⚠️  Fetch warning: {e}")
+        # 2. Sync with Remote
+        with console.status(
+            "[bold blue]Syncing with origin...[/bold blue]", spinner="dots"
+        ):
+            try:
+                repo._run(["fetch", "origin", "main"], capture=True)
+                repo._run(
+                    [
+                        "fetch",
+                        "origin",
+                        f"refs/heads/{BACKUP_NAMESPACE}/*:refs/heads/{BACKUP_NAMESPACE}/*",
+                    ],
+                    capture=True,
+                )
+            except Exception as e:
+                console.print(f"[yellow]⚠️  Fetch warning: {e}[/yellow]")
 
         # 3. Identify Backup Candidates
         # Find ALL refs that match: refs/heads/{namespace}/*/current_branch
@@ -318,13 +319,18 @@ def finalize_work() -> None:
         repo.checkout(target)
 
         # 5. Octopus Squash
-        print("-> Collapsing backup streams...")
-        try:
-            repo.merge_squash(*candidates)
-        except RuntimeError:
-            print("⚠️  Merge conflicts detected. Please resolve them, then commit.")
-            # We exit here to let the user resolve conflicts manually
-            sys.exit(0)
+        with console.status(
+            f"[bold blue]Collapsing {len(candidates)} backup streams...[/bold blue]",
+            spinner="dots",
+        ):
+            try:
+                repo.merge_squash(*candidates)
+            except RuntimeError:
+                console.print(
+                    "[bold red]⚠️  Merge conflicts detected. Please resolve "
+                    "them, then commit.[/bold red]"
+                )
+                sys.exit(0)
 
         # 5. Commit (Interactive)
         print("-> Committing (opens editor)...")
