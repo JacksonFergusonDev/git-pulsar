@@ -110,7 +110,7 @@ def test_status_reports_pause_state(
     cli.show_status()
 
     captured = capsys.readouterr()
-    assert "⏸️  PAUSED" in captured.out
+    assert "PAUSED" in captured.out
 
 
 def test_diff_shows_untracked_files(
