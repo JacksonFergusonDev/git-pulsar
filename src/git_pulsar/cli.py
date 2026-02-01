@@ -409,7 +409,9 @@ def main() -> None:
 
     # 2. Handle Subcommands
     if args.command == "install-service":
-        service.install(interval=args.interval)
+        with console.status("Installing background service...", spinner="dots"):
+            service.install(interval=args.interval)
+        console.print("[bold green]✔ Service installed.[/bold green]")
         return
     elif args.command == "help":
         parser.print_help()
@@ -418,7 +420,9 @@ def main() -> None:
         unregister_repo()
         return
     elif args.command == "sync":
-        ops.sync_session()
+        with console.status("Syncing with latest session...", spinner="dots"):
+            ops.sync_session()
+        console.print("[bold green]✔ Sync complete.[/bold green]")
         return
     elif args.command == "doctor":
         run_doctor()
@@ -427,10 +431,13 @@ def main() -> None:
         add_ignore_cli(args.pattern)
         return
     elif args.command == "prune":
-        ops.prune_backups(args.days)
+        with console.status("Pruning old backup refs...", spinner="dots"):
+            ops.prune_backups(args.days)
         return
     elif args.command == "uninstall-service":
-        service.uninstall()
+        with console.status("Uninstalling service...", spinner="dots"):
+            service.uninstall()
+        console.print("[bold green]✔ Service uninstalled.[/bold green]")
         return
     elif args.command == "now":
         daemon.main(interactive=True)
@@ -439,7 +446,8 @@ def main() -> None:
         ops.restore_file(args.path, args.force)
         return
     elif args.command == "finalize":
-        ops.finalize_work()
+        with console.status("Finalizing work (squashing backups)...", spinner="dots"):
+            ops.finalize_work()
         return
     elif args.command == "pause":
         set_pause_state(True)
