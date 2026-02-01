@@ -4,9 +4,15 @@ import subprocess
 import sys
 from pathlib import Path
 
+from rich.console import Console
+from rich.panel import Panel
+from rich.text import Text
+
 from . import daemon, ops, service
 from .constants import APP_LABEL, DEFAULT_IGNORES, LOG_FILE, PID_FILE, REGISTRY_FILE
 from .git_wrapper import GitRepo
+
+console = Console()
 
 
 def _get_ref(repo: GitRepo) -> str:
@@ -16,48 +22,55 @@ def _get_ref(repo: GitRepo) -> str:
 
 def show_status() -> None:
     # 1. Daemon Health
-    print("--- 🩺 System Status ---")
     is_running = False
     if PID_FILE.exists():
         try:
             with open(PID_FILE, "r") as f:
                 pid = int(f.read().strip())
-            # signal 0 is a no-op that checks if process exists
             os.kill(pid, 0)
             is_running = True
         except (ValueError, OSError):
-            # PID file stale or process dead
             is_running = False
 
-    state_icon = "🟢 Running" if is_running else "🔴 Stopped"
-    print(f"Daemon: {state_icon}")
+    status_style = "bold green" if is_running else "bold red"
+    status_text = "Active" if is_running else "Stopped"
+
+    system_content = Text()
+    system_content.append("Daemon: ", style="bold")
+    system_content.append(status_text, style=status_style)
+
+    # Usage: console (instance), not Console (class)
+    console.print(Panel(system_content, title="System Status", expand=False))
 
     # 2. Repo Status (if we are in one)
     if Path(".git").exists():
-        print("\n--- 📂 Repository Status ---")
         repo = GitRepo(Path.cwd())
-
-        # Last Backup Time
         ref = _get_ref(repo)
+
         try:
             time_str = repo.get_last_commit_time(ref)
         except Exception:
             time_str = "None (No backup found)"
-        print(f"Last Backup: {time_str}")
 
-        # Pending Changes
         count = len(repo.status_porcelain())
-        print(f"Pending:     {count} files changed")
+        is_paused = (Path(".git") / "pulsar_paused").exists()
 
-        if (Path(".git") / "pulsar_paused").exists():
-            print("Mode:        ⏸️  PAUSED")
+        repo_content = Text()
+        repo_content.append(f"Last Backup: {time_str}\n")
+        repo_content.append(f"Pending:     {count} files changed\n")
+
+        if is_paused:
+            repo_content.append("Mode:        PAUSED", style="bold yellow")
+        else:
+            repo_content.append("Mode:        Active", style="green")
+
+        console.print(Panel(repo_content, title="Repository Status", expand=False))
 
     # 3. Global Summary (if not in a repo)
-    else:
-        if REGISTRY_FILE.exists():
-            with open(REGISTRY_FILE) as f:
-                count = len([line for line in f if line.strip()])
-            print(f"\nwatching {count} repositories.")
+    elif REGISTRY_FILE.exists():
+        with open(REGISTRY_FILE) as f:
+            count = len([line for line in f if line.strip()])
+        console.print(f"[dim]Watching {count} repositories.[/dim]")
 
 
 def show_diff() -> None:
