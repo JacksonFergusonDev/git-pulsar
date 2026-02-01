@@ -4,9 +4,16 @@ import subprocess
 import sys
 from pathlib import Path
 
+from rich.console import Console
+from rich.panel import Panel
+from rich.table import Table
+from rich.text import Text
+
 from . import daemon, ops, service
 from .constants import APP_LABEL, DEFAULT_IGNORES, LOG_FILE, PID_FILE, REGISTRY_FILE
 from .git_wrapper import GitRepo
+
+console = Console()
 
 
 def _get_ref(repo: GitRepo) -> str:
@@ -16,53 +23,60 @@ def _get_ref(repo: GitRepo) -> str:
 
 def show_status() -> None:
     # 1. Daemon Health
-    print("--- 🩺 System Status ---")
     is_running = False
     if PID_FILE.exists():
         try:
             with open(PID_FILE, "r") as f:
                 pid = int(f.read().strip())
-            # signal 0 is a no-op that checks if process exists
             os.kill(pid, 0)
             is_running = True
         except (ValueError, OSError):
-            # PID file stale or process dead
             is_running = False
 
-    state_icon = "🟢 Running" if is_running else "🔴 Stopped"
-    print(f"Daemon: {state_icon}")
+    status_style = "bold green" if is_running else "bold red"
+    status_text = "Active" if is_running else "Stopped"
+
+    system_content = Text()
+    system_content.append("Daemon: ", style="bold")
+    system_content.append(status_text, style=status_style)
+
+    # Usage: console (instance), not Console (class)
+    console.print(Panel(system_content, title="System Status", expand=False))
 
     # 2. Repo Status (if we are in one)
     if Path(".git").exists():
-        print("\n--- 📂 Repository Status ---")
         repo = GitRepo(Path.cwd())
-
-        # Last Backup Time
         ref = _get_ref(repo)
+
         try:
             time_str = repo.get_last_commit_time(ref)
         except Exception:
             time_str = "None (No backup found)"
-        print(f"Last Backup: {time_str}")
 
-        # Pending Changes
         count = len(repo.status_porcelain())
-        print(f"Pending:     {count} files changed")
+        is_paused = (Path(".git") / "pulsar_paused").exists()
 
-        if (Path(".git") / "pulsar_paused").exists():
-            print("Mode:        ⏸️  PAUSED")
+        repo_content = Text()
+        repo_content.append(f"Last Backup: {time_str}\n")
+        repo_content.append(f"Pending:     {count} files changed\n")
+
+        if is_paused:
+            repo_content.append("Mode:        PAUSED", style="bold yellow")
+        else:
+            repo_content.append("Mode:        Active", style="green")
+
+        console.print(Panel(repo_content, title="Repository Status", expand=False))
 
     # 3. Global Summary (if not in a repo)
-    else:
-        if REGISTRY_FILE.exists():
-            with open(REGISTRY_FILE) as f:
-                count = len([line for line in f if line.strip()])
-            print(f"\nwatching {count} repositories.")
+    elif REGISTRY_FILE.exists():
+        with open(REGISTRY_FILE) as f:
+            count = len([line for line in f if line.strip()])
+        console.print(f"[dim]Watching {count} repositories.[/dim]")
 
 
 def show_diff() -> None:
     if not Path(".git").exists():
-        print("❌ Not a git repository.")
+        console.print("[bold red]Not a git repository.[/bold red]")
         sys.exit(1)
 
     repo = GitRepo(Path.cwd())
@@ -70,23 +84,25 @@ def show_diff() -> None:
     # 1. Standard Diff (tracked files)
     ref = _get_ref(repo)
 
-    print(f"🔍 Diff vs {ref}:\n")
+    console.print(f"[bold]Diff vs {ref}:[/bold]\n")
     repo.run_diff(ref)
 
     # 2. Untracked Files
     if untracked := repo.get_untracked_files():
-        print("\n🌱 Untracked (New) Files:")
+        console.print("\n[bold green]Untracked (New) Files:[/bold green]")
         for line in untracked:
-            print(f"   + {line}")
+            console.print(f"   + {line}", style="green")
 
 
 def list_repos() -> None:
     if not REGISTRY_FILE.exists():
-        print("📭 Registry is empty.")
+        console.print("[yellow]Registry is empty.[/yellow]")
         return
 
-    print(f"{'Repository':<50} {'Status':<12} {'Last Backup'}")
-    print("-" * 80)
+    table = Table(show_header=True, header_style="bold magenta")
+    table.add_column("Repository", style="cyan")
+    table.add_column("Status")
+    table.add_column("Last Backup", justify="right", style="dim")
 
     with open(REGISTRY_FILE, "r") as f:
         lines = [line.strip() for line in f if line.strip()]
@@ -95,165 +111,178 @@ def list_repos() -> None:
         path = Path(path_str)
         display_path = str(path).replace(str(Path.home()), "~")
 
-        # Truncate path for display
-        if len(display_path) > 48:
-            display_path = "..." + display_path[-45:]
-
-        status = "❓ Unknown"
+        status_text = "Unknown"
+        status_style = "white"
         last_backup = "-"
 
         if not path.exists():
-            status = "🔴 Missing"
+            status_text = "Missing"
+            status_style = "red"
         else:
             if (path / ".git" / "pulsar_paused").exists():
-                status = "⏸️  Paused"
+                status_text = "Paused"
+                status_style = "yellow"
             else:
-                status = "🟢 Active"
+                status_text = "Active"
+                status_style = "green"
 
-            # Try to read last backup time
             try:
                 r = GitRepo(path)
                 ref = _get_ref(r)
                 last_backup = r.get_last_commit_time(ref)
             except Exception:
-                # Distinguish between "Active but no backup" and "Broken"
-                # If GitRepo failed, it's a Repo Error.
-                # If get_last_commit_time failed, it might just be a fresh branch.
-                if status == "🟢 Active":
+                if status_text == "Active":
                     try:
-                        # Quick check if repo is actually valid
                         GitRepo(path)
                     except Exception:
-                        status = "🔴 Error"
+                        status_text = "Error"
+                        status_style = "bold red"
 
-                # If simply no backup exists yet, keep "-"
-                pass
+        table.add_row(
+            display_path, f"[{status_style}]{status_text}[/{status_style}]", last_backup
+        )
 
-        print(f"{display_path:<50} {status:<12} {last_backup}")
+    console.print(table)
 
 
 def unregister_repo() -> None:
     cwd = str(Path.cwd())
     if not REGISTRY_FILE.exists():
-        print("📭 Registry is empty.")
+        console.print("Registry is empty.", style="yellow")
         return
 
     with open(REGISTRY_FILE, "r") as f:
         lines = [line.strip() for line in f if line.strip()]
 
     if cwd not in lines:
-        print(f"⚠️  Current path not registered: {cwd}")
+        console.print(
+            f"Current path not registered: [cyan]{cwd}[/cyan]", style="yellow"
+        )
         return
 
     with open(REGISTRY_FILE, "w") as f:
         for line in lines:
             if line != cwd:
                 f.write(f"{line}\n")
-    print(f"✅ Unregistered: {cwd}")
+    console.print(f"✔ Unregistered: [cyan]{cwd}[/cyan]", style="green")
 
 
 def run_doctor() -> None:
-    print("🚑 Pulsar Doctor\n")
+    console.print("[bold]Pulsar Doctor[/bold]\n")
 
     # 1. Registry Hygiene
-    print("1. Checking Registry...")
-    if not REGISTRY_FILE.exists():
-        print("   • Registry empty.")
-    else:
-        with open(REGISTRY_FILE, "r") as f:
-            lines = [line.strip() for line in f if line.strip()]
-
-        valid_lines = []
-        fixed = False
-        for line in lines:
-            if Path(line).exists():
-                valid_lines.append(line)
-            else:
-                print(f"   ❌ Removing ghost entry: {line}")
-                fixed = True
-
-        if fixed:
-            with open(REGISTRY_FILE, "w") as f:
-                f.write("\n".join(valid_lines) + "\n")
-            print("   ✅ Registry cleaned.")
+    with console.status("[bold blue]Checking Registry...", spinner="dots"):
+        if not REGISTRY_FILE.exists():
+            console.print("   [green]✔ Registry empty/clean.[/green]")
         else:
-            print("   ✅ Registry healthy.")
+            with open(REGISTRY_FILE, "r") as f:
+                lines = [line.strip() for line in f if line.strip()]
+
+            valid_lines = []
+            fixed = False
+            for line in lines:
+                if Path(line).exists():
+                    valid_lines.append(line)
+                else:
+                    fixed = True
+
+            if fixed:
+                with open(REGISTRY_FILE, "w") as f:
+                    f.write("\n".join(valid_lines) + "\n")
+                console.print(
+                    "   [green]✔ Registry cleaned (ghost entries removed).[/green]"
+                )
+            else:
+                console.print("   [green]✔ Registry healthy.[/green]")
 
     # 2. Daemon Status
-    print("\n2. Checking Daemon...")
-    is_running = False
-    if sys.platform == "darwin":
-        res = subprocess.run(["launchctl", "list"], capture_output=True, text=True)
-        is_running = APP_LABEL in res.stdout
-    elif sys.platform.startswith("linux"):
-        res = subprocess.run(
-            ["systemctl", "--user", "is-active", f"{APP_LABEL}.timer"],
-            capture_output=True,
-            text=True,
-        )
-        is_running = res.stdout.strip() == "active"
+    with console.status("[bold blue]Checking Daemon...", spinner="dots"):
+        is_running = False
+        if sys.platform == "darwin":
+            res = subprocess.run(["launchctl", "list"], capture_output=True, text=True)
+            is_running = APP_LABEL in res.stdout
+        elif sys.platform.startswith("linux"):
+            res = subprocess.run(
+                ["systemctl", "--user", "is-active", f"{APP_LABEL}.timer"],
+                capture_output=True,
+                text=True,
+            )
+            is_running = res.stdout.strip() == "active"
 
-    if is_running:
-        print("   ✅ Daemon is active.")
-    else:
-        print("   🔴 Daemon is STOPPED. Run 'git pulsar install-service'.")
+        if is_running:
+            console.print("   [green]✔ Daemon is active.[/green]")
+        else:
+            console.print(
+                "   [red]✘ Daemon is STOPPED.[/red] Run 'git pulsar install-service'."
+            )
 
     # 3. Connectivity
-    print("\n3. Checking Connectivity...")
-    try:
-        # Simple ssh hello to github (returns status 1 but prints success message)
-        res = subprocess.run(
-            ["ssh", "-T", "git@github.com"], capture_output=True, text=True, timeout=5
-        )
-        if "successfully authenticated" in res.stderr:
-            print("   ✅ GitHub SSH connection successful.")
-        else:
-            print("   ⚠️  GitHub SSH check didn't return standard greeting.")
-    except Exception as e:
-        print(f"   ❌ SSH Check failed: {e}")
+    with console.status("[bold blue]Checking Connectivity...", spinner="dots"):
+        try:
+            res = subprocess.run(
+                ["ssh", "-T", "git@github.com"],
+                capture_output=True,
+                text=True,
+                timeout=5,
+            )
+            if "successfully authenticated" in res.stderr:
+                console.print("   [green]✔ GitHub SSH connection successful.[/green]")
+            else:
+                console.print(
+                    "   [yellow]⚠ GitHub SSH check returned "
+                    "unexpected response.[/yellow]"
+                )
+
+        except Exception as e:
+            console.print(f"   [red]✘ SSH Check failed: {e}[/red]")
 
 
 def add_ignore_cli(pattern: str) -> None:
     if not Path(".git").exists():
-        print("❌ Not a git repository.")
+        console.print("[bold red]Not a git repository.[/bold red]")
         return
     ops.add_ignore(pattern)
 
 
 def tail_log() -> None:
     if not LOG_FILE.exists():
-        print(f"❌ No log file found yet at {LOG_FILE}.")
+        console.print(f"[red]No log file found yet at {LOG_FILE}.[/red]")
         return
 
-    print(f"📜 Tailing {LOG_FILE} (Ctrl+C to stop)...")
+    console.print(f"Tailing [bold cyan]{LOG_FILE}[/bold cyan] (Ctrl+C to stop)...")
     try:
         subprocess.run(["tail", "-f", str(LOG_FILE)])
     except KeyboardInterrupt:
-        print("\nStopped.")
+        console.print("\nStopped.", style="dim")
 
 
 def set_pause_state(paused: bool) -> None:
     if not Path(".git").exists():
-        print("❌ Not a git repository.")
+        console.print("[bold red]Not a git repository.[/bold red]")
         sys.exit(1)
 
     pause_file = Path(".git/pulsar_paused")
     if paused:
         pause_file.touch()
-        print("⏸️  Pulsar paused. Backups suspended for this repo.")
+        console.print(
+            "Pulsar paused. Backups suspended for this repo.", style="bold yellow"
+        )
     else:
         if pause_file.exists():
             pause_file.unlink()
-        print("▶️  Pulsar resumed. Backups active.")
+        console.print("Pulsar resumed. Backups active.", style="bold green")
 
 
 def setup_repo(registry_path: Path = REGISTRY_FILE) -> None:
     cwd = Path.cwd()
-    print(f"🔭 Git Pulsar: activating for {cwd.name}...")
+    # Removed incorrect "Not a git repository" print here
 
     # 1. Ensure it's a git repo
     if not (cwd / ".git").exists():
-        print(f"Initializing git in {cwd}...")
+        console.print(
+            f"[bold blue]Git Pulsar:[/bold blue] activating "
+            f"for [cyan]{cwd.name}[/cyan]..."
+        )
         subprocess.run(["git", "init"], check=True)
 
     repo = GitRepo(cwd)
@@ -262,25 +291,29 @@ def setup_repo(registry_path: Path = REGISTRY_FILE) -> None:
     gitignore = cwd / ".gitignore"
 
     if not gitignore.exists():
-        print("Creating basic .gitignore...")
+        console.print("[dim]Creating basic .gitignore...[/dim]")
         with open(gitignore, "w") as f:
             f.write("\n".join(DEFAULT_IGNORES) + "\n")
     else:
-        print("Existing .gitignore found. Checking for missing defaults...")
+        console.print(
+            "Existing .gitignore found. Checking for missing defaults...", style="dim"
+        )
         with open(gitignore, "r") as f:
             existing_content = f.read()
 
         missing_defaults = [d for d in DEFAULT_IGNORES if d not in existing_content]
 
         if missing_defaults:
-            print(f"Appending {len(missing_defaults)} missing ignores...")
+            console.print(
+                f"Appending {len(missing_defaults)} missing ignores...", style="dim"
+            )
             with open(gitignore, "a") as f:
                 f.write("\n" + "\n".join(missing_defaults) + "\n")
         else:
-            print("All defaults present.")
+            console.print("All defaults present.", style="dim")
 
     # 3. Add to Registry
-    print("Registering path...")
+    console.print("Registering path...", style="dim")
     if not registry_path.exists():
         registry_path.touch()
 
@@ -288,22 +321,22 @@ def setup_repo(registry_path: Path = REGISTRY_FILE) -> None:
         content = f.read()
         if str(cwd) not in content:
             f.write(f"{cwd}\n")
-            print(f"Registered: {cwd}")
+            console.print(f"Registered: [cyan]{cwd}[/cyan]", style="green")
         else:
-            print("Already registered.")
+            console.print("Already registered.", style="dim")
 
-    print("\n✅ Pulsar Active.")
+    console.print("\n[bold green]✔ Pulsar Active.[/bold green]")
 
     try:
-        # Check if we can verify credentials (only if remote exists)
         remotes = repo._run(["remote"])
         if remotes:
-            print("Verifying git access...")
+            console.print("Verifying git access...", style="dim")
             repo._run(["push", "--dry-run"], capture=False)
     except Exception:
-        print(
-            "⚠️  WARNING: Git push failed. Ensure you have SSH keys set up or "
-            "credentials cached."
+        console.print(
+            "⚠ WARNING: Git push failed. Ensure you have "
+            "SSH keys set up or credentials cached.",
+            style="bold yellow",
         )
 
 
@@ -376,7 +409,9 @@ def main() -> None:
 
     # 2. Handle Subcommands
     if args.command == "install-service":
-        service.install(interval=args.interval)
+        with console.status("Installing background service...", spinner="dots"):
+            service.install(interval=args.interval)
+        console.print("[bold green]✔ Service installed.[/bold green]")
         return
     elif args.command == "help":
         parser.print_help()
@@ -385,7 +420,9 @@ def main() -> None:
         unregister_repo()
         return
     elif args.command == "sync":
-        ops.sync_session()
+        with console.status("Syncing with latest session...", spinner="dots"):
+            ops.sync_session()
+        console.print("[bold green]✔ Sync complete.[/bold green]")
         return
     elif args.command == "doctor":
         run_doctor()
@@ -394,10 +431,13 @@ def main() -> None:
         add_ignore_cli(args.pattern)
         return
     elif args.command == "prune":
-        ops.prune_backups(args.days)
+        with console.status("Pruning old backup refs...", spinner="dots"):
+            ops.prune_backups(args.days)
         return
     elif args.command == "uninstall-service":
-        service.uninstall()
+        with console.status("Uninstalling service...", spinner="dots"):
+            service.uninstall()
+        console.print("[bold green]✔ Service uninstalled.[/bold green]")
         return
     elif args.command == "now":
         daemon.main(interactive=True)
@@ -406,7 +446,8 @@ def main() -> None:
         ops.restore_file(args.path, args.force)
         return
     elif args.command == "finalize":
-        ops.finalize_work()
+        with console.status("Finalizing work (squashing backups)...", spinner="dots"):
+            ops.finalize_work()
         return
     elif args.command == "pause":
         set_pause_state(True)

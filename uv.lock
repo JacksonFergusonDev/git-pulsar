@@ -200,8 +200,11 @@ wheels = [
 
 [[package]]
 name = "git-pulsar"
-version = "0.11.0"
+version = "0.12.0"
 source = { editable = "." }
+dependencies = [
+    { name = "rich" },
+]
 
 [package.dev-dependencies]
 dev = [
@@ -217,6 +220,7 @@ dev = [
 ]
 
 [package.metadata]
+requires-dist = [{ name = "rich", specifier = ">=14.2.0" }]
 
 [package.metadata.requires-dev]
 dev = [
