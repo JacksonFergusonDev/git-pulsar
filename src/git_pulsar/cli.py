@@ -330,6 +330,50 @@ def run_doctor() -> None:
         except Exception as e:
             console.print(f"   [red]✘ SSH Check failed: {e}[/red]")
 
+    # 4. Diagnostics (Logs & Freshness)
+    console.print("\n[bold]Diagnostics[/bold]")
+
+    # A. Check Logs
+    recent_errors = _analyze_logs(hours=24)
+    if recent_errors:
+        console.print(
+            f"   [red]✘ Found {len(recent_errors)} errors in the last 24h:[/red]"
+        )
+        for err in recent_errors[-3:]:  # Show last 3
+            console.print(f"     [dim]{err}[/dim]")
+        if len(recent_errors) > 3:
+            console.print("     ... (run 'git pulsar log' to see full history)")
+    else:
+        console.print("   [green]✔ Recent logs are clean.[/green]")
+
+    # B. Check Repos (Pulse Check)
+    with console.status("[bold blue]Checking Repository Health...", spinner="dots"):
+        if REGISTRY_FILE.exists():
+            with open(REGISTRY_FILE, "r") as f:
+                paths = [Path(line.strip()) for line in f if line.strip()]
+
+            issues = []
+            for p in paths:
+                if p.exists():
+                    if problem := _check_repo_health(p):
+                        issues.append(f"{p.name}: {problem}")
+
+            if issues:
+                console.print(
+                    f"   [yellow]⚠ Found {len(issues)} stalled repository(s):[/yellow]"
+                )
+                for issue in issues:
+                    console.print(f"     - {issue}")
+                console.print(
+                    "     [dim](Check if daemon is running or "
+                    "if files are too large)[/dim]"
+                )
+            else:
+                console.print(
+                    "   [green]✔ All repositories are healthy "
+                    "(clean or backed up).[/green]"
+                )
+
 
 def add_ignore_cli(pattern: str) -> None:
     if not Path(".git").exists():
