@@ -4,6 +4,7 @@ from pathlib import Path
 # --- Identity ---
 APP_NAME = "git-pulsar"
 APP_LABEL = "com.jacksonferguson.gitpulsar"
+HOMEBREW_LABEL = "homebrew.mxcl.git-pulsar"
 BACKUP_NAMESPACE = "wip/pulsar"
 
 # --- Paths ---
