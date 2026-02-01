@@ -7,9 +7,13 @@ import textwrap
 import time
 from pathlib import Path
 
+from rich.console import Console
+
 from .constants import BACKUP_NAMESPACE
 from .git_wrapper import GitRepo
 from .system import get_machine_id, get_machine_id_file
+
+console = Console()
 
 
 def get_backup_ref(branch: str) -> str:
