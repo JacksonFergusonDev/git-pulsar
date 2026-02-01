@@ -148,21 +148,23 @@ def list_repos() -> None:
 def unregister_repo() -> None:
     cwd = str(Path.cwd())
     if not REGISTRY_FILE.exists():
-        print("📭 Registry is empty.")
+        console.print("Registry is empty.", style="yellow")
         return
 
     with open(REGISTRY_FILE, "r") as f:
         lines = [line.strip() for line in f if line.strip()]
 
     if cwd not in lines:
-        print(f"⚠️  Current path not registered: {cwd}")
+        console.print(
+            f"Current path not registered: [cyan]{cwd}[/cyan]", style="yellow"
+        )
         return
 
     with open(REGISTRY_FILE, "w") as f:
         for line in lines:
             if line != cwd:
                 f.write(f"{line}\n")
-    print(f"✅ Unregistered: {cwd}")
+    console.print(f"✔ Unregistered: [cyan]{cwd}[/cyan]", style="green")
 
 
 def run_doctor() -> None:
@@ -271,7 +273,7 @@ def set_pause_state(paused: bool) -> None:
 
 def setup_repo(registry_path: Path = REGISTRY_FILE) -> None:
     cwd = Path.cwd()
-    console.print("[bold red]Not a git repository.[/bold red]")
+    # Removed incorrect "Not a git repository" print here
 
     # 1. Ensure it's a git repo
     if not (cwd / ".git").exists():
@@ -291,21 +293,25 @@ def setup_repo(registry_path: Path = REGISTRY_FILE) -> None:
         with open(gitignore, "w") as f:
             f.write("\n".join(DEFAULT_IGNORES) + "\n")
     else:
-        print("Existing .gitignore found. Checking for missing defaults...")
+        console.print(
+            "Existing .gitignore found. Checking for missing defaults...", style="dim"
+        )
         with open(gitignore, "r") as f:
             existing_content = f.read()
 
         missing_defaults = [d for d in DEFAULT_IGNORES if d not in existing_content]
 
         if missing_defaults:
-            print(f"Appending {len(missing_defaults)} missing ignores...")
+            console.print(
+                f"Appending {len(missing_defaults)} missing ignores...", style="dim"
+            )
             with open(gitignore, "a") as f:
                 f.write("\n" + "\n".join(missing_defaults) + "\n")
         else:
-            print("All defaults present.")
+            console.print("All defaults present.", style="dim")
 
     # 3. Add to Registry
-    print("Registering path...")
+    console.print("Registering path...", style="dim")
     if not registry_path.exists():
         registry_path.touch()
 
@@ -313,22 +319,22 @@ def setup_repo(registry_path: Path = REGISTRY_FILE) -> None:
         content = f.read()
         if str(cwd) not in content:
             f.write(f"{cwd}\n")
-            print(f"Registered: {cwd}")
+            console.print(f"Registered: [cyan]{cwd}[/cyan]", style="green")
         else:
-            print("Already registered.")
+            console.print("Already registered.", style="dim")
 
-    print("\n✅ Pulsar Active.")
+    console.print("\n[bold green]✔ Pulsar Active.[/bold green]")
 
     try:
-        # Check if we can verify credentials (only if remote exists)
         remotes = repo._run(["remote"])
         if remotes:
-            print("Verifying git access...")
+            console.print("Verifying git access...", style="dim")
             repo._run(["push", "--dry-run"], capture=False)
     except Exception:
-        print(
-            "⚠️  WARNING: Git push failed. Ensure you have SSH keys set up or "
-            "credentials cached."
+        console.print(
+            "⚠ WARNING: Git push failed. Ensure you have "
+            "SSH keys set up or credentials cached.",
+            style="bold yellow",
         )
 
 
