@@ -372,10 +372,14 @@ def prune_backups(days: int, repo_path: Path | None = None) -> None:
             continue
 
     if deleted_count == 0:
-        print("✨ No stale backups found.")
+        console.print("[dim]✨ No stale backups found.[/dim]")
     else:
-        print(f"💀 Dropped {deleted_count} stale refs. Running git gc...")
-        repo._run(["gc", "--auto"], capture=False)
+        console.print(f"[bold red]💀 Dropped {deleted_count} stale refs.[/bold red]")
+        with console.status(
+            "[bold blue]Running garbage collection (git gc)...[/bold blue]",
+            spinner="dots",
+        ):
+            repo._run(["gc", "--auto"], capture=True)
 
 
 def add_ignore(pattern: str) -> None:
