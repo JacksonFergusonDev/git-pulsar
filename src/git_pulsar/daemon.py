@@ -15,6 +15,8 @@ from pathlib import Path
 from types import FrameType
 from typing import Iterator
 
+from rich.console import Console
+
 from . import ops
 from .constants import (
     APP_NAME,
@@ -303,12 +305,26 @@ def _attempt_push(repo: GitRepo, refspec: str, interactive: bool) -> None:
     try:
         env = os.environ.copy()
         env["GIT_SSH_COMMAND"] = "ssh -o BatchMode=yes"
+        cmd = ["push", remote_name, refspec]
 
-        # Push specific refspec
-        repo._run(["push", remote_name, refspec], capture=False, env=env)
-        logger.info(f"SUCCESS {repo.path.name}: Pushed.")
+        if interactive:
+            console = Console()
+            with console.status(
+                f"[bold blue]Pushing {repo.path.name}...[/bold blue]", spinner="dots"
+            ):
+                # capture=True suppresses the "Enumerating objects..." wall of text
+                repo._run(cmd, capture=True, env=env)
+            console.print(f"[bold green]✔ {repo.path.name}: Pushed.[/bold green]")
+        else:
+            # Background mode: log to file/stderr
+            repo._run(cmd, capture=True, env=env)
+            logger.info(f"SUCCESS {repo.path.name}: Pushed.")
+
     except Exception as e:
-        logger.error(f"PUSH ERROR {repo.path.name}: {e}")
+        if interactive:
+            Console().print(f"[bold red]✘ PUSH ERROR {repo.path.name}: {e}[/bold red]")
+        else:
+            logger.error(f"PUSH ERROR {repo.path.name}: {e}")
 
 
 def run_backup(original_path_str: str, interactive: bool = False) -> None:

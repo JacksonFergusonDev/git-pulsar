@@ -7,9 +7,14 @@ import textwrap
 import time
 from pathlib import Path
 
+from rich.console import Console
+from rich.panel import Panel
+
 from .constants import BACKUP_NAMESPACE
 from .git_wrapper import GitRepo
 from .system import get_machine_id, get_machine_id_file
+
+console = Console()
 
 
 def get_backup_ref(branch: str) -> str:
@@ -173,20 +178,25 @@ def sync_session() -> None:
     repo = GitRepo(Path.cwd())
     current_branch = repo.current_branch()
 
-    print(f"📡 Scanning for latest session on '{current_branch}'...")
-
     # 1. Fetch everything (all machines)
-    try:
-        repo._run(
-            [
-                "fetch",
-                "origin",
-                f"refs/heads/{BACKUP_NAMESPACE}/*:refs/heads/{BACKUP_NAMESPACE}/*",
-            ],
-            capture=False,
-        )
-    except Exception:
-        print("⚠️  Fetch warning: network might be down.")
+    with console.status(
+        f"[bold blue]Scanning for session on '{current_branch}'...[/bold blue]",
+        spinner="dots",
+    ):
+        try:
+            repo._run(
+                [
+                    "fetch",
+                    "origin",
+                    f"refs/heads/{BACKUP_NAMESPACE}/*:refs/heads/{BACKUP_NAMESPACE}/*",
+                ],
+                capture=True,  # <--- Changed to True to keep spinner clean
+            )
+        except Exception:
+            console.print(
+                "[yellow]⚠️  Fetch warning: network might be down "
+                "(checking local cache).[/yellow]"
+            )
 
     # 2. Find candidates
     # Pattern: refs/heads/{namespace}/{machine}/{branch}
@@ -220,9 +230,15 @@ def sync_session() -> None:
     machine_name = latest_ref.split("/")[-2]
     human_time = repo._run(["log", "-1", "--format=%cr", latest_ref])
 
-    print("\n🎯 Found latest session:")
-    print(f"   • Source: {machine_name}")
-    print(f"   • Time:   {human_time}")
+    # Replace plain print with a Panel
+    console.print(
+        Panel(
+            f"[bold]Source:[/bold] {machine_name}\n[bold]Time:[/bold]   {human_time}",
+            title="🎯 Latest Session Found",
+            border_style="green",
+            expand=False,
+        )
+    )
 
     # Check if this IS our current state (approx)
     local_tree = repo.write_tree()  # Current worktree state
@@ -265,21 +281,22 @@ def finalize_work() -> None:
     working_branch = repo.current_branch()
 
     try:
-        # 2. Sync with Remote (Anti-Race + Backup Aggregation)
-        print("-> Syncing with origin...")
-        try:
-            # Fetch main AND all pulsar backups to ensure we see 'library' work
-            repo._run(["fetch", "origin", "main"], capture=False)
-            repo._run(
-                [
-                    "fetch",
-                    "origin",
-                    f"refs/heads/{BACKUP_NAMESPACE}/*:refs/heads/{BACKUP_NAMESPACE}/*",
-                ],
-                capture=False,
-            )
-        except Exception as e:
-            print(f"⚠️  Fetch warning: {e}")
+        # 2. Sync with Remote
+        with console.status(
+            "[bold blue]Syncing with origin...[/bold blue]", spinner="dots"
+        ):
+            try:
+                repo._run(["fetch", "origin", "main"], capture=True)
+                repo._run(
+                    [
+                        "fetch",
+                        "origin",
+                        f"refs/heads/{BACKUP_NAMESPACE}/*:refs/heads/{BACKUP_NAMESPACE}/*",
+                    ],
+                    capture=True,
+                )
+            except Exception as e:
+                console.print(f"[yellow]⚠️  Fetch warning: {e}[/yellow]")
 
         # 3. Identify Backup Candidates
         # Find ALL refs that match: refs/heads/{namespace}/*/current_branch
@@ -302,13 +319,18 @@ def finalize_work() -> None:
         repo.checkout(target)
 
         # 5. Octopus Squash
-        print("-> Collapsing backup streams...")
-        try:
-            repo.merge_squash(*candidates)
-        except RuntimeError:
-            print("⚠️  Merge conflicts detected. Please resolve them, then commit.")
-            # We exit here to let the user resolve conflicts manually
-            sys.exit(0)
+        with console.status(
+            f"[bold blue]Collapsing {len(candidates)} backup streams...[/bold blue]",
+            spinner="dots",
+        ):
+            try:
+                repo.merge_squash(*candidates)
+            except RuntimeError:
+                console.print(
+                    "[bold red]⚠️  Merge conflicts detected. Please resolve "
+                    "them, then commit.[/bold red]"
+                )
+                sys.exit(0)
 
         # 5. Commit (Interactive)
         print("-> Committing (opens editor)...")
@@ -350,10 +372,14 @@ def prune_backups(days: int, repo_path: Path | None = None) -> None:
             continue
 
     if deleted_count == 0:
-        print("✨ No stale backups found.")
+        console.print("[dim]✨ No stale backups found.[/dim]")
     else:
-        print(f"💀 Dropped {deleted_count} stale refs. Running git gc...")
-        repo._run(["gc", "--auto"], capture=False)
+        console.print(f"[bold red]💀 Dropped {deleted_count} stale refs.[/bold red]")
+        with console.status(
+            "[bold blue]Running garbage collection (git gc)...[/bold blue]",
+            spinner="dots",
+        ):
+            repo._run(["gc", "--auto"], capture=True)
 
 
 def add_ignore(pattern: str) -> None:

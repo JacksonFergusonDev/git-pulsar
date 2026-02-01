@@ -143,7 +143,7 @@ def test_sync_session_success(mocker: MagicMock) -> None:
             "origin",
             f"refs/heads/{BACKUP_NAMESPACE}/*:refs/heads/{BACKUP_NAMESPACE}/*",
         ],
-        capture=False,
+        capture=True,
     )
 
     # Verify we checked out the Desktop ref (newer)
@@ -178,7 +178,7 @@ def test_finalize_octopus_merge(mocker: MagicMock) -> None:
             "origin",
             f"refs/heads/{BACKUP_NAMESPACE}/*:refs/heads/{BACKUP_NAMESPACE}/*",
         ],
-        capture=False,
+        capture=True,
     )
 
     # 2. Verify Octopus Merge
