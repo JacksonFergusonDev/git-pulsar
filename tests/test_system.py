@@ -41,29 +41,24 @@ def test_get_machine_id_darwin_fallback(mocker: MagicMock) -> None:
     assert system.get_machine_id() == "MyMac"
 
 
-def test_get_machine_id_linux(tmp_path: Path, mocker: MagicMock) -> None:
+def test_get_machine_id_linux(mocker: MagicMock) -> None:
     """Should read from /etc/machine-id on Linux."""
     mocker.patch("sys.platform", "linux")
     mocker.patch("git_pulsar.system.get_machine_id_file", return_value=Path("/no/file"))
 
-    real_path = Path
+    mock_path_cls = mocker.patch("git_pulsar.system.Path")
 
-    def side_effect_path(args: str) -> Path:
-        if str(args) == "/etc/machine-id":
-            f = tmp_path / "machine-id"
-            f.write_text("linux-id-123")
-            return f
-        return real_path(args)
+    def side_effect(path_arg: str) -> MagicMock:
+        mock_obj = MagicMock()
+        # Mock behavior only for the specific Linux ID file
+        if str(path_arg) == "/etc/machine-id":
+            mock_obj.exists.return_value = True
+            mock_obj.read_text.return_value = "linux-id-123"
+        else:
+            mock_obj.exists.return_value = False
+        return mock_obj
 
-    mocker.patch(
-        "pathlib.Path.exists", side_effect=lambda self: str(self) == "/etc/machine-id"
-    )
-    mocker.patch(
-        "pathlib.Path.read_text",
-        side_effect=lambda self: "linux-id-123"
-        if str(self) == "/etc/machine-id"
-        else "",
-    )
+    mock_path_cls.side_effect = side_effect
 
     assert system.get_machine_id() == "linux-id-123"
 
