@@ -1,7 +1,9 @@
 import argparse
+import datetime
 import os
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 from rich.console import Console
@@ -41,6 +43,78 @@ def _is_service_enabled() -> bool:
         )
         return res.stdout.strip() == "active"
     return False
+
+
+def _analyze_logs(hours: int = 24) -> list[str]:
+    """Scans the daemon log for errors occurred in the last N hours."""
+    if not LOG_FILE.exists():
+        return []
+
+    errors = []
+    threshold = datetime.datetime.now() - datetime.timedelta(hours=hours)
+
+    try:
+        # Read last 50KB to catch recent context
+        file_size = LOG_FILE.stat().st_size
+        read_size = min(file_size, 50 * 1024)
+
+        with open(LOG_FILE, "r") as f:
+            if file_size > read_size:
+                f.seek(file_size - read_size)
+            lines = f.readlines()
+
+        for line in lines:
+            if "ERROR" in line or "CRITICAL" in line:
+                # Try to parse timestamp [YYYY-MM-DD HH:MM:SS]
+                # If parsing fails, we assume it's a related traceback line
+                try:
+                    if line.startswith("["):
+                        ts_str = line[1:20]
+                        line_dt = datetime.datetime.strptime(
+                            ts_str, "%Y-%m-%d %H:%M:%S"
+                        )
+                        if line_dt < threshold:
+                            continue  # Skip old errors
+                    errors.append(line.strip())
+                except ValueError:
+                    pass
+    except Exception:
+        pass  # Fail silently on log read errors
+
+    return errors
+
+
+def _check_repo_health(path: Path) -> str | None:
+    """Returns a warning if a repo has changes but hasn't been backed up recently."""
+    try:
+        repo = GitRepo(path)
+        # 1. Ignored if paused
+        if (path / ".git" / "pulsar_paused").exists():
+            return None
+
+        # 2. Healthy if clean (nothing to backup)
+        if not repo.status_porcelain():
+            return None
+
+        # 3. Check backup freshness
+        ref = _get_ref(repo)
+        try:
+            # Get raw unix timestamp of the backup ref
+            ts_str = repo._run(["log", "-1", "--format=%ct", ref])
+            last_backup_ts = int(ts_str.strip())
+        except Exception:
+            return "Has changes, but NO backup found."
+
+        # 4. Stale Threshold (e.g., 2 hours)
+        # If it's dirty and hasn't been backed up in 2 hours,
+        # the daemon might be stuck/failing
+        if time.time() - last_backup_ts > 7200:
+            return "Stalled: Changes pending > 2 hours."
+
+    except Exception:
+        return "Unable to verify git status."
+
+    return None
 
 
 def show_status() -> None:
