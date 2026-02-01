@@ -76,7 +76,7 @@ def show_status() -> None:
 
 def show_diff() -> None:
     if not Path(".git").exists():
-        print("❌ Not a git repository.")
+        console.print("[bold red]Not a git repository.[/bold red]")
         sys.exit(1)
 
     repo = GitRepo(Path.cwd())
@@ -84,14 +84,14 @@ def show_diff() -> None:
     # 1. Standard Diff (tracked files)
     ref = _get_ref(repo)
 
-    print(f"🔍 Diff vs {ref}:\n")
+    console.print(f"[bold]Diff vs {ref}:[/bold]\n")
     repo.run_diff(ref)
 
     # 2. Untracked Files
     if untracked := repo.get_untracked_files():
-        print("\n🌱 Untracked (New) Files:")
+        console.print("\n[bold green]Untracked (New) Files:[/bold green]")
         for line in untracked:
-            print(f"   + {line}")
+            console.print(f"   + {line}", style="green")
 
 
 def list_repos() -> None:
@@ -237,7 +237,7 @@ def run_doctor() -> None:
 
 def add_ignore_cli(pattern: str) -> None:
     if not Path(".git").exists():
-        print("❌ Not a git repository.")
+        console.print("[bold red]Not a git repository.[/bold red]")
         return
     ops.add_ignore(pattern)
 
@@ -256,7 +256,7 @@ def tail_log() -> None:
 
 def set_pause_state(paused: bool) -> None:
     if not Path(".git").exists():
-        print("❌ Not a git repository.")
+        console.print("[bold red]Not a git repository.[/bold red]")
         sys.exit(1)
 
     pause_file = Path(".git/pulsar_paused")
@@ -271,11 +271,14 @@ def set_pause_state(paused: bool) -> None:
 
 def setup_repo(registry_path: Path = REGISTRY_FILE) -> None:
     cwd = Path.cwd()
-    print(f"🔭 Git Pulsar: activating for {cwd.name}...")
+    console.print("[bold red]Not a git repository.[/bold red]")
 
     # 1. Ensure it's a git repo
     if not (cwd / ".git").exists():
-        print(f"Initializing git in {cwd}...")
+        console.print(
+            f"[bold blue]Git Pulsar:[/bold blue] activating "
+            f"for [cyan]{cwd.name}[/cyan]..."
+        )
         subprocess.run(["git", "init"], check=True)
 
     repo = GitRepo(cwd)
@@ -284,7 +287,7 @@ def setup_repo(registry_path: Path = REGISTRY_FILE) -> None:
     gitignore = cwd / ".gitignore"
 
     if not gitignore.exists():
-        print("Creating basic .gitignore...")
+        console.print("[dim]Creating basic .gitignore...[/dim]")
         with open(gitignore, "w") as f:
             f.write("\n".join(DEFAULT_IGNORES) + "\n")
     else:
