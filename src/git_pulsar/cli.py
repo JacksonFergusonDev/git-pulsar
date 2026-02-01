@@ -410,7 +410,7 @@ def tail_log() -> None:
 
     console.print(f"Tailing [bold cyan]{LOG_FILE}[/bold cyan] (Ctrl+C to stop)...")
     try:
-        subprocess.run(["tail", "-f", str(LOG_FILE)])
+        subprocess.run(["tail", "-n", "1000", "-f", str(LOG_FILE)])
     except KeyboardInterrupt:
         console.print("\nStopped.", style="dim")
 
