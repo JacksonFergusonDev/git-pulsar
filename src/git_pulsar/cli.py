@@ -1,7 +1,9 @@
 import argparse
+import datetime
 import os
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 from rich.console import Console
@@ -28,31 +30,149 @@ def _get_ref(repo: GitRepo) -> str:
     return ops.get_backup_ref(repo.current_branch())
 
 
+def _is_service_enabled() -> bool:
+    """Checks if the system service (launchd/systemd) is loaded/active."""
+    if sys.platform == "darwin":
+        res = subprocess.run(["launchctl", "list"], capture_output=True, text=True)
+        return HOMEBREW_LABEL in res.stdout
+    elif sys.platform.startswith("linux"):
+        res = subprocess.run(
+            ["systemctl", "--user", "is-active", f"{APP_LABEL}.timer"],
+            capture_output=True,
+            text=True,
+        )
+        return res.stdout.strip() == "active"
+    return False
+
+
+def _analyze_logs(hours: int = 24) -> list[str]:
+    """Scans the daemon log for errors occurred in the last N hours."""
+    if not LOG_FILE.exists():
+        return []
+
+    errors = []
+    threshold = datetime.datetime.now() - datetime.timedelta(hours=hours)
+
+    try:
+        # Read last 50KB to catch recent context
+        file_size = LOG_FILE.stat().st_size
+        read_size = min(file_size, 50 * 1024)
+
+        with open(LOG_FILE, "r") as f:
+            if file_size > read_size:
+                f.seek(file_size - read_size)
+            lines = f.readlines()
+
+        for line in lines:
+            if "ERROR" in line or "CRITICAL" in line:
+                # Try to parse timestamp [YYYY-MM-DD HH:MM:SS]
+                # If parsing fails, we assume it's a related traceback line
+                try:
+                    if line.startswith("["):
+                        ts_str = line[1:20]
+                        line_dt = datetime.datetime.strptime(
+                            ts_str, "%Y-%m-%d %H:%M:%S"
+                        )
+                        if line_dt < threshold:
+                            continue  # Skip old errors
+                    errors.append(line.strip())
+                except ValueError:
+                    pass
+    except Exception:
+        pass  # Fail silently on log read errors
+
+    return errors
+
+
+def _check_repo_health(path: Path) -> str | None:
+    """Returns a warning if a repo has changes but hasn't been backed up recently."""
+    try:
+        repo = GitRepo(path)
+        # 1. Ignored if paused
+        if (path / ".git" / "pulsar_paused").exists():
+            return None
+
+        # 2. Healthy if clean (nothing to backup)
+        if not repo.status_porcelain():
+            return None
+
+        # 3. Check backup freshness
+        ref = _get_ref(repo)
+        try:
+            # Get raw unix timestamp of the backup ref
+            ts_str = repo._run(["log", "-1", "--format=%ct", ref])
+            last_backup_ts = int(ts_str.strip())
+        except Exception:
+            return "Has changes, but NO backup found."
+
+        # 4. Stale Threshold (e.g., 2 hours)
+        # If it's dirty and hasn't been backed up in 2 hours,
+        # the daemon might be stuck/failing
+        if time.time() - last_backup_ts > 7200:
+            return "Stalled: Changes pending > 2 hours."
+
+    except Exception:
+        return "Unable to verify git status."
+
+    return None
+
+
 def show_status() -> None:
     # 1. Daemon Health
-    is_running = False
+    pid_running = False
     if PID_FILE.exists():
         try:
             with open(PID_FILE, "r") as f:
                 pid = int(f.read().strip())
             os.kill(pid, 0)
-            is_running = True
+            pid_running = True
         except (ValueError, OSError):
-            is_running = False
+            pid_running = False
 
-    status_style = "bold green" if is_running else "bold red"
-    status_text = "Active" if is_running else "Stopped"
+    # Check if service is scheduled/enabled
+    service_enabled = _is_service_enabled()
+
+    if pid_running:
+        status_text = "Active (Running)"
+        status_style = "bold green"
+    elif service_enabled:
+        status_text = "Active (Idle)"
+        status_style = "green"
+    else:
+        status_text = "Stopped"
+        status_style = "bold red"
 
     system_content = Text()
     system_content.append("Daemon: ", style="bold")
     system_content.append(status_text, style=status_style)
 
-    # Usage: console (instance), not Console (class)
     console.print(Panel(system_content, title="System Status", expand=False))
 
     # 2. Repo Status (if we are in one)
     if Path(".git").exists():
-        repo = GitRepo(Path.cwd())
+        cwd = Path.cwd()
+
+        # Check if registered
+        is_registered = False
+        if REGISTRY_FILE.exists():
+            with open(REGISTRY_FILE, "r") as f:
+                registered = {line.strip() for line in f if line.strip()}
+            if str(cwd) in registered:
+                is_registered = True
+
+        if not is_registered:
+            console.print(
+                Panel(
+                    "This repository is not tracked by Git Pulsar.\n"
+                    "Run [bold cyan]git pulsar[/bold cyan] to enable backups.",
+                    title="Repository Status",
+                    expand=False,
+                    border_style="yellow",
+                )
+            )
+            return
+
+        repo = GitRepo(cwd)
         ref = _get_ref(repo)
 
         try:
@@ -61,7 +181,7 @@ def show_status() -> None:
             time_str = "None (No backup found)"
 
         count = len(repo.status_porcelain())
-        is_paused = (Path(".git") / "pulsar_paused").exists()
+        is_paused = (cwd / ".git" / "pulsar_paused").exists()
 
         repo_content = Text()
         repo_content.append(f"Last Backup: {time_str}\n")
@@ -204,20 +324,7 @@ def run_doctor() -> None:
 
     # 2. Daemon Status
     with console.status("[bold blue]Checking Daemon...", spinner="dots"):
-        is_running = False
-        if sys.platform == "darwin":
-            res = subprocess.run(["launchctl", "list"], capture_output=True, text=True)
-            # Check Homebrew label instead of internal label
-            is_running = HOMEBREW_LABEL in res.stdout
-        elif sys.platform.startswith("linux"):
-            res = subprocess.run(
-                ["systemctl", "--user", "is-active", f"{APP_LABEL}.timer"],
-                capture_output=True,
-                text=True,
-            )
-            is_running = res.stdout.strip() == "active"
-
-        if is_running:
+        if _is_service_enabled():
             console.print("   [green]✔ Daemon is active.[/green]")
         else:
             console.print(
@@ -244,6 +351,50 @@ def run_doctor() -> None:
         except Exception as e:
             console.print(f"   [red]✘ SSH Check failed: {e}[/red]")
 
+    # 4. Diagnostics (Logs & Freshness)
+    console.print("\n[bold]Diagnostics[/bold]")
+
+    # A. Check Logs
+    recent_errors = _analyze_logs(hours=24)
+    if recent_errors:
+        console.print(
+            f"   [red]✘ Found {len(recent_errors)} errors in the last 24h:[/red]"
+        )
+        for err in recent_errors[-3:]:  # Show last 3
+            console.print(f"     [dim]{err}[/dim]")
+        if len(recent_errors) > 3:
+            console.print("     ... (run 'git pulsar log' to see full history)")
+    else:
+        console.print("   [green]✔ Recent logs are clean.[/green]")
+
+    # B. Check Repos (Pulse Check)
+    with console.status("[bold blue]Checking Repository Health...", spinner="dots"):
+        if REGISTRY_FILE.exists():
+            with open(REGISTRY_FILE, "r") as f:
+                paths = [Path(line.strip()) for line in f if line.strip()]
+
+            issues = []
+            for p in paths:
+                if p.exists():
+                    if problem := _check_repo_health(p):
+                        issues.append(f"{p.name}: {problem}")
+
+            if issues:
+                console.print(
+                    f"   [yellow]⚠ Found {len(issues)} stalled repository(s):[/yellow]"
+                )
+                for issue in issues:
+                    console.print(f"     - {issue}")
+                console.print(
+                    "     [dim](Check if daemon is running or "
+                    "if files are too large)[/dim]"
+                )
+            else:
+                console.print(
+                    "   [green]✔ All repositories are healthy "
+                    "(clean or backed up).[/green]"
+                )
+
 
 def add_ignore_cli(pattern: str) -> None:
     if not Path(".git").exists():
@@ -259,7 +410,7 @@ def tail_log() -> None:
 
     console.print(f"Tailing [bold cyan]{LOG_FILE}[/bold cyan] (Ctrl+C to stop)...")
     try:
-        subprocess.run(["tail", "-f", str(LOG_FILE)])
+        subprocess.run(["tail", "-n", "1000", "-f", str(LOG_FILE)])
     except KeyboardInterrupt:
         console.print("\nStopped.", style="dim")
 

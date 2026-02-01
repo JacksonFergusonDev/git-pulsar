@@ -1,3 +1,4 @@
+import datetime
 import subprocess
 import sys
 from pathlib import Path
@@ -98,6 +99,11 @@ def test_status_reports_pause_state(
     (tmp_path / ".git" / "pulsar_paused").touch()
     monkeypatch.chdir(tmp_path)
 
+    # Register the repo so status checks proceed
+    registry = tmp_path / "registry_mock"
+    registry.write_text(str(tmp_path))
+    mocker.patch("git_pulsar.cli.REGISTRY_FILE", registry)
+
     # Mock GitRepo
     mock_cls = mocker.patch("git_pulsar.cli.GitRepo")
     mock_repo = mock_cls.return_value
@@ -105,12 +111,65 @@ def test_status_reports_pause_state(
     mock_repo.status_porcelain.return_value = []
 
     # Mock systemctl/launchctl check
-    mocker.patch("subprocess.run")
+    mocker.patch("git_pulsar.cli._is_service_enabled", return_value=True)
 
     cli.show_status()
 
     captured = capsys.readouterr()
     assert "PAUSED" in captured.out
+
+
+def test_status_reports_idle(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture,
+    mocker: MagicMock,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Ensure status reports 'Active (Idle)' when service is on but process is dead."""
+    (tmp_path / ".git").mkdir()
+    monkeypatch.chdir(tmp_path)
+
+    # Register
+    registry = tmp_path / "registry_mock"
+    registry.write_text(str(tmp_path))
+    mocker.patch("git_pulsar.cli.REGISTRY_FILE", registry)
+
+    mock_cls = mocker.patch("git_pulsar.cli.GitRepo")
+    mock_repo = mock_cls.return_value
+    mock_repo.status_porcelain.return_value = []
+
+    # Service ON, PID OFF
+    mocker.patch("git_pulsar.cli._is_service_enabled", return_value=True)
+    mocker.patch("git_pulsar.cli.PID_FILE", Path("/non/existent"))
+
+    cli.show_status()
+
+    captured = capsys.readouterr()
+    assert "Active (Idle)" in captured.out
+
+
+def test_doctor_detects_log_errors(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture,
+    mocker: MagicMock,
+) -> None:
+    """Ensure doctor finds recent errors in the log."""
+    log_file = tmp_path / "daemon.log"
+
+    # Create a log with a recent error
+    now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    log_content = f"[{now}] CRITICAL Something exploded\n"
+    log_file.write_text(log_content)
+
+    mocker.patch("git_pulsar.cli.LOG_FILE", log_file)
+    mocker.patch("git_pulsar.cli._is_service_enabled", return_value=True)
+    mocker.patch("git_pulsar.cli.REGISTRY_FILE", tmp_path / "empty_registry")
+
+    cli.run_doctor()
+
+    captured = capsys.readouterr()
+    assert "Found 1 errors" in captured.out
+    assert "CRITICAL Something exploded" in captured.out
 
 
 def test_diff_shows_untracked_files(

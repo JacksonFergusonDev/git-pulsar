@@ -1,4 +1,5 @@
 import os
+import plistlib
 import socket
 import subprocess
 import sys
@@ -89,9 +90,65 @@ def get_machine_id_file() -> Path:
 def get_machine_id() -> str:
     """
     Returns the persistent machine ID.
-    Falls back to hostname if not configured (legacy behavior).
+    1. Checks config file (~/.config/git-pulsar/machine_id)
+    2. Linux: /etc/machine-id (fallback: /var/lib/dbus/machine-id)
+    3. macOS: hardware UUID (IOPlatformUUID)
+    4. Others: socket.gethostname() (Network Name)
     """
     id_file = get_machine_id_file()
     if id_file.exists():
         return id_file.read_text().strip()
-    return socket.gethostname()
+
+    # Linux: systemd/dbus machine-id
+    if sys.platform.startswith("linux"):
+        for p in (Path("/etc/machine-id"), Path("/var/lib/dbus/machine-id")):
+            try:
+                if p.exists():
+                    mid = p.read_text().strip()
+                    if mid:
+                        return mid
+            except Exception:
+                pass
+
+        # Optional extra fallback: product_uuid (common on x86)
+        try:
+            p = Path("/sys/class/dmi/id/product_uuid")
+            if p.exists():
+                v = p.read_text().strip()
+                if v:
+                    return v
+        except Exception:
+            pass
+
+    # macOS: hardware UUID from IORegistry (IOPlatformUUID)
+    if sys.platform == "darwin":
+        # Preferred: hardware UUID from IORegistry (IOPlatformUUID)
+        try:
+            xml = subprocess.check_output(
+                ["ioreg", "-c", "IOPlatformExpertDevice", "-d", "1", "-r", "-a"],
+                text=False,
+                timeout=1,
+            )
+            data = plistlib.loads(xml)
+            uuid = data[0].get("IOPlatformUUID")
+            if isinstance(uuid, str) and uuid.strip():
+                return uuid.strip()
+        except Exception:
+            pass
+
+        # Secondary: stable-ish local name
+        try:
+            res = subprocess.run(
+                ["scutil", "--get", "LocalHostName"],
+                capture_output=True,
+                text=True,
+                timeout=1,
+            )
+            if res.returncode == 0 and res.stdout.strip():
+                return res.stdout.strip()
+        except Exception:
+            pass
+
+    # Generic fallback (not a true machine ID)
+    name = socket.gethostname()
+    return name.split(".")[0]
