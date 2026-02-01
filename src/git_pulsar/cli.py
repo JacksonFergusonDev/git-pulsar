@@ -146,12 +146,33 @@ def show_status() -> None:
     system_content.append("Daemon: ", style="bold")
     system_content.append(status_text, style=status_style)
 
-    # Usage: console (instance), not Console (class)
     console.print(Panel(system_content, title="System Status", expand=False))
 
     # 2. Repo Status (if we are in one)
     if Path(".git").exists():
-        repo = GitRepo(Path.cwd())
+        cwd = Path.cwd()
+
+        # Check if registered
+        is_registered = False
+        if REGISTRY_FILE.exists():
+            with open(REGISTRY_FILE, "r") as f:
+                registered = {line.strip() for line in f if line.strip()}
+            if str(cwd) in registered:
+                is_registered = True
+
+        if not is_registered:
+            console.print(
+                Panel(
+                    "This repository is not tracked by Git Pulsar.\n"
+                    "Run [bold cyan]git pulsar[/bold cyan] to enable backups.",
+                    title="Repository Status",
+                    expand=False,
+                    border_style="yellow",
+                )
+            )
+            return
+
+        repo = GitRepo(cwd)
         ref = _get_ref(repo)
 
         try:
@@ -160,7 +181,7 @@ def show_status() -> None:
             time_str = "None (No backup found)"
 
         count = len(repo.status_porcelain())
-        is_paused = (Path(".git") / "pulsar_paused").exists()
+        is_paused = (cwd / ".git" / "pulsar_paused").exists()
 
         repo_content = Text()
         repo_content.append(f"Last Backup: {time_str}\n")
