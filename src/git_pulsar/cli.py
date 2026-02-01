@@ -166,64 +166,73 @@ def unregister_repo() -> None:
 
 
 def run_doctor() -> None:
-    print("🚑 Pulsar Doctor\n")
+    console.print("[bold]Pulsar Doctor[/bold]\n")
 
     # 1. Registry Hygiene
-    print("1. Checking Registry...")
-    if not REGISTRY_FILE.exists():
-        print("   • Registry empty.")
-    else:
-        with open(REGISTRY_FILE, "r") as f:
-            lines = [line.strip() for line in f if line.strip()]
-
-        valid_lines = []
-        fixed = False
-        for line in lines:
-            if Path(line).exists():
-                valid_lines.append(line)
-            else:
-                print(f"   ❌ Removing ghost entry: {line}")
-                fixed = True
-
-        if fixed:
-            with open(REGISTRY_FILE, "w") as f:
-                f.write("\n".join(valid_lines) + "\n")
-            print("   ✅ Registry cleaned.")
+    with console.status("[bold blue]Checking Registry...", spinner="dots"):
+        if not REGISTRY_FILE.exists():
+            console.print("   [green]✔ Registry empty/clean.[/green]")
         else:
-            print("   ✅ Registry healthy.")
+            with open(REGISTRY_FILE, "r") as f:
+                lines = [line.strip() for line in f if line.strip()]
+
+            valid_lines = []
+            fixed = False
+            for line in lines:
+                if Path(line).exists():
+                    valid_lines.append(line)
+                else:
+                    fixed = True
+
+            if fixed:
+                with open(REGISTRY_FILE, "w") as f:
+                    f.write("\n".join(valid_lines) + "\n")
+                console.print(
+                    "   [green]✔ Registry cleaned (ghost entries removed).[/green]"
+                )
+            else:
+                console.print("   [green]✔ Registry healthy.[/green]")
 
     # 2. Daemon Status
-    print("\n2. Checking Daemon...")
-    is_running = False
-    if sys.platform == "darwin":
-        res = subprocess.run(["launchctl", "list"], capture_output=True, text=True)
-        is_running = APP_LABEL in res.stdout
-    elif sys.platform.startswith("linux"):
-        res = subprocess.run(
-            ["systemctl", "--user", "is-active", f"{APP_LABEL}.timer"],
-            capture_output=True,
-            text=True,
-        )
-        is_running = res.stdout.strip() == "active"
+    with console.status("[bold blue]Checking Daemon...", spinner="dots"):
+        is_running = False
+        if sys.platform == "darwin":
+            res = subprocess.run(["launchctl", "list"], capture_output=True, text=True)
+            is_running = APP_LABEL in res.stdout
+        elif sys.platform.startswith("linux"):
+            res = subprocess.run(
+                ["systemctl", "--user", "is-active", f"{APP_LABEL}.timer"],
+                capture_output=True,
+                text=True,
+            )
+            is_running = res.stdout.strip() == "active"
 
-    if is_running:
-        print("   ✅ Daemon is active.")
-    else:
-        print("   🔴 Daemon is STOPPED. Run 'git pulsar install-service'.")
+        if is_running:
+            console.print("   [green]✔ Daemon is active.[/green]")
+        else:
+            console.print(
+                "   [red]✘ Daemon is STOPPED.[/red] Run 'git pulsar install-service'."
+            )
 
     # 3. Connectivity
-    print("\n3. Checking Connectivity...")
-    try:
-        # Simple ssh hello to github (returns status 1 but prints success message)
-        res = subprocess.run(
-            ["ssh", "-T", "git@github.com"], capture_output=True, text=True, timeout=5
-        )
-        if "successfully authenticated" in res.stderr:
-            print("   ✅ GitHub SSH connection successful.")
-        else:
-            print("   ⚠️  GitHub SSH check didn't return standard greeting.")
-    except Exception as e:
-        print(f"   ❌ SSH Check failed: {e}")
+    with console.status("[bold blue]Checking Connectivity...", spinner="dots"):
+        try:
+            res = subprocess.run(
+                ["ssh", "-T", "git@github.com"],
+                capture_output=True,
+                text=True,
+                timeout=5,
+            )
+            if "successfully authenticated" in res.stderr:
+                console.print("   [green]✔ GitHub SSH connection successful.[/green]")
+            else:
+                console.print(
+                    "   [yellow]⚠ GitHub SSH check returned "
+                    "unexpected response.[/yellow]"
+                )
+
+        except Exception as e:
+            console.print(f"   [red]✘ SSH Check failed: {e}[/red]")
 
 
 def add_ignore_cli(pattern: str) -> None:
