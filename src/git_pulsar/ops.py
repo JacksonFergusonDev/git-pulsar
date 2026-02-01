@@ -8,6 +8,7 @@ import time
 from pathlib import Path
 
 from rich.console import Console
+from rich.panel import Panel
 
 from .constants import BACKUP_NAMESPACE
 from .git_wrapper import GitRepo
@@ -177,20 +178,25 @@ def sync_session() -> None:
     repo = GitRepo(Path.cwd())
     current_branch = repo.current_branch()
 
-    print(f"📡 Scanning for latest session on '{current_branch}'...")
-
     # 1. Fetch everything (all machines)
-    try:
-        repo._run(
-            [
-                "fetch",
-                "origin",
-                f"refs/heads/{BACKUP_NAMESPACE}/*:refs/heads/{BACKUP_NAMESPACE}/*",
-            ],
-            capture=False,
-        )
-    except Exception:
-        print("⚠️  Fetch warning: network might be down.")
+    with console.status(
+        f"[bold blue]Scanning for session on '{current_branch}'...[/bold blue]",
+        spinner="dots",
+    ):
+        try:
+            repo._run(
+                [
+                    "fetch",
+                    "origin",
+                    f"refs/heads/{BACKUP_NAMESPACE}/*:refs/heads/{BACKUP_NAMESPACE}/*",
+                ],
+                capture=True,  # <--- Changed to True to keep spinner clean
+            )
+        except Exception:
+            console.print(
+                "[yellow]⚠️  Fetch warning: network might be down "
+                "(checking local cache).[/yellow]"
+            )
 
     # 2. Find candidates
     # Pattern: refs/heads/{namespace}/{machine}/{branch}
@@ -224,9 +230,15 @@ def sync_session() -> None:
     machine_name = latest_ref.split("/")[-2]
     human_time = repo._run(["log", "-1", "--format=%cr", latest_ref])
 
-    print("\n🎯 Found latest session:")
-    print(f"   • Source: {machine_name}")
-    print(f"   • Time:   {human_time}")
+    # Replace plain print with a Panel
+    console.print(
+        Panel(
+            f"[bold]Source:[/bold] {machine_name}\n[bold]Time:[/bold]   {human_time}",
+            title="🎯 Latest Session Found",
+            border_style="green",
+            expand=False,
+        )
+    )
 
     # Check if this IS our current state (approx)
     local_tree = repo.write_tree()  # Current worktree state
