@@ -246,14 +246,14 @@ def add_ignore_cli(pattern: str) -> None:
 
 def tail_log() -> None:
     if not LOG_FILE.exists():
-        print(f"❌ No log file found yet at {LOG_FILE}.")
+        console.print(f"[red]No log file found yet at {LOG_FILE}.[/red]")
         return
 
-    print(f"📜 Tailing {LOG_FILE} (Ctrl+C to stop)...")
+    console.print(f"Tailing [bold cyan]{LOG_FILE}[/bold cyan] (Ctrl+C to stop)...")
     try:
         subprocess.run(["tail", "-f", str(LOG_FILE)])
     except KeyboardInterrupt:
-        print("\nStopped.")
+        console.print("\nStopped.", style="dim")
 
 
 def set_pause_state(paused: bool) -> None:
@@ -264,11 +264,13 @@ def set_pause_state(paused: bool) -> None:
     pause_file = Path(".git/pulsar_paused")
     if paused:
         pause_file.touch()
-        print("⏸️  Pulsar paused. Backups suspended for this repo.")
+        console.print(
+            "Pulsar paused. Backups suspended for this repo.", style="bold yellow"
+        )
     else:
         if pause_file.exists():
             pause_file.unlink()
-        print("▶️  Pulsar resumed. Backups active.")
+        console.print("Pulsar resumed. Backups active.", style="bold green")
 
 
 def setup_repo(registry_path: Path = REGISTRY_FILE) -> None:
