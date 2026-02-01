@@ -28,6 +28,21 @@ def _get_ref(repo: GitRepo) -> str:
     return ops.get_backup_ref(repo.current_branch())
 
 
+def _is_service_enabled() -> bool:
+    """Checks if the system service (launchd/systemd) is loaded/active."""
+    if sys.platform == "darwin":
+        res = subprocess.run(["launchctl", "list"], capture_output=True, text=True)
+        return HOMEBREW_LABEL in res.stdout
+    elif sys.platform.startswith("linux"):
+        res = subprocess.run(
+            ["systemctl", "--user", "is-active", f"{APP_LABEL}.timer"],
+            capture_output=True,
+            text=True,
+        )
+        return res.stdout.strip() == "active"
+    return False
+
+
 def show_status() -> None:
     # 1. Daemon Health
     is_running = False
@@ -204,20 +219,7 @@ def run_doctor() -> None:
 
     # 2. Daemon Status
     with console.status("[bold blue]Checking Daemon...", spinner="dots"):
-        is_running = False
-        if sys.platform == "darwin":
-            res = subprocess.run(["launchctl", "list"], capture_output=True, text=True)
-            # Check Homebrew label instead of internal label
-            is_running = HOMEBREW_LABEL in res.stdout
-        elif sys.platform.startswith("linux"):
-            res = subprocess.run(
-                ["systemctl", "--user", "is-active", f"{APP_LABEL}.timer"],
-                capture_output=True,
-                text=True,
-            )
-            is_running = res.stdout.strip() == "active"
-
-        if is_running:
+        if _is_service_enabled():
             console.print("   [green]✔ Daemon is active.[/green]")
         else:
             console.print(
