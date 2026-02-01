@@ -45,18 +45,28 @@ def _is_service_enabled() -> bool:
 
 def show_status() -> None:
     # 1. Daemon Health
-    is_running = False
+    pid_running = False
     if PID_FILE.exists():
         try:
             with open(PID_FILE, "r") as f:
                 pid = int(f.read().strip())
             os.kill(pid, 0)
-            is_running = True
+            pid_running = True
         except (ValueError, OSError):
-            is_running = False
+            pid_running = False
 
-    status_style = "bold green" if is_running else "bold red"
-    status_text = "Active" if is_running else "Stopped"
+    # Check if service is scheduled/enabled
+    service_enabled = _is_service_enabled()
+
+    if pid_running:
+        status_text = "Active (Running)"
+        status_style = "bold green"
+    elif service_enabled:
+        status_text = "Active (Idle)"
+        status_style = "green"
+    else:
+        status_text = "Stopped"
+        status_style = "bold red"
 
     system_content = Text()
     system_content.append("Daemon: ", style="bold")
