@@ -128,10 +128,10 @@ git pulsar finalize
 ### Maintenance
 | Command | Description |
 | :--- | :--- |
-| `git pulsar status` | Show daemon health and backup status for the current repo. |
-| `git pulsar doctor` | Clean up the registry and check system health. |
+| `git pulsar status` | Show detailed daemon state (Running/Idle) and repo backup status. |
+| `git pulsar doctor` | Run deep diagnostics (logs, stuck repos) and clean up the registry. |
 | `git pulsar prune` | Delete old backup history (>30 days). Runs automatically weekly. |
-| `git pulsar log` | Tail the background daemon log. |
+| `git pulsar log` | View recent log history (last 1000 lines) and tail new entries. |
 
 ### Service
 | Command | Description |
