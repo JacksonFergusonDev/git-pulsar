@@ -11,12 +11,13 @@ from git_pulsar.constants import BACKUP_NAMESPACE
 
 def test_bootstrap_env_enforces_macos(mocker: MagicMock) -> None:
     mocker.patch("sys.platform", "linux")
-    mock_print = mocker.patch("builtins.print")
+    mock_console = mocker.patch("git_pulsar.ops.console")
 
     ops.bootstrap_env()
 
-    mock_print.assert_called_with(
-        "❌ The --env workflow is currently optimized for macOS."
+    mock_console.print.assert_called_with(
+        "[bold red]ERROR:[/bold red] The --env "
+        "workflow is currently optimized for macOS."
     )
 
 
@@ -24,6 +25,7 @@ def test_bootstrap_env_checks_dependencies(tmp_path: Path, mocker: MagicMock) ->
     mocker.patch("sys.platform", "darwin")
     os.chdir(tmp_path)
     mocker.patch("shutil.which", return_value=None)
+    mocker.patch("git_pulsar.ops.console")
 
     with pytest.raises(SystemExit):
         ops.bootstrap_env()
@@ -34,6 +36,7 @@ def test_bootstrap_env_scaffolds_files(tmp_path: Path, mocker: MagicMock) -> Non
     os.chdir(tmp_path)
     mocker.patch("shutil.which", return_value="/usr/bin/fake")
     mock_run = mocker.patch("subprocess.run")
+    mocker.patch("git_pulsar.ops.console")
 
     ops.bootstrap_env()
 
@@ -51,7 +54,9 @@ def test_bootstrap_env_scaffolds_files(tmp_path: Path, mocker: MagicMock) -> Non
 
 def test_configure_identity_creates_file(tmp_path: Path, mocker: MagicMock) -> None:
     """Should create machine_id file if missing."""
-    mocker.patch("builtins.input", return_value="my-laptop")
+    mock_console = mocker.patch("git_pulsar.ops.console")
+    mock_console.input.return_value = "my-laptop"
+
     mock_id_file = tmp_path / "machine_id"
     mocker.patch("git_pulsar.ops.get_machine_id_file", return_value=mock_id_file)
 
@@ -65,11 +70,12 @@ def test_configure_identity_skips_existing(tmp_path: Path, mocker: MagicMock) ->
     mock_id_file = tmp_path / "machine_id"
     mock_id_file.write_text("existing-id")
     mocker.patch("git_pulsar.ops.get_machine_id_file", return_value=mock_id_file)
-    mock_input = mocker.patch("builtins.input")
+
+    mock_console = mocker.patch("git_pulsar.ops.console")
 
     ops.configure_identity()
 
-    mock_input.assert_not_called()
+    mock_console.input.assert_not_called()
 
 
 # Restore / Sync Tests
@@ -80,6 +86,8 @@ def test_restore_clean(mocker: MagicMock) -> None:
     mock_cls = mocker.patch("git_pulsar.ops.GitRepo")
     mock_repo = mock_cls.return_value
     mock_repo.status_porcelain.return_value = []
+
+    mocker.patch("git_pulsar.ops.console")
 
     # Mock current branch and machine ID for ref construction
     mock_repo.current_branch.return_value = "main"
@@ -101,6 +109,8 @@ def test_restore_dirty_fails(tmp_path: Path, mocker: MagicMock) -> None:
     mock_repo.status_porcelain.return_value = ["M script.py"]
     mock_repo.current_branch.return_value = "main"
 
+    mocker.patch("git_pulsar.ops.console")
+
     with pytest.raises(SystemExit):
         ops.restore_file("script.py")
 
@@ -110,6 +120,10 @@ def test_sync_session_success(mocker: MagicMock) -> None:
     mocker.patch("git_pulsar.ops.GitRepo")
     repo = mocker.patch("git_pulsar.ops.GitRepo").return_value
     repo.current_branch.return_value = "main"
+
+    # Mock console.input
+    mock_console = mocker.patch("git_pulsar.ops.console")
+    mock_console.input.return_value = "y"
 
     # 1. Setup candidates
     repo.list_refs.return_value = [
@@ -131,8 +145,6 @@ def test_sync_session_success(mocker: MagicMock) -> None:
 
     # 3. Setup tree diff (simulate remote != local)
     repo.write_tree.return_value = "local_tree"
-
-    mocker.patch("builtins.input", return_value="y")
 
     ops.sync_session()
 
@@ -165,6 +177,8 @@ def test_finalize_octopus_merge(mocker: MagicMock) -> None:
     repo = mocker.patch("git_pulsar.ops.GitRepo").return_value
     repo.status_porcelain.return_value = []
     repo.current_branch.return_value = "main"
+
+    mocker.patch("git_pulsar.ops.console")
 
     # Found 3 backup streams
     repo.list_refs.return_value = ["ref_A", "ref_B", "ref_C"]
