@@ -5,11 +5,17 @@ from git_pulsar import system
 
 
 def test_get_machine_id_darwin_uuid(mocker: MagicMock) -> None:
-    """Should prefer IOPlatformUUID on macOS."""
+    """Verifies that `get_machine_id` prioritizes the hardware UUID on macOS.
+
+    It mocks `ioreg` output to ensure the IOPlatformUUID is parsed correctly.
+
+    Args:
+        mocker (MagicMock): Pytest fixture for mocking.
+    """
     mocker.patch("sys.platform", "darwin")
     mocker.patch("git_pulsar.system.get_machine_id_file", return_value=Path("/no/file"))
 
-    # Mock ioreg output
+    # Simulate `ioreg` XML output containing a valid UUID.
     plist_xml = b"""<?xml version="1.0" encoding="UTF-8"?>
     <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
     <plist version="1.0">
@@ -27,14 +33,18 @@ def test_get_machine_id_darwin_uuid(mocker: MagicMock) -> None:
 
 
 def test_get_machine_id_darwin_fallback(mocker: MagicMock) -> None:
-    """Should fallback to scutil LocalHostName if ioreg fails."""
+    """Verifies that `get_machine_id` falls back to `scutil` hostname if `ioreg` fails.
+
+    Args:
+        mocker (MagicMock): Pytest fixture for mocking.
+    """
     mocker.patch("sys.platform", "darwin")
     mocker.patch("git_pulsar.system.get_machine_id_file", return_value=Path("/no/file"))
 
-    # ioreg fails
+    # Simulate `ioreg` command failure.
     mocker.patch("subprocess.check_output", side_effect=Exception)
 
-    # scutil succeeds
+    # Simulate successful `scutil` execution.
     mock_run = mocker.patch("subprocess.run")
     mock_run.return_value = MagicMock(returncode=0, stdout="MyMac\n")
 
@@ -42,7 +52,11 @@ def test_get_machine_id_darwin_fallback(mocker: MagicMock) -> None:
 
 
 def test_get_machine_id_linux(mocker: MagicMock) -> None:
-    """Should read from /etc/machine-id on Linux."""
+    """Verifies that `get_machine_id` correctly reads from `/etc/machine-id` on Linux.
+
+    Args:
+        mocker (MagicMock): Pytest fixture for mocking.
+    """
     mocker.patch("sys.platform", "linux")
     mocker.patch("git_pulsar.system.get_machine_id_file", return_value=Path("/no/file"))
 
@@ -50,7 +64,7 @@ def test_get_machine_id_linux(mocker: MagicMock) -> None:
 
     def side_effect(path_arg: str) -> MagicMock:
         mock_obj = MagicMock()
-        # Mock behavior only for the specific Linux ID file
+        # Mock file existence only for the standard Linux machine-id path.
         if str(path_arg) == "/etc/machine-id":
             mock_obj.exists.return_value = True
             mock_obj.read_text.return_value = "linux-id-123"
@@ -64,9 +78,16 @@ def test_get_machine_id_linux(mocker: MagicMock) -> None:
 
 
 def test_get_machine_id_hostname_fallback(mocker: MagicMock) -> None:
-    """Should fallback to short hostname if all else fails."""
+    """
+    Verifies that `get_machine_id` falls back
+    to the short hostname on unknown platforms.
+
+    Args:
+        mocker (MagicMock): Pytest fixture for mocking.
+    """
     mocker.patch("sys.platform", "unknown")
     mocker.patch("git_pulsar.system.get_machine_id_file", return_value=Path("/no/file"))
     mocker.patch("socket.gethostname", return_value="host.domain.com")
 
+    # Expect only the short hostname (first component).
     assert system.get_machine_id() == "host"

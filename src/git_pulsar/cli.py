@@ -26,12 +26,25 @@ console = Console()
 
 
 def _get_ref(repo: GitRepo) -> str:
-    """Helper to resolve the namespaced backup ref for the current repo state."""
+    """Resolves the namespaced backup reference for the current repository state.
+
+    Args:
+        repo (GitRepo): The repository instance to analyze.
+
+    Returns:
+        str: The fully qualified backup reference string based on the current branch.
+    """
     return ops.get_backup_ref(repo.current_branch())
 
 
 def _is_service_enabled() -> bool:
-    """Checks if the system service (launchd/systemd) is loaded/active."""
+    """Checks if the system service is currently loaded and active.
+
+    Supports both launchd (macOS) and systemd (Linux).
+
+    Returns:
+        bool: True if the service is active/loaded, False otherwise.
+    """
     if sys.platform == "darwin":
         res = subprocess.run(["launchctl", "list"], capture_output=True, text=True)
         return HOMEBREW_LABEL in res.stdout
@@ -46,7 +59,15 @@ def _is_service_enabled() -> bool:
 
 
 def _analyze_logs(hours: int = 24) -> list[str]:
-    """Scans the daemon log for errors occurred in the last N hours."""
+    """
+    Scans the daemon log for error messages that occurred within a recent time window.
+
+    Args:
+        hours (int, optional): The number of hours to look back. Defaults to 24.
+
+    Returns:
+        list[str]: A list of error or critical log lines found within the time window.
+    """
     if not LOG_FILE.exists():
         return []
 
@@ -54,7 +75,8 @@ def _analyze_logs(hours: int = 24) -> list[str]:
     threshold = datetime.datetime.now() - datetime.timedelta(hours=hours)
 
     try:
-        # Read last 50KB to catch recent context
+        # Read the last 50KB of the log file
+        # to capture recent context without parsing the whole file.
         file_size = LOG_FILE.stat().st_size
         read_size = min(file_size, 50 * 1024)
 
@@ -65,8 +87,9 @@ def _analyze_logs(hours: int = 24) -> list[str]:
 
         for line in lines:
             if "ERROR" in line or "CRITICAL" in line:
-                # Try to parse timestamp [YYYY-MM-DD HH:MM:SS]
-                # If parsing fails, we assume it's a related traceback line
+                # Attempt to parse the timestamp [YYYY-MM-DD HH:MM:SS].
+                # If parsing fails,
+                # assume it is a related traceback line and include it.
                 try:
                     if line.startswith("["):
                         ts_str = line[1:20]
@@ -74,40 +97,49 @@ def _analyze_logs(hours: int = 24) -> list[str]:
                             ts_str, "%Y-%m-%d %H:%M:%S"
                         )
                         if line_dt < threshold:
-                            continue  # Skip old errors
+                            continue  # Skip errors older than the threshold.
                     errors.append(line.strip())
                 except ValueError:
                     pass
     except Exception:
-        pass  # Fail silently on log read errors
+        pass  # Fail silently on log read errors to prevent CLI interruption.
 
     return errors
 
 
 def _check_repo_health(path: Path) -> str | None:
-    """Returns a warning if a repo has changes but hasn't been backed up recently."""
+    """
+    Evaluates the health of a repository, checking for stale backups or stalled states.
+
+    Args:
+        path (Path): The file system path to the repository.
+
+    Returns:
+        str | None: A warning message if an issue is detected,
+                    or None if the repository is healthy.
+    """
     try:
         repo = GitRepo(path)
-        # 1. Ignored if paused
+        # Check if the repository is explicitly paused.
         if (path / ".git" / "pulsar_paused").exists():
             return None
 
-        # 2. Healthy if clean (nothing to backup)
+        # If the working directory is clean, no backup is required.
         if not repo.status_porcelain():
             return None
 
-        # 3. Check backup freshness
+        # Verify the freshness of the last backup.
         ref = _get_ref(repo)
         try:
-            # Get raw unix timestamp of the backup ref
+            # Retrieve the raw Unix timestamp of the backup reference.
             ts_str = repo._run(["log", "-1", "--format=%ct", ref])
             last_backup_ts = int(ts_str.strip())
         except Exception:
             return "Has changes, but NO backup found."
 
-        # 4. Stale Threshold (e.g., 2 hours)
-        # If it's dirty and hasn't been backed up in 2 hours,
-        # the daemon might be stuck/failing
+        # Check against the stale threshold (e.g., 2 hours).
+        # If changes are pending and no backup has occurred recently,
+        # the daemon may be stalled.
         if time.time() - last_backup_ts > 7200:
             return "Stalled: Changes pending > 2 hours."
 
@@ -118,7 +150,8 @@ def _check_repo_health(path: Path) -> str | None:
 
 
 def show_status() -> None:
-    # 1. Daemon Health
+    """Displays the current status of the daemon and the active repository."""
+    # Check daemon process status.
     pid_running = False
     if PID_FILE.exists():
         try:
@@ -129,7 +162,7 @@ def show_status() -> None:
         except (ValueError, OSError):
             pid_running = False
 
-    # Check if service is scheduled/enabled
+    # Check if the system service is scheduled/enabled.
     service_enabled = _is_service_enabled()
 
     if pid_running:
@@ -148,11 +181,11 @@ def show_status() -> None:
 
     console.print(Panel(system_content, title="System Status", expand=False))
 
-    # 2. Repo Status (if we are in one)
+    # Display status for the current repository, if applicable.
     if Path(".git").exists():
         cwd = Path.cwd()
 
-        # Check if registered
+        # Check registration status.
         is_registered = False
         if REGISTRY_FILE.exists():
             with open(REGISTRY_FILE, "r") as f:
@@ -194,7 +227,7 @@ def show_status() -> None:
 
         console.print(Panel(repo_content, title="Repository Status", expand=False))
 
-    # 3. Global Summary (if not in a repo)
+    # Display global repository count if not currently in a repository.
     elif REGISTRY_FILE.exists():
         with open(REGISTRY_FILE) as f:
             count = len([line for line in f if line.strip()])
@@ -202,19 +235,20 @@ def show_status() -> None:
 
 
 def show_diff() -> None:
+    """Displays the diff between the working directory and the last backup."""
     if not Path(".git").exists():
         console.print("[bold red]Not a git repository.[/bold red]")
         sys.exit(1)
 
     repo = GitRepo(Path.cwd())
 
-    # 1. Standard Diff (tracked files)
+    # Display standard diff for tracked files.
     ref = _get_ref(repo)
 
     console.print(f"[bold]Diff vs {ref}:[/bold]\n")
     repo.run_diff(ref)
 
-    # 2. Untracked Files
+    # List untracked files.
     if untracked := repo.get_untracked_files():
         console.print("\n[bold green]Untracked (New) Files:[/bold green]")
         for line in untracked:
@@ -222,6 +256,7 @@ def show_diff() -> None:
 
 
 def list_repos() -> None:
+    """Lists all repositories currently registered with Git Pulsar and their status."""
     if not REGISTRY_FILE.exists():
         console.print("[yellow]Registry is empty.[/yellow]")
         return
@@ -273,6 +308,7 @@ def list_repos() -> None:
 
 
 def unregister_repo() -> None:
+    """Removes the current working directory from the Git Pulsar registry."""
     cwd = str(Path.cwd())
     if not REGISTRY_FILE.exists():
         console.print("Registry is empty.", style="yellow")
@@ -295,9 +331,12 @@ def unregister_repo() -> None:
 
 
 def run_doctor() -> None:
+    """
+    Diagnoses system health, cleans the registry, and checks connectivity and logs.
+    """
     console.print("[bold]Pulsar Doctor[/bold]\n")
 
-    # 1. Registry Hygiene
+    # Verify and clean the registry.
     with console.status("[bold blue]Checking Registry...", spinner="dots"):
         if not REGISTRY_FILE.exists():
             console.print("   [green]✔ Registry empty/clean.[/green]")
@@ -322,7 +361,7 @@ def run_doctor() -> None:
             else:
                 console.print("   [green]✔ Registry healthy.[/green]")
 
-    # 2. Daemon Status
+    # Check daemon status.
     with console.status("[bold blue]Checking Daemon...", spinner="dots"):
         if _is_service_enabled():
             console.print("   [green]✔ Daemon is active.[/green]")
@@ -331,7 +370,7 @@ def run_doctor() -> None:
                 "   [red]✘ Daemon is STOPPED.[/red] Run 'git pulsar install-service'."
             )
 
-    # 3. Connectivity
+    # Check network/SSH connectivity.
     with console.status("[bold blue]Checking Connectivity...", spinner="dots"):
         try:
             res = subprocess.run(
@@ -351,10 +390,10 @@ def run_doctor() -> None:
         except Exception as e:
             console.print(f"   [red]✘ SSH Check failed: {e}[/red]")
 
-    # 4. Diagnostics (Logs & Freshness)
+    # Perform diagnostics on logs and repository freshness.
     console.print("\n[bold]Diagnostics[/bold]")
 
-    # A. Check Logs
+    # Check logs for recent errors.
     recent_errors = _analyze_logs(hours=24)
     if recent_errors:
         console.print(
@@ -367,7 +406,7 @@ def run_doctor() -> None:
     else:
         console.print("   [green]✔ Recent logs are clean.[/green]")
 
-    # B. Check Repos (Pulse Check)
+    # Check the health of registered repositories (Pulse Check).
     with console.status("[bold blue]Checking Repository Health...", spinner="dots"):
         if REGISTRY_FILE.exists():
             with open(REGISTRY_FILE, "r") as f:
@@ -397,6 +436,11 @@ def run_doctor() -> None:
 
 
 def add_ignore_cli(pattern: str) -> None:
+    """Adds a file pattern to the repository's ignore list.
+
+    Args:
+        pattern (str): The file pattern to ignore (e.g., '*.log').
+    """
     if not Path(".git").exists():
         console.print("[bold red]Not a git repository.[/bold red]")
         return
@@ -404,6 +448,7 @@ def add_ignore_cli(pattern: str) -> None:
 
 
 def tail_log() -> None:
+    """Follows the daemon log file in real-time."""
     if not LOG_FILE.exists():
         console.print(f"[red]No log file found yet at {LOG_FILE}.[/red]")
         return
@@ -416,6 +461,11 @@ def tail_log() -> None:
 
 
 def set_pause_state(paused: bool) -> None:
+    """Toggles the backup state for the current repository.
+
+    Args:
+        paused (bool): True to pause backups, False to resume them.
+    """
     if not Path(".git").exists():
         console.print("[bold red]Not a git repository.[/bold red]")
         sys.exit(1)
@@ -433,10 +483,18 @@ def set_pause_state(paused: bool) -> None:
 
 
 def setup_repo(registry_path: Path = REGISTRY_FILE) -> None:
-    cwd = Path.cwd()
-    # Removed incorrect "Not a git repository" print here
+    """Initializes Git Pulsar for the current repository and registers it.
 
-    # 1. Ensure it's a git repo
+    This ensures the directory is a git repository, sets up a default .gitignore,
+    and adds the path to the global registry.
+
+    Args:
+        registry_path (Path, optional): Path to the registry file.
+                                        Defaults to REGISTRY_FILE.
+    """
+    cwd = Path.cwd()
+
+    # Ensure the directory is a git repository.
     if not (cwd / ".git").exists():
         console.print(
             f"[bold blue]Git Pulsar:[/bold blue] activating "
@@ -446,7 +504,7 @@ def setup_repo(registry_path: Path = REGISTRY_FILE) -> None:
 
     repo = GitRepo(cwd)
 
-    # 2. Check/Create .gitignore
+    # Ensure a .gitignore file exists and contains default patterns.
     gitignore = cwd / ".gitignore"
 
     if not gitignore.exists():
@@ -471,7 +529,7 @@ def setup_repo(registry_path: Path = REGISTRY_FILE) -> None:
         else:
             console.print("All defaults present.", style="dim")
 
-    # 3. Add to Registry
+    # Register the repository path.
     console.print("Registering path...", style="dim")
     if not registry_path.exists():
         registry_path.touch()
@@ -500,6 +558,7 @@ def setup_repo(registry_path: Path = REGISTRY_FILE) -> None:
 
 
 def main() -> None:
+    """Main entry point for the Git Pulsar CLI."""
     parser = argparse.ArgumentParser(description="Git Pulsar CLI")
 
     # Global flags
@@ -562,11 +621,11 @@ def main() -> None:
 
     args = parser.parse_args()
 
-    # 1. Handle Environment Setup (Flag)
+    # Handle Environment Setup (Flag)
     if args.env:
         ops.bootstrap_env()
 
-    # 2. Handle Subcommands
+    # Handle Subcommands
     if args.command == "install-service":
         with console.status("Installing background service...", spinner="dots"):
             service.install(interval=args.interval)
@@ -627,7 +686,7 @@ def main() -> None:
         tail_log()
         return
 
-    # 3. Default Action (if no subcommand is run, or after --env)
+    # Default Action (if no subcommand is run, or after --env)
     # We always run setup_repo unless a service command explicitly exited.
     setup_repo()
 
