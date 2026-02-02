@@ -4,6 +4,7 @@
 [![Python 3.12+](https://img.shields.io/badge/python-3.12+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Style: Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
+[![Uses Rich](https://img.shields.io/badge/uses-rich-0A0A0A?logo=<SIMPLEICONS_SLUG>&logoColor=white)](https://github.com/Textualize/rich)
 
 **Paranoid, invisible backups for students and distributed developers.**
 
@@ -11,7 +12,14 @@ Git Pulsar is a background daemon that wakes up every 15 minutes to snapshot you
 
 It ensures that even if your laptop dies (or you forget to push before leaving the library), your work is safe on the server and accessible from any other machine.
 
----
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="demo/demo_dark.gif">
+  <source media="(prefers-color-scheme: light)" srcset="demo/demo_light.gif">
+  <img alt="Pulsar demo"
+       src="demo/demo_light.gif"
+       width="700"
+       style="max-width:100%; height:auto;">
+</picture>
 
 ## ⚡ Features
 
