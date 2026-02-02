@@ -11,7 +11,14 @@ console = Console()
 
 
 def get_executable() -> str:
-    """Locates the installed daemon executable."""
+    """Locates the installed daemon executable in the system path.
+
+    Returns:
+        str: The absolute path to the 'git-pulsar-daemon' executable.
+
+    Raises:
+        SystemExit: If the executable is not found in the PATH.
+    """
     exe = shutil.which("git-pulsar-daemon")
     if not exe:
         console.print(
@@ -23,7 +30,14 @@ def get_executable() -> str:
 
 
 def get_paths() -> tuple[Path, Path]:
-    """Returns (service_file_path, log_path) based on OS."""
+    """Resolves the service configuration and log file paths for the current OS.
+
+    Returns:
+        tuple[Path, Path]: A tuple containing (service_unit_path, log_file_path).
+
+    Raises:
+        NotImplementedError: If called on macOS, as Homebrew manages services there.
+    """
     home = Path.home()
     if sys.platform.startswith("linux"):
         return (
@@ -37,6 +51,17 @@ def get_paths() -> tuple[Path, Path]:
 def install_linux(
     unit_path: Path, log_path: Path, executable: str, interval: int
 ) -> None:
+    """Configures and enables a systemd user timer for Linux.
+
+    Creates the .service and .timer unit files in the user's systemd configuration
+    directory, reloads the daemon, and enables the timer.
+
+    Args:
+        unit_path (Path): The target path for the .service file.
+        log_path (Path): The path to the log file.
+        executable (str): The path to the daemon executable.
+        interval (int): The backup interval in seconds.
+    """
     base_dir = unit_path.parent
     base_dir.mkdir(parents=True, exist_ok=True)
 
@@ -77,6 +102,15 @@ WantedBy=timers.target
 
 
 def install(interval: int = 900) -> None:
+    """Installs the background daemon service.
+
+    On Linux, this generates systemd units. On macOS, it instructs the user to use
+    Homebrew services.
+
+    Args:
+        interval (int, optional):   The interval between backup runs in seconds.
+                                    Defaults to 900.
+    """
     if sys.platform == "darwin":
         console.print(
             "\n[bold yellow]NOTE:[/bold yellow] On macOS, the background service "
@@ -95,6 +129,11 @@ def install(interval: int = 900) -> None:
 
 
 def uninstall() -> None:
+    """Removes the background daemon service.
+
+    On Linux, this disables the systemd units and removes the files. On macOS,
+    it instructs the user to use Homebrew services.
+    """
     path, _ = get_paths()
     if sys.platform == "darwin":
         console.print(
@@ -112,7 +151,7 @@ def uninstall() -> None:
             stderr=subprocess.DEVNULL,
         )
 
-        # Remove .service and .timer
+        # Remove .service and .timer files.
         timer_path = path.parent / timer_name
         if path.exists():
             path.unlink()
