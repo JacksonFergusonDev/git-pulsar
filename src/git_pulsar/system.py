@@ -9,12 +9,27 @@ from .constants import MACHINE_ID_FILE
 
 
 class SystemStrategy:
+    """Base class defining the interface for system-level interactions."""
+
     def get_battery(self) -> tuple[int, bool]:
-        """Returns (percentage, is_plugged_in)."""
+        """Retrieves the current battery status.
+
+        Returns:
+            tuple[int, bool]: A tuple containing the battery percentage (0-100)
+            and a boolean indicating if the device is plugged in (AC power).
+            Defaults to (100, True) if battery status cannot be determined.
+        """
         return 100, True
 
     def is_under_load(self) -> bool:
-        """Returns True if 1-minute load average > 2.5x CPU count."""
+        """Determines if the system is currently under heavy load.
+
+        Load is defined as the 1-minute load average exceeding 2.5 times the
+        available CPU count.
+
+        Returns:
+            bool: True if the system is under load, False otherwise.
+        """
         if not hasattr(os, "getloadavg"):
             return False
         try:
@@ -25,11 +40,20 @@ class SystemStrategy:
             return False
 
     def notify(self, title: str, message: str) -> None:
+        """Sends a desktop notification.
+
+        Args:
+            title (str): The notification title.
+            message (str): The notification body text.
+        """
         pass
 
 
 class MacOSStrategy(SystemStrategy):
+    """System strategy implementation for macOS."""
+
     def get_battery(self) -> tuple[int, bool]:
+        """Retrieves battery status using `pmset`."""
         try:
             out = subprocess.check_output(["pmset", "-g", "batt"], text=True)
             is_plugged = "AC Power" in out
@@ -42,6 +66,8 @@ class MacOSStrategy(SystemStrategy):
             return 100, True
 
     def notify(self, title: str, message: str) -> None:
+        """Sends a notification using AppleScript."""
+        # Sanitize quotes to prevent AppleScript syntax errors.
         clean_msg = message.replace('"', "'")
         script = f'display notification "{clean_msg}" with title "{title}"'
         try:
@@ -51,7 +77,10 @@ class MacOSStrategy(SystemStrategy):
 
 
 class LinuxStrategy(SystemStrategy):
+    """System strategy implementation for Linux."""
+
     def get_battery(self) -> tuple[int, bool]:
+        """Retrieves battery status from sysfs (/sys/class/power_supply)."""
         try:
             bat_path = Path("/sys/class/power_supply/BAT0")
             if not bat_path.exists():
@@ -68,6 +97,7 @@ class LinuxStrategy(SystemStrategy):
         return 100, True
 
     def notify(self, title: str, message: str) -> None:
+        """Sends a notification using `notify-send`."""
         try:
             subprocess.run(["notify-send", title, message], stderr=subprocess.DEVNULL)
         except FileNotFoundError:
@@ -75,6 +105,12 @@ class LinuxStrategy(SystemStrategy):
 
 
 def get_system() -> SystemStrategy:
+    """Factory function to retrieve the platform-specific system strategy.
+
+    Returns:
+        SystemStrategy: An instance of MacOSStrategy, LinuxStrategy, or the base
+        SystemStrategy depending on the operating system.
+    """
     if sys.platform == "darwin":
         return MacOSStrategy()
     elif sys.platform.startswith("linux"):
@@ -84,16 +120,23 @@ def get_system() -> SystemStrategy:
 
 
 def get_machine_id_file() -> Path:
+    """Returns the path to the configured machine ID file."""
     return Path(MACHINE_ID_FILE)
 
 
 def get_machine_id() -> str:
-    """
-    Returns the persistent machine ID.
-    1. Checks config file (~/.config/git-pulsar/machine_id)
-    2. Linux: /etc/machine-id (fallback: /var/lib/dbus/machine-id)
-    3. macOS: hardware UUID (IOPlatformUUID)
-    4. Others: socket.gethostname() (Network Name)
+    """Resolves a unique, persistent identifier for the current machine.
+
+    The resolution order is:
+    1. User-configured ID file (~/.config/git-pulsar/machine_id).
+    2. Linux system machine-id (/etc/machine-id or dbus).
+    3. Linux product UUID (DMI).
+    4. macOS Hardware UUID (IOPlatformUUID).
+    5. macOS LocalHostName.
+    6. Hostname (fallback).
+
+    Returns:
+        str: A string identifier for the machine.
     """
     id_file = get_machine_id_file()
     if id_file.exists():
