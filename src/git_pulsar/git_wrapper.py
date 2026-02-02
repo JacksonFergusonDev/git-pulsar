@@ -4,7 +4,25 @@ from typing import Optional
 
 
 class GitRepo:
+    """A wrapper around the Git command-line interface for a specific repository.
+
+    This class provides methods to execute common Git operations using `subprocess`,
+    abstracting away the command construction and output handling. It is designed
+    to work with both standard working directories and temporary index environments.
+
+    Attributes:
+        path (Path): The file system path to the repository root.
+    """
+
     def __init__(self, path: Path):
+        """Initializes the GitRepo instance.
+
+        Args:
+            path (Path): The path to the repository root directory.
+
+        Raises:
+            ValueError: If the specified path does not contain a .git directory.
+        """
         self.path = path
         if not (self.path / ".git").exists():
             raise ValueError(f"Not a git repository: {self.path}")
@@ -12,6 +30,23 @@ class GitRepo:
     def _run(
         self, args: list[str], capture: bool = True, env: Optional[dict] = None
     ) -> str:
+        """Executes a Git command within the repository context.
+
+        Args:
+            args (list[str]): A list of arguments to pass to the git command.
+            capture (bool, optional):   Whether to capture and return stdout.
+                                        Defaults to True.
+            env (Optional[dict], optional): Environment variables to pass to the
+                                            subprocess. Useful for manipulating
+                                            GIT_INDEX_FILE. Defaults to None.
+
+        Returns:
+            str:    The stripped stdout of the command if capture is True,
+                    otherwise an empty string.
+
+        Raises:
+            RuntimeError: If the git command returns a non-zero exit code.
+        """
         try:
             res = subprocess.run(
                 ["git", *args],
@@ -26,9 +61,23 @@ class GitRepo:
             raise RuntimeError(f"Git error: {e.stderr or e}") from e
 
     def current_branch(self) -> str:
+        """Retrieves the name of the currently checked-out branch.
+
+        Returns:
+            str: The name of the current branch.
+        """
         return self._run(["branch", "--show-current"])
 
     def status_porcelain(self, path: Optional[str] = None) -> list[str]:
+        """Returns the porcelain (machine-readable) status of the repository.
+
+        Args:
+            path (Optional[str], optional): A specific path to check status for.
+                                            Defaults to None.
+
+        Returns:
+            list[str]: A list of status lines returned by `git status --porcelain`.
+        """
         cmd = ["status", "--porcelain"]
         if path:
             cmd.append(path)
@@ -36,12 +85,24 @@ class GitRepo:
         return output.splitlines() if output else []
 
     def commit_interactive(self) -> None:
-        """Opens the editor for a commit message."""
+        """Triggers a standard git commit, opening the configured text editor.
+
+        This method captures no output, allowing the editor to take over the terminal.
+        """
         self._run(["commit"], capture=False)
 
     def checkout(
         self, branch: str, file: Optional[str] = None, force: bool = False
     ) -> None:
+        """Checks out a specific branch or restores a file.
+
+        Args:
+            branch (str): The target branch name or commit hash.
+            file (Optional[str], optional): A specific file path to checkout.
+                                            Defaults to None.
+            force (bool, optional): Whether to force the checkout (discarding changes).
+                                    Defaults to False.
+        """
         cmd = ["checkout"]
         if force:
             cmd.append("-f")
@@ -51,24 +112,55 @@ class GitRepo:
         self._run(cmd, capture=False)
 
     def commit(self, message: str, no_verify: bool = False) -> None:
+        """Creates a new commit with the provided message.
+
+        Args:
+            message (str): The commit message.
+            no_verify (bool, optional): Whether to bypass pre-commit hooks
+                                        (`--no-verify`). Defaults to False.
+        """
         cmd = ["commit", "-m", message]
         if no_verify:
             cmd.append("--no-verify")
         self._run(cmd, capture=False)
 
     def add_all(self) -> None:
+        """
+        Stages all changes (modified, deleted, and untracked files)
+        in the working directory.
+        """
         self._run(["add", "."], capture=False)
 
     def merge_squash(self, *branches: str) -> None:
+        """Performs a squash merge of the specified branches into the current HEAD.
+
+        This stages the changes but does not commit them.
+
+        Args:
+            *branches (str): Variable length argument list of branch names to merge.
+        """
         if not branches:
             return
         self._run(["merge", "--squash", *branches], capture=False)
 
     def branch_reset(self, branch: str, target: str) -> None:
+        """Forcefully resets a branch pointer to a specific target commit.
+
+        Args:
+            branch (str): The branch name to reset.
+            target (str): The target commit SHA or reference.
+        """
         self._run(["branch", "-f", branch, target], capture=False)
 
     def list_refs(self, pattern: str) -> list[str]:
-        """Returns a list of refs matching the pattern (e.g. 'refs/heads/wip/*')."""
+        """Lists references matching a specific pattern.
+
+        Args:
+            pattern (str): The glob pattern to match (e.g., 'refs/heads/wip/*').
+
+        Returns:
+            list[str]: A list of matching reference names.
+        """
         try:
             output = self._run(["for-each-ref", "--format=%(refname)", pattern])
             return output.splitlines() if output else []
@@ -76,43 +168,94 @@ class GitRepo:
             return []
 
     def get_last_commit_time(self, branch: str) -> str:
-        """
-        Returns relative time string (e.g. '2 hours ago').
-        Raises RuntimeError if branch doesn't exist or git fails.
+        """Gets the relative time since the last commit on a specified branch.
+
+        Args:
+            branch (str): The branch to check.
+
+        Returns:
+            str: A human-readable relative time string (e.g., '2 hours ago').
+
+        Raises:
+            RuntimeError: If the branch does not exist or the command fails.
         """
         return self._run(["log", "-1", "--format=%cr", branch])
 
     def rev_parse(self, rev: str) -> Optional[str]:
-        """Resolves a revision to a full SHA-1."""
+        """Resolves a revision (tag, branch, relative ref) to a full SHA-1 hash.
+
+        Args:
+            rev (str): The revision to parse (e.g., 'HEAD', 'master').
+
+        Returns:
+            Optional[str]:  The full SHA-1 hash,
+                            or None if the revision could not be resolved.
+        """
         try:
             return self._run(["rev-parse", rev])
         except Exception:
             return None
 
     def write_tree(self, env: Optional[dict] = None) -> str:
-        """Writes the current index to a tree object."""
+        """Creates a tree object from the current index.
+
+        Args:
+            env (Optional[dict], optional): Environment variables,
+                                            used to specify a temporary index.
+
+        Returns:
+            str: The SHA-1 hash of the created tree object.
+        """
         return self._run(["write-tree"], env=env)
 
     def commit_tree(
         self, tree: str, parents: list[str], message: str, env: Optional[dict] = None
     ) -> str:
-        """Creates a commit object from a tree."""
+        """Creates a commit object from a tree object.
+
+        Args:
+            tree (str): The tree SHA-1 to commit.
+            parents (list[str]): A list of parent commit SHA-1s.
+            message (str): The commit message.
+            env (Optional[dict], optional): Environment variables to
+                                            pass to the subprocess.
+
+        Returns:
+            str: The SHA-1 hash of the new commit.
+        """
         cmd = ["commit-tree", tree, "-m", message]
         for p in parents:
             cmd.extend(["-p", p])
         return self._run(cmd, env=env)
 
     def update_ref(self, ref: str, new_oid: str, old_oid: Optional[str] = None) -> None:
-        """Safely updates a ref."""
+        """Safely updates a reference to a new object ID.
+
+        Args:
+            ref (str): The reference to update (e.g., 'refs/heads/master').
+            new_oid (str): The new SHA-1 hash.
+            old_oid (Optional[str], optional): The expected old SHA-1 hash. If provided,
+                                               the update will fail if the current ref
+                                               does not match this value.
+        """
         cmd = ["update-ref", "-m", "Pulsar backup", ref, new_oid]
         if old_oid:
             cmd.append(old_oid)
         self._run(cmd)
 
     def get_untracked_files(self) -> list[str]:
+        """Lists files that are not tracked by git and are not ignored.
+
+        Returns:
+            list[str]: A list of untracked file paths.
+        """
         output = self._run(["ls-files", "--others", "--exclude-standard"])
         return output.splitlines() if output else []
 
     def run_diff(self, target: str) -> None:
-        """Runs git diff attached to stdout (no capture)."""
+        """Executes a git diff operation, outputting directly to stdout.
+
+        Args:
+            target (str): The target revision or file to diff against.
+        """
         self._run(["diff", target], capture=False)
