@@ -18,13 +18,25 @@ console = Console()
 
 
 def get_backup_ref(branch: str) -> str:
-    """Constructs the namespaced ref for the current machine/branch."""
+    """
+    Constructs the fully qualified backup reference for the current machine and branch.
+
+    Args:
+        branch (str): The name of the branch to back up.
+
+    Returns:
+        str: The namespaced ref string (e.g., refs/heads/wip/pulsar/machine-id/branch).
+    """
     machine_id = get_machine_id()
     return f"refs/heads/{BACKUP_NAMESPACE}/{machine_id}/{branch}"
 
 
 def configure_identity() -> None:
-    """Interactive setup to establish machine identity."""
+    """Interactively configures the unique machine identifier for this environment.
+
+    This identifier is used to namespace backups, allowing multiple machines to
+    back up the same branch without conflict.
+    """
     id_file = get_machine_id_file()
     if id_file.exists():
         return
@@ -32,19 +44,15 @@ def configure_identity() -> None:
     console.print("[bold]Git Pulsar Machine Identity Setup[/bold]")
     console.print("   To enable seamless roaming, this machine needs a unique name.")
 
-    # 1. Fetch existing identities from remote
-    # We need a repo context to fetch, but we might not be in one.
-    # We'll try to guess or just let the user type.
-    # For robust implementation, we'd need to find a valid git repo to query the remote.
-    # Simulating the list for now based on user intent:
-
+    # In a robust implementation, we would fetch existing identities from the remote.
+    # For now, we default to the hostname.
     default_name = socket.gethostname().split(".")[0]
     console.print(f"\n   Suggested name: [bold]{default_name}[/bold]")
 
     choice = console.input("   Enter name (or press Enter to accept): ").strip()
     name = choice if choice else default_name
 
-    # 2. Persist
+    # Persist the choice to disk.
     id_file.parent.mkdir(parents=True, exist_ok=True)
     with open(id_file, "w") as f:
         f.write(name)
@@ -52,8 +60,13 @@ def configure_identity() -> None:
 
 
 def bootstrap_env() -> None:
-    """
-    Scaffolds a macOS Python environment: uv, direnv, and VS Code.
+    """Bootstraps a Python development environment on macOS.
+
+    This function scaffolds the environment using `uv` for package management,
+    `direnv` for environment switching, and configures VS Code settings.
+
+    Note:
+        This workflow is currently optimized for macOS.
     """
     if sys.platform != "darwin":
         console.print(
@@ -89,7 +102,7 @@ def bootstrap_env() -> None:
     # 2. Project Scaffold (uv)
     if not (cwd / "pyproject.toml").exists():
         console.print("[bold blue]INIT:[/bold blue] Initializing Python project...")
-        # 'uv init' is safe; it creates a standard pyproject.toml
+        # 'uv init' creates a standard pyproject.toml.
         subprocess.run(["uv", "init", "--no-workspace", "--python", "3.12"], check=True)
     else:
         console.print("   Existing pyproject.toml found. Skipping init.")
@@ -153,15 +166,21 @@ def bootstrap_env() -> None:
 
 
 def restore_file(path_str: str, force: bool = False) -> None:
+    """Restores a specific file from the latest backup of the current branch.
+
+    Args:
+        path_str (str): The relative path to the file to restore.
+        force (bool): If True, overwrites uncommitted local changes. Defaults to False.
+    """
     repo = GitRepo(Path.cwd())
     path = Path(path_str)
 
     current_branch = repo.current_branch()
     backup_ref = get_backup_ref(current_branch)
 
-    # 1. Safety Check: Is the file dirty?
+    # 1. Safety Check: Verify if the file is dirty.
     if not force and path.exists():
-        # Check specifically for this file
+        # Check status specifically for this file.
         if repo.status_porcelain(path_str):
             console.print(
                 f"[bold red]ABORTED:[/bold red] '{path_str}' has uncommitted changes."
@@ -169,7 +188,7 @@ def restore_file(path_str: str, force: bool = False) -> None:
             console.print("   Use --force to overwrite them.")
             sys.exit(1)
 
-    # 2. Restore
+    # 2. Restore file from backup ref.
     console.print(
         f"[bold blue]RESTORING:[/bold blue] '{path_str}' from {backup_ref}..."
     )
@@ -182,14 +201,16 @@ def restore_file(path_str: str, force: bool = False) -> None:
 
 
 def sync_session() -> None:
-    """
-    Smart Handoff: Scans ALL machine backups for the current branch
-    and resets the working directory to the absolute latest version.
+    """Synchronizes the local workspace with the latest available backup session.
+
+    This function scans backups from all machines for the current branch, identifies
+    the most recent one, and (after confirmation) resets the local working directory
+    to match it. This facilitates "Smart Handoff" between devices.
     """
     repo = GitRepo(Path.cwd())
     current_branch = repo.current_branch()
 
-    # 1. Fetch everything (all machines)
+    # 1. Fetch backups from all sources.
     with console.status(
         f"[bold blue]Scanning for session on '{current_branch}'...[/bold blue]",
         spinner="dots",
@@ -209,21 +230,18 @@ def sync_session() -> None:
                 "(checking local cache).[/yellow]"
             )
 
-    # 2. Find candidates
-    # Pattern: refs/heads/{namespace}/{machine}/{branch}
+    # 2. Find candidate refs (refs/heads/{namespace}/{machine}/{branch}).
     candidates = repo.list_refs(f"refs/heads/{BACKUP_NAMESPACE}/*/{current_branch}")
 
     if not candidates:
         console.print("[bold red]ERROR:[/bold red] No backups found anywhere.")
         return
 
-    # 3. Sort by commit date (newest first)
-    # We need to parse the commit timestamp for each ref
+    # 3. Sort candidates by commit timestamp (newest first).
     latest_ref = None
     latest_time = 0
 
     for ref in candidates:
-        # Get unix timestamp
         try:
             ts_str = repo._run(["log", "-1", "--format=%ct", ref])
             ts = int(ts_str.strip())
@@ -237,11 +255,10 @@ def sync_session() -> None:
         console.print("[bold red]ERROR:[/bold red] Could not determine latest backup.")
         return
 
-    # 4. Compare with local
+    # 4. Compare with local state.
     machine_name = latest_ref.split("/")[-2]
     human_time = repo._run(["log", "-1", "--format=%cr", latest_ref])
 
-    # Replace plain print with a Panel
     console.print(
         Panel(
             f"[bold]Source:[/bold] {machine_name}\n[bold]Time:[/bold]   {human_time}",
@@ -251,15 +268,15 @@ def sync_session() -> None:
         )
     )
 
-    # Check if this IS our current state (approx)
-    local_tree = repo.write_tree()  # Current worktree state
+    # Check if the local tree already matches the remote tree.
+    local_tree = repo.write_tree()
     remote_tree = repo._run(["rev-parse", f"{latest_ref}^{{tree}}"])
 
     if local_tree == remote_tree:
         console.print("[bold green]SUCCESS:[/bold green] You are already up to date.")
         return
 
-    # 5. Confirmation
+    # 5. Confirm overwrite.
     console.print(
         "\n[bold yellow]WARNING:[/bold yellow] This will overwrite your local "
         "changes to match the backup."
@@ -269,10 +286,9 @@ def sync_session() -> None:
         console.print("[bold red]ABORTED.[/bold red]")
         sys.exit(0)
 
-    # 6. Execution
+    # 6. Execute sync.
     try:
-        # Checkout the contents of the backup ref to the worktree
-        # We use checkout with path '.' to update files without switching HEAD
+        # Checkout the contents of the backup ref to the worktree without moving HEAD.
         repo._run(["checkout", latest_ref, "--", "."])
         console.print(
             "[bold green]SUCCESS:[/bold green] Session synced. You may resume work."
@@ -283,10 +299,16 @@ def sync_session() -> None:
 
 
 def finalize_work() -> None:
+    """Consolidates backup streams into the main branch.
+
+    This performs an 'Octopus Squash' merge of all backup streams for the current
+    branch into the main/master branch, effectively finalizing the work session
+    and updating the primary project history.
+    """
     console.print("[bold blue]FINALIZING:[/bold blue] Finalizing work...")
     repo = GitRepo(Path.cwd())
 
-    # 1. Check for uncommitted changes
+    # 1. Ensure working directory is clean.
     if repo.status_porcelain():
         console.print(
             "[bold yellow]WARNING:[/bold yellow] You have uncommitted changes."
@@ -294,12 +316,10 @@ def finalize_work() -> None:
         console.print("   Please commit or stash them before finalizing.")
         sys.exit(1)
 
-    # Resolve the backup ref for the branch we were just working on
-    # (Assuming we are finalizing the *current* context)
     working_branch = repo.current_branch()
 
     try:
-        # 2. Sync with Remote
+        # 2. Sync with Remote.
         with console.status(
             "[bold blue]Syncing with origin...[/bold blue]", spinner="dots"
         ):
@@ -318,8 +338,7 @@ def finalize_work() -> None:
                     f"[yellow][bold]WARNING:[/bold] Fetch warning: {e}[/yellow]"
                 )
 
-        # 3. Identify Backup Candidates
-        # Find ALL refs that match: refs/heads/{namespace}/*/current_branch
+        # 3. Identify Backup Candidates for the current branch.
         candidates = repo.list_refs(f"refs/heads/{BACKUP_NAMESPACE}/*/{working_branch}")
 
         if not candidates:
@@ -332,7 +351,7 @@ def finalize_work() -> None:
         for c in candidates:
             console.print(f"   • {c}")
 
-        # 4. Checkout Main
+        # 4. Switch to the target branch (main/master).
         target = "main"
         if not repo.rev_parse("main") and repo.rev_parse("master"):
             target = "master"
@@ -340,7 +359,7 @@ def finalize_work() -> None:
         console.print(f"-> Switching to {target}...")
         repo.checkout(target)
 
-        # 5. Octopus Squash
+        # 5. Perform Octopus Squash Merge.
         with console.status(
             f"[bold blue]Collapsing {len(candidates)} backup streams...[/bold blue]",
             spinner="dots",
@@ -354,13 +373,9 @@ def finalize_work() -> None:
                 )
                 sys.exit(0)
 
-        # 5. Commit (Interactive)
+        # 6. Interactive Commit.
         console.print("-> Committing (opens editor)...")
         repo.commit_interactive()
-
-        # 6. No Reset Needed
-        # In the shadow-commit model, we don't reset the backup ref manually.
-        # It continues to grow as a history log, or is abandoned if the branch dies.
 
         console.print("\n[bold green]SUCCESS:[/bold green] Work finalized!")
         console.print(f"   Your backup history remains in refs/{BACKUP_NAMESPACE}/...")
@@ -371,7 +386,12 @@ def finalize_work() -> None:
 
 
 def prune_backups(days: int, repo_path: Path | None = None) -> None:
-    """Garbage collects backup refs older than the specified retention period."""
+    """Garbage collects backup references older than the specified retention period.
+
+    Args:
+        days (int): The retention period in days.
+        repo_path (Path | None, optional): The path to the repository. Defaults to CWD.
+    """
     repo = GitRepo(repo_path or Path.cwd())
     cutoff = time.time() - (days * 86400)
 
@@ -408,11 +428,18 @@ def prune_backups(days: int, repo_path: Path | None = None) -> None:
 
 
 def add_ignore(pattern: str) -> None:
-    """Adds a pattern to .gitignore and ensures it's untracked."""
+    """Adds a file pattern to .gitignore and removes matching files from the index.
+
+    If files matching the pattern are currently tracked, the user is prompted to
+    stop tracking them (while keeping the files on disk).
+
+    Args:
+        pattern (str): The file pattern to ignore (e.g., '*.log').
+    """
     cwd = Path.cwd()
     gitignore = cwd / ".gitignore"
 
-    # 1. Append to .gitignore
+    # 1. Append to .gitignore if not present.
     content = ""
     if gitignore.exists():
         with open(gitignore, "r") as f:
@@ -428,10 +455,9 @@ def add_ignore(pattern: str) -> None:
             f"[bold green]SUCCESS:[/bold green] Added '{pattern}' to .gitignore."
         )
 
-    # 2. Check if currently tracked (common mistake)
+    # 2. Check if currently tracked and offer to remove from index.
     repo = GitRepo(cwd)
     try:
-        # Check if git knows about files matching this pattern
         tracked = repo._run(["ls-files", pattern])
         if tracked:
             console.print(
