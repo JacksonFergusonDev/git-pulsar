@@ -35,6 +35,9 @@ SYSTEM = get_system()
 logger = logging.getLogger(APP_NAME)
 logger.setLevel(logging.INFO)
 
+console = Console()
+err_console = Console(stderr=True)
+
 
 @dataclass
 class CoreConfig:
@@ -78,16 +81,13 @@ class Config:
                     instance.daemon = DaemonConfig(**data["daemon"])
 
             except tomllib.TOMLDecodeError as e:
-                print(
-                    f"❌ FATAL: Config syntax error in {CONFIG_FILE}:\n   {e}",
-                    file=sys.stderr,
+                err_console.print(
+                    f"[bold red]FATAL:[/bold red] Config syntax "
+                    f"error in {CONFIG_FILE}:\n   {e}"
                 )
                 sys.exit(1)
             except Exception as e:
-                print(
-                    f"❌ Config Error: {e}",
-                    file=sys.stderr,
-                )
+                err_console.print(f"[bold red]Config Error:[/bold red] {e}")
                 # We assume other errors might be recoverable or partial
 
         return instance
@@ -187,7 +187,10 @@ def is_repo_busy(repo_path: Path, interactive: bool = False) -> bool:
                 msg = f"Stale lock detected in {repo_path.name} ({age_hours:.1f}h old)."
                 logger.warning(msg)
                 if interactive:
-                    print(f"⚠️  {msg}\n   Run 'rm {lock_file}' to fix.")
+                    console.print(
+                        f"[bold yellow]WARNING:[/bold yellow] {msg}\n   "
+                        f"Run 'rm {lock_file}' to fix."
+                    )
                 else:
                     SYSTEM.notify("Pulsar Warning", f"Stale lock in {repo_path.name}")
                 return True
@@ -308,13 +311,14 @@ def _attempt_push(repo: GitRepo, refspec: str, interactive: bool) -> None:
         cmd = ["push", remote_name, refspec]
 
         if interactive:
-            console = Console()
             with console.status(
                 f"[bold blue]Pushing {repo.path.name}...[/bold blue]", spinner="dots"
             ):
                 # capture=True suppresses the "Enumerating objects..." wall of text
                 repo._run(cmd, capture=True, env=env)
-            console.print(f"[bold green]✔ {repo.path.name}: Pushed.[/bold green]")
+            console.print(
+                f"[bold green]SUCCESS:[/bold green] {repo.path.name}: Pushed."
+            )
         else:
             # Background mode: log to file/stderr
             repo._run(cmd, capture=True, env=env)
@@ -322,7 +326,7 @@ def _attempt_push(repo: GitRepo, refspec: str, interactive: bool) -> None:
 
     except Exception as e:
         if interactive:
-            Console().print(f"[bold red]✘ PUSH ERROR {repo.path.name}: {e}[/bold red]")
+            console.print(f"[bold red]PUSH ERROR {repo.path.name}:[/bold red] {e}")
         else:
             logger.error(f"PUSH ERROR {repo.path.name}: {e}")
 
@@ -422,7 +426,10 @@ def main(interactive: bool = False) -> None:
 
     if not REGISTRY_FILE.exists():
         if interactive:
-            print("Registry empty. Run 'git-pulsar' in a repo to register it.")
+            console.print(
+                "[yellow]Registry empty. Run 'git-pulsar' in "
+                "a repo to register it.[/yellow]"
+            )
         return
 
     with open(REGISTRY_FILE, "r") as f:

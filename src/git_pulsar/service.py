@@ -15,7 +15,7 @@ def get_executable() -> str:
     exe = shutil.which("git-pulsar-daemon")
     if not exe:
         console.print(
-            "[bold red]❌ Error: Could not find 'git-pulsar-daemon'.[/bold red] "
+            "[bold red]ERROR:[/bold red] Could not find 'git-pulsar-daemon'. "
             "Ensure the package is installed."
         )
         sys.exit(1)
@@ -70,8 +70,8 @@ WantedBy=timers.target
     subprocess.run(
         ["systemctl", "--user", "enable", "--now", f"{APP_LABEL}.timer"], check=True
     )
-    print(
-        f"✅ Pulsar systemd timer active (Linux).\n"
+    console.print(
+        f"[bold green]SUCCESS:[/bold green] Pulsar systemd timer active (Linux).\n"
         f"Check status: systemctl --user status {APP_LABEL}.timer"
     )
 
@@ -79,8 +79,8 @@ WantedBy=timers.target
 def install(interval: int = 900) -> None:
     if sys.platform == "darwin":
         console.print(
-            "\n[bold yellow]On macOS, the background service "
-            "is managed by Homebrew.[/bold yellow]"
+            "\n[bold yellow]NOTE:[/bold yellow] On macOS, the background service "
+            "is managed by Homebrew."
         )
         console.print("To start the service, run:")
         console.print("   [green]brew services start git-pulsar[/green]\n")
@@ -98,8 +98,8 @@ def uninstall() -> None:
     path, _ = get_paths()
     if sys.platform == "darwin":
         console.print(
-            "\n[bold yellow]On macOS, the background service "
-            "is managed by Homebrew.[/bold yellow]"
+            "\n[bold yellow]NOTE:[/bold yellow] On macOS, the background service "
+            "is managed by Homebrew."
         )
         console.print("To stop the service, run:")
         console.print("   [green]brew services stop git-pulsar[/green]\n")
@@ -121,4 +121,4 @@ def uninstall() -> None:
 
         subprocess.run(["systemctl", "--user", "daemon-reload"])
 
-    print("✅ Service uninstalled.")
+    console.print("[bold green]SUCCESS:[/bold green] Service uninstalled.")
