@@ -23,31 +23,13 @@ It ensures that even if your laptop dies (or you forget to push before leaving t
 
 ## ⚡ Features
 
-* **👻 Ghost Mode (Shadow Commits):** Backups are stored in a configured namespace (default: `refs/heads/wip/pulsar/...`). Your `git status`, `git branch`, and `git log` remain completely clean.
-* **🌍 Roaming Profiles:** Hop between your laptop, desktop, and university lab computer. Pulsar tracks sessions per machine and lets you `sync` to pick up exactly where you left off.
-* **🛡 Zero-Interference:**
+* **Ghost Mode (Shadow Commits):** Backups are stored in a configured namespace (default: `refs/heads/wip/pulsar/...`). Your `git status`, `git branch`, and `git log` remain completely clean.
+* **Roaming Profiles:** Hop between your laptop, desktop, and university lab computer. Pulsar tracks sessions per machine and lets you `sync` to pick up exactly where you left off.
+* **Zero-Interference:**
     * Uses a temporary index so it never messes up your partial `git add`.
     * Detects if you are rebasing or merging and waits for you to finish.
     * Prevents accidental upload of large binaries (>100MB).
-* **🐙 Grand Unification:** When you are done, `finalize` merges the backup history from *all* your devices into your main branch in one clean squash commit.
-
----
-
-## 🧬 Environment Bootstrap (macOS)
-
-Pulsar includes a one-click scaffolding tool to set up a modern, robust Python environment.
-
-```bash
-git pulsar --env
-```
-
-This bootstraps the current directory with:
-
-- **uv:** Initializes a project with fast package management and Python 3.12+ pinning.
-
-- **direnv:** Creates an .envrc for auto-activating virtual environments and hooking into the shell.
-
-- **VS Code:** Generates a .vscode/settings.json pre-configured to exclude build artifacts and use the local venv.
+* **Grand Unification:** When you are done, `finalize` merges the backup history from *all* your devices into your main branch in one clean squash commit.
 
 ---
 
@@ -109,6 +91,24 @@ When you are ready to submit or merge to `main`:
 git pulsar finalize
 ```
 *This performs an **Octopus Merge**. It pulls the backup history from your Laptop, Desktop, and Lab PC, squashes them all together, and stages the result on `main`.*
+
+---
+
+## 🧬 Environment Bootstrap (macOS)
+
+Pulsar includes a one-click scaffolding tool to set up a modern, robust Python environment.
+
+```bash
+git pulsar --env
+```
+
+This bootstraps the current directory with:
+
+- **uv:** Initializes a project with fast package management and Python 3.12+ pinning.
+
+- **direnv:** Creates an .envrc for auto-activating virtual environments and hooking into the shell.
+
+- **VS Code:** Generates a .vscode/settings.json pre-configured to exclude build artifacts and use the local venv.
 
 ---
 
@@ -178,24 +178,39 @@ Pulsar separates **Data Safety** from **Git History**.
 
 ---
 
-## 🛑 Development
+## 🗺 Roadmap
 
-1.  **Clone & Sync:**
-    ```bash
-    git clone https://github.com/jacksonfergusondev/git-pulsar.git
-    cd git-pulsar
-    uv sync
-    ```
+### Phase 1: The "Co-Pilot" Update (High Interactivity)
 
-2. **Set Up Pre-Commit Hooks**
-   ```bash
-   pre-commit install
-   ```
+*Focus: Turning the tool from a blind script into a helpful partner that negotiates with you.*
 
-3.  **Run Tests:**
-    ```bash
-    uv run pytest
-    ```
+- [ ] **Smart Restore:** Replace hard failures on "dirty" files with a negotiation menu (Overwrite / View Diff / Cancel).
+- [ ] **Pre-Flight Checklists:** Display a summary table of incoming changes (machines, timestamps, file counts) before running destructive commands like `finalize`.
+- [ ] **Active Doctor:** Upgrade `git pulsar doctor` to not just diagnose issues (like stopped daemons), but offer to auto-fix them interactively.
+
+### Phase 2: "Deep Thought" (Context & Intelligence)
+
+*Focus: Leveraging data to make the tool feel alive and aware of your workflow.*
+
+- [ ] **Semantic Shadow Logs:** Replace generic "Shadow backup" messages with auto-generated summaries (e.g., `backup: modified daemon.py (+15 lines)`).
+- [ ] **Roaming Radar:** Proactively detect if a different machine has pushed newer work to the same branch and notify the user to `sync`.
+- [ ] **Decaying Retention:** Implement "Grandfather-Father-Son" pruning (keep all hourly backups for 24h, then daily summaries) to balance safety with disk space.
+
+### Phase 3: The "TUI" Experience (Visuals)
+*Focus: Making the invisible backup history tangible and explorable.*
+- [ ] **Time Machine UI:** A terminal-based visual browser for `git pulsar restore` that lets you scroll through file history and view side-by-side diffs.
+- [ ] **Universal Bootstrap:** Expand `git pulsar --env` to support Linux (apt/dnf) environments alongside macOS.
+
+### Future Horizons
+- [ ] **Identity Sync:** Automatically fetch used Machine IDs from the remote to prevent collisions when setting up a new device.
+- [ ] **End-to-End Encryption:** Optional GPG encryption for shadow commits.
+- [ ] **Windows Support:** Native support for PowerShell and Task Scheduler.
+
+---
+
+## 🤝 Contributing
+
+We welcome contributions! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for details on how to set up the development environment, run tests, and submit pull requests.
 
 ## 📄 License
 
