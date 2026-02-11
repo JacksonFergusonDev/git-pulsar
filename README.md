@@ -6,11 +6,16 @@
 [![Style: Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
 [![Uses Rich](https://img.shields.io/badge/uses-rich-0A0A0A?logo=<SIMPLEICONS_SLUG>&logoColor=white)](https://github.com/Textualize/rich)
 
-**Paranoid, invisible backups for students and distributed developers.**
+**Fault-tolerant state capture for distributed development.**
 
-Git Pulsar is a background daemon that wakes up every 15 minutes to snapshot your work. Unlike standard autosave tools, Pulsar uses **Shadow Commits**—it writes directly to the git object database without touching your staging area, index, or active branch.
+> **Standard `git commit` conflates two distinct actions: *saving your work* (frequency: high, noise: high) and *publishing a feature* (frequency: low, signal: high).**
+>
+> **Git Pulsar decouples them. It is a background daemon that provides high-frequency, out-of-band state capture, ensuring your work is immutable and recoverable without polluting your project history.**
 
-It ensures that even if your laptop dies (or you forget to push before leaving the library), your work is safe on the server and accessible from any other machine.
+### 📡 The Mission: Decoupling Signal from Noise
+In a typical workflow, developers are forced to make "WIP" commits just to switch machines or save their progress. This introduces **entropy** into the commit log, requiring complex interactive rebases to clean up later.
+
+**Git Pulsar** treats the working directory state as a continuous stream of data. It captures this "noise" in a dedicated namespace (`refs/heads/wip/...`), keeping your primary branch purely focused on "signal" (logical units of work).
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="demo/demo_dark.gif">
@@ -21,15 +26,37 @@ It ensures that even if your laptop dies (or you forget to push before leaving t
        style="max-width:100%; height:auto;">
 </picture>
 
+---
+
+### ⚙️ Engineering Philosophy: Non-Blocking Determinism
+
+This system is designed to operate safely alongside standard Git commands without race conditions or index locking.
+
+#### 1. Out-of-Band Indexing (The "Shadow" Index)
+Most autosave tools aggressively run `git add .`, which destroys the user's carefully staged partial commits.
+* **The Invariant:** The user's `.git/index` must never be touched by the daemon.
+* **The Implementation:** Pulsar sets the `GIT_INDEX_FILE` environment variable to a temporary location (`.git/pulsar_index`). It constructs the tree object using low-level plumbing commands (`git write-tree`), bypassing the porcelain entirely. This ensures **Zero-Interference** with your active workflow.
+
+#### 2. Distributed State Reconciliation (The "Zipper" Graph)
+In a distributed environment (Laptop ↔ Desktop), state drift is inevitable.
+* **The Mechanism:** Pulsar maintains a separate refspec for each machine ID.
+* **The Topology:** When you run `git pulsar finalize`, the engine performs an **Octopus Merge**, traversing the DAG (Directed Acyclic Graph) of all machine streams and squashing them into a single, clean commit on `main`.
+
+#### 3. Fault Tolerance
+* **The Problem:** Laptops die. SSH connections drop.
+* **The Solution:** By pushing shadow commits to the remote object database every 15 minutes, Pulsar guarantees that the **Mean Time To Recovery (MTTR)** of your work is never more than the snapshot interval, regardless of physical hardware failure.
+
+---
+
 ## ⚡ Features
 
-* **Ghost Mode (Shadow Commits):** Backups are stored in a configured namespace (default: `refs/heads/wip/pulsar/...`). Your `git status`, `git branch`, and `git log` remain completely clean.
-* **Roaming Profiles:** Hop between your laptop, desktop, and university lab computer. Pulsar tracks sessions per machine and lets you `sync` to pick up exactly where you left off.
+* **Out-of-Band Indexing:** Backups are stored in a configured namespace (default: `refs/heads/wip/pulsar/...`). Your `git status`, `git branch`, and `git log` remain completely clean.
+* **Distributed Sessions:** Hop between your laptop, desktop, and university lab computer. Pulsar tracks sessions per machine and lets you `sync` to pick up exactly where you left off.
 * **Zero-Interference:**
     * Uses a temporary index so it never messes up your partial `git add`.
     * Detects if you are rebasing or merging and waits for you to finish.
     * Prevents accidental upload of large binaries (>100MB).
-* **Grand Unification:** When you are done, `finalize` merges the backup history from *all* your devices into your main branch in one clean squash commit.
+* **State Reconciliation:** When you are done, `finalize` merges the backup history from *all* your devices into your main branch in one clean squash commit.
 
 ---
 
@@ -74,7 +101,7 @@ You worked on your **Desktop** all night but forgot to push. You open your **Lap
 ```bash
 git pulsar sync
 ```
-*Pulsar checks the remote, finds the newer session from `desktop`, and asks to fast-forward your working directory to match it. You just recovered your homework.*
+*Pulsar checks the remote, finds the newer session from `desktop`, and asks to fast-forward your working directory to match it. You just recovered your work.*
 
 ### 3. Restore a File
 Mess up a script? Grab the version from 15 minutes ago.
@@ -165,16 +192,6 @@ eco_mode_percent = 20
 # Prevent git from choking on massive files
 large_file_threshold = 104857600  # 100MB
 ```
-
-## 🧩 Architecture: How it works
-
-Pulsar separates **Data Safety** from **Git History**.
-
-1.  **Isolation:** When the daemon wakes up, it sets `GIT_INDEX_FILE=.git/pulsar_index`. It stages your files *there*, leaving your actual staging area untouched.
-2.  **Plumbing:** It uses low-level commands (`write-tree`, `commit-tree`) to create a commit object.
-3.  **Namespacing:** This commit is pushed to a custom refspec:
-    `refs/heads/wip/pulsar/<machine-id>/<branch-name>`
-4.  **Topology:** Each backup commit has two parents: the previous backup (for history) and your current `HEAD` (for context), creating a "Zipper" graph that tracks your work alongside the project evolution.
 
 ---
 
