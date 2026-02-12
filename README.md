@@ -44,19 +44,20 @@ In a distributed environment (Laptop ↔ Desktop), state drift is inevitable.
 
 #### 3. Fault Tolerance
 * **The Problem:** Laptops die. SSH connections drop.
-* **The Solution:** By pushing shadow commits to the remote object database every 15 minutes, Pulsar guarantees that the **Mean Time To Recovery (MTTR)** of your work is never more than the snapshot interval, regardless of physical hardware failure.
+* **The Solution:** By decoupling commits from pushes, Pulsar can capture local state every few minutes while conserving battery by pushing to the remote at a lower frequency (e.g., hourly). This guarantees that the **Mean Time To Recovery (MTTR)** is minimized regardless of network availability or hardware failure.
 
 ---
 
 ## ⚡ Features
 
+* **Decoupled Cycles:** Independent intervals for local commits and remote pushes. Save your battery while staying protected.
 * **Out-of-Band Indexing:** Backups are stored in a configured namespace (default: `refs/heads/wip/pulsar/...`). Your `git status`, `git branch`, and `git log` remain completely clean.
-* **Distributed Sessions:** Hop between your laptop, desktop, and university lab computer. Pulsar tracks sessions per machine and lets you `sync` to pick up exactly where you left off.
+* **Distributed Sessions:** Hop between machines. Pulsar tracks sessions per device and lets you `sync` to pick up exactly where you left off.
 * **Zero-Interference:**
     * Uses a temporary index so it never messes up your partial `git add`.
     * Detects if you are rebasing or merging and waits for you to finish.
-    * Prevents accidental upload of large binaries (>100MB).
-* **State Reconciliation:** When you are done, `finalize` merges the backup history from *all* your devices into your main branch in one clean squash commit.
+    * Prevents accidental upload of large binaries (configurable threshold).
+* **Cascading Config:** Settings are merged from global defaults, `~/.config/git-pulsar/config.toml`, and local `pulsar.toml` or `pyproject.toml` files.
 
 ---
 
@@ -87,31 +88,40 @@ git pulsar install-service --interval 300
 Pulsar is designed to feel like a native git command.
 
 ### 1. Initialize & Identify
-Navigate to your project. The first time you run Pulsar, it will ask for a **Machine ID** (e.g., `macbook`, `lab-pc`) to namespace your backups.
+Navigate to your project. The first time you run Pulsar, it will register the repo and start the background protection loop.
 
 ```bash
 cd ~/University/Astro401
 git pulsar
 ```
-*You are now protected. The daemon will silently snapshot your work every 15 minutes.*
+*The daemon will now silently snapshot your work based on your configured intervals.*
 
-### 2. The "Session Handoff" (Sync)
-You worked on your **Desktop** all night but forgot to push. You open your **Laptop** at class.
+### 2. Configure Your Intensity
+Need high-frequency protection for a critical project? Set a preset or fine-tune the intervals in your project root.
+
+**pulsar.toml**
+```toml
+[daemon]
+preset = "paranoid"  # 5min commits, 5min pushes
+```
+
+### 3. The "Session Handoff" (Sync)
+You worked on your **Desktop** all night but forgot to push manually. You open your **Laptop** at class.
 
 ```bash
 git pulsar sync
 ```
-*Pulsar checks the remote, finds the newer session from `desktop`, and asks to fast-forward your working directory to match it. You just recovered your work.*
+*Pulsar checks the remote, finds the newer session from `desktop`, and fast-forwards your working directory to match it.*
 
-### 3. Restore a File
-Mess up a script? Grab the version from 15 minutes ago.
+### 4. Restore a File
+Mess up a script? Grab the version from your last shadow commit.
 
 ```bash
 # Restore specific file from the latest shadow backup
 git pulsar restore src/main.py
 ```
 
-### 4. Finalize Your Work
+### 5. Finalize Your Work
 When you are ready to submit or merge to `main`:
 
 ```bash
@@ -145,7 +155,7 @@ This bootstraps the current directory with:
 | Command | Description |
 | :--- | :--- |
 | `git pulsar` | **Default.** Registers the current repo and ensures the daemon is watching it. |
-| `git pulsar now` | Force an immediate backup (e.g., before closing lid). |
+| `git pulsar now` | Force an immediate backup cycle (commit + push). |
 | `git pulsar sync` | Pull the latest session from *any* machine to your current directory. |
 | `git pulsar restore <file>` | Restore a specific file from the latest backup. |
 | `git pulsar diff` | See what has changed since the last backup. |
@@ -154,6 +164,8 @@ This bootstraps the current directory with:
 ### Repository Control
 | Command | Description |
 | :--- | :--- |
+| `git pulsar status` | Show detailed daemon state and repository-specific commit/push history. |
+| `git pulsar config` | Open the global configuration file in your default editor. |
 | `git pulsar list` | Show all watched repositories and their status. |
 | `git pulsar pause` | Temporarily suspend backups for this repo. |
 | `git pulsar resume` | Resume backups. |
@@ -163,7 +175,6 @@ This bootstraps the current directory with:
 ### Maintenance
 | Command | Description |
 | :--- | :--- |
-| `git pulsar status` | Show detailed daemon state (Running/Idle) and repo backup status. |
 | `git pulsar doctor` | Run deep diagnostics (logs, stuck repos) and clean up the registry. |
 | `git pulsar prune` | Delete old backup history (>30 days). Runs automatically weekly. |
 | `git pulsar log` | View recent log history (last 1000 lines) and tail new entries. |
@@ -178,19 +189,24 @@ This bootstraps the current directory with:
 
 ## ⚙️ Configuration
 
-You can customize behavior via `~/.config/git-pulsar/config.toml`.
+Settings cascade from Global → Local. Local list options (like `ignore`) append to global ones.
 
+### Options
+| Section | Key | Default | Description |
+| :--- | :--- | :--- | :--- |
+| `daemon` | `preset` | `None` | Use `paranoid`, `aggressive`, `balanced`, or `lazy`. |
+| `daemon` | `commit_interval` | `600` | Seconds between local state captures. |
+| `daemon` | `push_interval` | `3600` | Seconds between remote pushes. |
+| `limits` | `large_file_threshold`| `100MB` | Max file size before aborting a backup. |
+
+### Example `~/.config/git-pulsar/config.toml`
 ```toml
-[core]
-remote_name = "origin"
-
 [daemon]
-# Don't backup if battery is below 20% and unplugged
-eco_mode_percent = 20
+preset = "balanced"
+eco_mode_percent = 25  # Throttles pushes if battery is low
 
-[limits]
-# Prevent git from choking on massive files
-large_file_threshold = 104857600  # 100MB
+[files]
+ignore = ["*.tmp", "node_modules/"]
 ```
 
 ---
