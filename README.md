@@ -1,4 +1,4 @@
-# 🔭 Git Pulsar (v0.13.0)
+# 🔭 Git Pulsar (v0.14.0)
 
 [![Tests](https://github.com/jacksonfergusondev/git-pulsar/actions/workflows/ci.yml/badge.svg)](https://github.com/jacksonfergusondev/git-pulsar/actions)
 [![Python 3.12+](https://img.shields.io/badge/python-3.12+-blue.svg)](https://www.python.org/downloads/)
