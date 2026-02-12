@@ -78,6 +78,8 @@ def test_run_backup_decoupled_push(
     """Verifies that commits can happen without pushing if the interval is not met."""
     (tmp_path / ".git").mkdir()
 
+    mocker.patch("git_pulsar.daemon.SYSTEM.is_under_load", return_value=False)
+
     # Configure: Commit often, Push rarely
     mock_config.daemon.commit_interval = 60
     mock_config.daemon.push_interval = 3600
