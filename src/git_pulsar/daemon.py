@@ -7,9 +7,7 @@ import socket
 import subprocess
 import sys
 import time
-import tomllib
 from contextlib import contextmanager
-from dataclasses import dataclass, field
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
 from types import FrameType
@@ -18,10 +16,9 @@ from typing import Iterator
 from rich.console import Console
 
 from . import ops
+from .config import Config
 from .constants import (
     APP_NAME,
-    BACKUP_NAMESPACE,
-    CONFIG_FILE,
     GIT_LOCK_FILES,
     LOG_FILE,
     PID_FILE,
@@ -37,97 +34,6 @@ logger.setLevel(logging.INFO)
 
 console = Console()
 err_console = Console(stderr=True)
-
-
-@dataclass
-class CoreConfig:
-    """Core application settings.
-
-    Attributes:
-        backup_branch (str): The namespace used for backup refs.
-        remote_name (str): The default git remote to push backups to.
-    """
-
-    backup_branch: str = BACKUP_NAMESPACE
-    remote_name: str = "origin"
-
-
-@dataclass
-class LimitsConfig:
-    """Resource limitation settings.
-
-    Attributes:
-        max_log_size (int): Max bytes for log files before rotation.
-        large_file_threshold (int): Max bytes for a file before triggering a warning.
-    """
-
-    max_log_size: int = 5 * 1024 * 1024
-    large_file_threshold: int = 100 * 1024 * 1024
-
-
-@dataclass
-class DaemonConfig:
-    """Daemon operational settings.
-
-    Attributes:
-        min_battery_percent (int): Battery level below which backups pause.
-        eco_mode_percent (int): Battery level below which network pushes are skipped.
-    """
-
-    min_battery_percent: int = 10
-    eco_mode_percent: int = 20
-
-
-@dataclass
-class Config:
-    """Global configuration aggregator.
-
-    Attributes:
-        core (CoreConfig): Core settings.
-        limits (LimitsConfig): Resource limits.
-        daemon (DaemonConfig): Daemon behavior settings.
-    """
-
-    core: CoreConfig = field(default_factory=CoreConfig)
-    limits: LimitsConfig = field(default_factory=LimitsConfig)
-    daemon: DaemonConfig = field(default_factory=DaemonConfig)
-
-    @classmethod
-    def load(cls) -> "Config":
-        """Loads configuration from disk, applying defaults where necessary.
-
-        Returns:
-            Config: The populated configuration object.
-        """
-        instance = cls()
-
-        if CONFIG_FILE.exists():
-            try:
-                with open(CONFIG_FILE, "rb") as f:
-                    data = tomllib.load(f)
-
-                # Selective update of config sections.
-                if "core" in data:
-                    instance.core = CoreConfig(**data["core"])
-                if "limits" in data:
-                    instance.limits = LimitsConfig(**data["limits"])
-                if "daemon" in data:
-                    instance.daemon = DaemonConfig(**data["daemon"])
-
-            except tomllib.TOMLDecodeError as e:
-                err_console.print(
-                    f"[bold red]FATAL:[/bold red] Config syntax "
-                    f"error in {CONFIG_FILE}:\n   {e}"
-                )
-                sys.exit(1)
-            except Exception as e:
-                err_console.print(f"[bold red]Config Error:[/bold red] {e}")
-                # Assume partial failures are recoverable; continue with defaults.
-
-        return instance
-
-
-CONFIG = Config.load()
 
 
 @contextmanager
@@ -283,16 +189,17 @@ def is_repo_busy(repo_path: Path, interactive: bool = False) -> bool:
     return False
 
 
-def has_large_files(repo_path: Path) -> bool:
+def has_large_files(repo_path: Path, config: Config) -> bool:
     """Scans untracked or modified files for sizes exceeding the limit.
 
     Args:
         repo_path (Path): The path to the repository.
+        config (Config): The configuration instance for this repository.
 
     Returns:
         bool: True if a large file is found, False otherwise.
     """
-    limit = CONFIG.limits.large_file_threshold
+    limit = config.limits.large_file_threshold
 
     # Only scan files git knows about or sees as untracked.
     try:
@@ -305,11 +212,14 @@ def has_large_files(repo_path: Path) -> bool:
         file_path = repo_path / name
         try:
             if file_path.stat().st_size > limit:
+                # Dynamic size formatting (Bytes -> MB)
+                limit_mb = int(limit / (1024 * 1024))
+
                 logger.warning(
                     f"WARNING {repo_path.name}: Large file detected ({name}). "
                     "Backup aborted."
                 )
-                SYSTEM.notify("Backup Aborted", f"File >100MB detected: {name}")
+                SYSTEM.notify("Backup Aborted", f"File >{limit_mb}MB detected: {name}")
                 return True
         except OSError:
             continue
@@ -356,11 +266,12 @@ def prune_registry(original_path_str: str) -> None:
             tmp_file.unlink()
 
 
-def _should_skip(repo_path: Path, interactive: bool) -> str | None:
+def _should_skip(repo_path: Path, config: Config, interactive: bool) -> str | None:
     """Determines if the backup for a given repository should be skipped.
 
     Args:
         repo_path (Path): The repository path.
+        config (Config): The configuration instance for this repository.
         interactive (bool): Whether the session is interactive (CLI) or background.
 
     Returns:
@@ -378,13 +289,16 @@ def _should_skip(repo_path: Path, interactive: bool) -> str | None:
 
         # Check battery levels (don't drain battery on background tasks).
         pct, plugged = SYSTEM.get_battery()
-        if not plugged and pct < 10:
+        # Uses config value instead of hardcoded '10'
+        if not plugged and pct < config.daemon.min_battery_percent:
             return "Battery critical"
 
     return None
 
 
-def _attempt_push(repo: GitRepo, refspec: str, interactive: bool) -> None:
+def _attempt_push(
+    repo: GitRepo, refspec: str, config: Config, interactive: bool
+) -> None:
     """Attempts to push the backup reference to the remote.
 
     Respects eco-mode settings and network availability.
@@ -392,16 +306,18 @@ def _attempt_push(repo: GitRepo, refspec: str, interactive: bool) -> None:
     Args:
         repo (GitRepo): The repository instance.
         refspec (str): The refspec to push (e.g., 'ref:ref').
+        config (Config): The configuration instance for this repository.
         interactive (bool): Whether to output status to the console.
     """
     # 1. Eco Mode Check.
     percent, plugged = SYSTEM.get_battery()
-    if not plugged and percent < CONFIG.daemon.eco_mode_percent:
+    # Uses config value instead of hardcoded '20'
+    if not plugged and percent < config.daemon.eco_mode_percent:
         logger.info(f"ECO MODE {repo.path.name}: Committed. Push skipped.")
         return
 
     # 2. Network Connectivity Check.
-    remote_name = CONFIG.core.remote_name
+    remote_name = config.core.remote_name
     host = get_remote_host(repo.path, remote_name)
     if host and not is_remote_reachable(host):
         logger.info(f"OFFLINE {repo.path.name}: Committed. Push skipped.")
@@ -417,7 +333,6 @@ def _attempt_push(repo: GitRepo, refspec: str, interactive: bool) -> None:
             with console.status(
                 f"[bold blue]Pushing {repo.path.name}...[/bold blue]", spinner="dots"
             ):
-                # capture=True suppresses verbose "Enumerating objects..." output.
                 repo._run(cmd, capture=True, env=env)
             console.print(
                 f"[bold green]SUCCESS:[/bold green] {repo.path.name}: Pushed."
@@ -433,32 +348,44 @@ def _attempt_push(repo: GitRepo, refspec: str, interactive: bool) -> None:
             logger.error(f"PUSH ERROR {repo.path.name}: {e}")
 
 
-def run_backup(original_path_str: str, interactive: bool = False) -> None:
-    """Orchestrates the backup workflow for a single repository.
-
-    Steps:
-    1. Checks skipping conditions (load, pause, missing path).
-    2. Creates a 'shadow commit' using a temporary index.
-    3. Pushes the shadow commit to the remote.
+def _get_ref_timestamp(repo: GitRepo, ref: str) -> int:
+    """Gets the commit timestamp of a specific reference.
 
     Args:
-        original_path_str (str): The repository path.
-        interactive (bool, optional):   Whether to run in interactive mode.
-                                        Defaults to False.
+        repo (GitRepo): The repository instance.
+        ref (str): The reference to check.
+
+    Returns:
+        int: Unix timestamp of the commit, or 0 if ref does not exist.
     """
+    try:
+        ts = repo._run(["log", "-1", "--format=%ct", ref])
+        return int(ts.strip())
+    except Exception:
+        return 0
+
+
+def run_backup(original_path_str: str, interactive: bool = False) -> None:
+    """Orchestrates the backup workflow for a single repository."""
     repo_path = Path(original_path_str).resolve()
 
-    # 1. Guard Clauses.
-    if reason := _should_skip(repo_path, interactive):
+    # Load context-aware config (Global + Local)
+    config = Config.load(repo_path)
+
+    # Pass config to _should_skip
+    if reason := _should_skip(repo_path, config, interactive):
         if reason == "Path missing":
             prune_registry(original_path_str)
         elif reason == "System under load":
-            pass  # Silent skip.
+            pass
         else:
             logger.info(f"SKIPPED {repo_path.name}: {reason}")
         return
 
-    # 2. Shadow Commit Logic.
+    # Pass config to has_large_files (re-added safety check)
+    if has_large_files(repo_path, config):
+        return
+
     try:
         repo = GitRepo(repo_path)
         current_branch = repo.current_branch()
@@ -466,61 +393,75 @@ def run_backup(original_path_str: str, interactive: bool = False) -> None:
             return
 
         machine_id = get_machine_id()
-        namespace = CONFIG.core.backup_branch
-        backup_ref = f"refs/heads/{namespace}/{machine_id}/{current_branch}"
+        namespace = config.core.backup_branch
 
-        # 3. Isolation: Use a temporary index.
-        with temporary_index(repo_path) as env:
-            # Stage current working directory into temp index.
-            repo._run(["add", "."], env=env)
+        # Define Refs
+        local_backup_ref = f"refs/heads/{namespace}/{machine_id}/{current_branch}"
+        remote_backup_ref = (
+            f"refs/remotes/{config.core.remote_name}/"
+            f"{namespace}/{machine_id}/{current_branch}"
+        )
 
-            # Write Tree.
-            tree_oid = repo.write_tree(env=env)
+        # --- COMMIT PHASE ---
+        last_commit_ts = _get_ref_timestamp(repo, local_backup_ref)
+        time_since_commit = time.time() - last_commit_ts
 
-            # Determine Parents (Synthetic Merge).
-            # Parent 1: Previous backup (linear history).
-            # Parent 2: Current HEAD (links to project history).
-            parents = []
-            if parent_backup := repo.rev_parse(backup_ref):
-                parents.append(parent_backup)
-            if parent_head := repo.rev_parse("HEAD"):
-                parents.append(parent_head)
+        if time_since_commit >= config.daemon.commit_interval:
+            with temporary_index(repo_path) as env:
+                # Stage current working directory into temp index.
+                repo._run(["add", "."], env=env)
 
-            # Optimization: Check if changes exist relative to the last backup.
-            if parent_backup:
-                prev_tree = repo._run(["rev-parse", f"{parent_backup}^{{tree}}"])
-                if prev_tree == tree_oid:
-                    # No changes since last backup.
-                    return
+                # Write Tree.
+                tree_oid = repo.write_tree(env=env)
 
-            # Commit Tree.
-            timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            commit_oid = repo.commit_tree(
-                tree_oid, parents, f"Shadow backup {timestamp}", env=env
-            )
+                # Determine Parents (Synthetic Merge).
+                parents = []
+                if parent_backup := repo.rev_parse(local_backup_ref):
+                    parents.append(parent_backup)
+                if parent_head := repo.rev_parse("HEAD"):
+                    parents.append(parent_head)
 
-            # Update Ref.
-            repo.update_ref(backup_ref, commit_oid, parent_backup)
+                # Check for actual changes
+                should_commit = True
+                if parent_backup:
+                    prev_tree = repo._run(["rev-parse", f"{parent_backup}^{{tree}}"])
+                    if prev_tree == tree_oid:
+                        should_commit = False
 
-            # 4. Push.
-            _attempt_push(repo, f"{backup_ref}:{backup_ref}", interactive)
+                if should_commit:
+                    timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                    commit_oid = repo.commit_tree(
+                        tree_oid, parents, f"Shadow backup {timestamp}", env=env
+                    )
+                    repo.update_ref(local_backup_ref, commit_oid, parent_backup)
+
+                    if interactive:
+                        console.print(f"[green]Committed {repo_path.name}[/green]")
+
+        # --- PUSH PHASE ---
+        current_local_ts = _get_ref_timestamp(repo, local_backup_ref)
+        last_push_ts = _get_ref_timestamp(repo, remote_backup_ref)
+
+        time_since_push = time.time() - last_push_ts
+        has_new_data = current_local_ts > last_push_ts
+
+        if has_new_data and (
+            time_since_push >= config.daemon.push_interval or interactive
+        ):
+            refspec = f"{local_backup_ref}:{local_backup_ref}"
+            # Pass config to _attempt_push
+            _attempt_push(repo, refspec, config, interactive)
 
     except Exception as e:
         logger.critical(f"CRITICAL {repo_path.name}: {e}")
 
 
 def setup_logging(interactive: bool) -> None:
-    """Configures the logging subsystem.
-
-    Args:
-        interactive (bool): If True, logs to stdout. If False, logs to file/stderr
-                            with rotation enabled.
-    """
+    """Configures the logging subsystem."""
     formatter = logging.Formatter(
         "[%(asctime)s] %(levelname)s: %(message)s", "%Y-%m-%d %H:%M:%S"
     )
 
-    # Always log to stderr (captured by systemd/launchd).
     stream_handler = logging.StreamHandler(
         sys.stderr if not interactive else sys.stdout
     )
@@ -528,10 +469,12 @@ def setup_logging(interactive: bool) -> None:
     logger.addHandler(stream_handler)
 
     if not interactive:
-        # In daemon mode, rotate logs to file.
+        # Load fresh global config to get log limits
+        conf = Config.load()
+
         file_handler = RotatingFileHandler(
             LOG_FILE,
-            maxBytes=CONFIG.limits.max_log_size,
+            maxBytes=conf.limits.max_log_size,
             backupCount=5,
         )
         file_handler.setFormatter(formatter)
