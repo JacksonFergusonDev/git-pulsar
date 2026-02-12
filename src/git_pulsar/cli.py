@@ -12,6 +12,7 @@ from rich.table import Table
 from rich.text import Text
 
 from . import daemon, ops, service
+from .config import CONFIG_FILE, Config
 from .constants import (
     APP_LABEL,
     DEFAULT_IGNORES,
@@ -149,6 +150,36 @@ def _check_repo_health(path: Path) -> str | None:
     return None
 
 
+def open_config() -> None:
+    """Opens the global configuration file in the system default editor."""
+    if not CONFIG_FILE.exists():
+        CONFIG_FILE.parent.mkdir(parents=True, exist_ok=True)
+        with open(CONFIG_FILE, "w") as f:
+            f.write(
+                "# Git Pulsar Configuration\n\n"
+                "[daemon]\n"
+                "# Options: paranoid, aggressive, balanced, lazy\n"
+                '# preset = "balanced"\n'
+            )
+
+    editor = os.environ.get("EDITOR")
+    if not editor:
+        if sys.platform == "darwin":
+            editor = "open"
+        else:
+            editor = "nano"
+
+    console.print(f"Opening [cyan]{CONFIG_FILE}[/cyan]...")
+
+    try:
+        if editor == "open":
+            subprocess.run(["open", str(CONFIG_FILE)])
+        else:
+            subprocess.run([editor, str(CONFIG_FILE)])
+    except Exception as e:
+        console.print(f"[red]Could not open editor: {e}[/red]")
+
+
 def show_status() -> None:
     """Displays the current status of the daemon and the active repository."""
     # Check daemon process status.
@@ -206,18 +237,35 @@ def show_status() -> None:
             return
 
         repo = GitRepo(cwd)
-        ref = _get_ref(repo)
+        conf = Config.load(cwd)
 
+        # Resolve Refs
+        ref = _get_ref(repo)
+        ref_name = ref.replace("refs/heads/", "")
+        remote_ref = f"refs/remotes/{conf.core.remote_name}/{ref_name}"
+
+        # Get Commit Time
         try:
-            time_str = repo.get_last_commit_time(ref)
+            commit_ts = repo._run(["log", "-1", "--format=%ct", ref]).strip()
+            last_commit_time = datetime.datetime.fromtimestamp(int(commit_ts))
+            commit_str = last_commit_time.strftime("%Y-%m-%d %H:%M")
         except Exception:
-            time_str = "None (No backup found)"
+            commit_str = "Never"
+
+        # Get Push Time
+        try:
+            push_ts = repo._run(["log", "-1", "--format=%ct", remote_ref]).strip()
+            last_push_time = datetime.datetime.fromtimestamp(int(push_ts))
+            push_str = last_push_time.strftime("%Y-%m-%d %H:%M")
+        except Exception:
+            push_str = "Never"
 
         count = len(repo.status_porcelain())
         is_paused = (cwd / ".git" / "pulsar_paused").exists()
 
         repo_content = Text()
-        repo_content.append(f"Last Backup: {time_str}\n")
+        repo_content.append(f"Last Commit: {commit_str}\n")
+        repo_content.append(f"Last Push:   {push_str}\n", style="dim")
         repo_content.append(f"Pending:     {count} files changed\n")
 
         if is_paused:
@@ -610,6 +658,7 @@ def main() -> None:
     subparsers.add_parser("remove", help="Stop tracking current repo")
     subparsers.add_parser("sync", help="Sync with latest session")
     subparsers.add_parser("doctor", help="Clean registry and check health")
+    subparsers.add_parser("config", help="Open global config file")
 
     ignore_parser = subparsers.add_parser("ignore", help="Add pattern to .gitignore")
     ignore_parser.add_argument("pattern", help="File pattern (e.g. '*.log')")
@@ -684,6 +733,9 @@ def main() -> None:
         return
     elif args.command == "log":
         tail_log()
+        return
+    elif args.command == "config":
+        open_config()
         return
 
     # Default Action (if no subcommand is run, or after --env)
