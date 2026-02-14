@@ -1,6 +1,5 @@
 import os
 import shutil
-import socket
 import subprocess
 import sys
 import textwrap
@@ -10,9 +9,9 @@ from pathlib import Path
 from rich.console import Console
 from rich.panel import Panel
 
+from . import system
 from .constants import BACKUP_NAMESPACE
 from .git_wrapper import GitRepo
-from .system import get_machine_id, get_machine_id_file
 
 console = Console()
 
@@ -25,38 +24,10 @@ def get_backup_ref(branch: str) -> str:
         branch (str): The name of the branch to back up.
 
     Returns:
-        str: The namespaced ref string (e.g., refs/heads/wip/pulsar/machine-id/branch).
+        str: The namespaced ref string (e.g., refs/heads/wip/pulsar/slug/branch).
     """
-    machine_id = get_machine_id()
-    return f"refs/heads/{BACKUP_NAMESPACE}/{machine_id}/{branch}"
-
-
-def configure_identity() -> None:
-    """Interactively configures the unique machine identifier for this environment.
-
-    This identifier is used to namespace backups, allowing multiple machines to
-    back up the same branch without conflict.
-    """
-    id_file = get_machine_id_file()
-    if id_file.exists():
-        return
-
-    console.print("[bold]Git Pulsar Machine Identity Setup[/bold]")
-    console.print("   To enable seamless roaming, this machine needs a unique name.")
-
-    # In a robust implementation, we would fetch existing identities from the remote.
-    # For now, we default to the hostname.
-    default_name = socket.gethostname().split(".")[0]
-    console.print(f"\n   Suggested name: [bold]{default_name}[/bold]")
-
-    choice = console.input("   Enter name (or press Enter to accept): ").strip()
-    name = choice if choice else default_name
-
-    # Persist the choice to disk.
-    id_file.parent.mkdir(parents=True, exist_ok=True)
-    with open(id_file, "w") as f:
-        f.write(name)
-    console.print(f"[bold green]SUCCESS:[/bold green] Machine ID set to: '{name}'\n")
+    slug = system.get_identity_slug()
+    return f"refs/heads/{BACKUP_NAMESPACE}/{slug}/{branch}"
 
 
 def bootstrap_env() -> None:

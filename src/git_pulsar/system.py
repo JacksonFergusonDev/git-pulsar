@@ -5,7 +5,12 @@ import subprocess
 import sys
 from pathlib import Path
 
-from .constants import MACHINE_ID_FILE
+from rich.console import Console
+
+from .constants import BACKUP_NAMESPACE, MACHINE_ID_FILE, MACHINE_NAME_FILE
+from .git_wrapper import GitRepo
+
+console = Console()
 
 
 class SystemStrategy:
@@ -124,6 +129,11 @@ def get_machine_id_file() -> Path:
     return Path(MACHINE_ID_FILE)
 
 
+def get_machine_name_file() -> Path:
+    """Returns the path to the configured human-readable name file."""
+    return Path(MACHINE_NAME_FILE)
+
+
 def get_machine_id() -> str:
     """Resolves a unique, persistent identifier for the current machine.
 
@@ -195,3 +205,123 @@ def get_machine_id() -> str:
     # Generic fallback (not a true machine ID)
     name = socket.gethostname()
     return name.split(".")[0]
+
+
+def get_identity_slug() -> str:
+    """Constructs the composite identity slug for this machine.
+
+    Format: {human_name}--{short_id}
+    Example: 'macbook-air--9a7b2c'
+
+    Returns:
+        str: The composite slug used for git references.
+    """
+    # 1. Get Stable ID (Hardware UUID or generated)
+    full_id = get_machine_id()
+    short_id = full_id[:8]  # First 8 chars are sufficient for uniqueness
+
+    # 2. Get Human Name (Mutable)
+    name_file = get_machine_name_file()
+    if name_file.exists():
+        human_name = name_file.read_text().strip()
+    else:
+        # Fallback to hostname if not configured
+        human_name = socket.gethostname().split(".")[0]
+
+    return f"{human_name}--{short_id}"
+
+
+def _fetch_remote_identities(repo: GitRepo) -> set[str]:
+    """Scans the remote for existing Pulsar identities using ls-remote.
+
+    This allows us to detect naming collisions without fetching object data.
+
+    Args:
+        repo (GitRepo): The repository to scan.
+
+    Returns:
+        set[str]: A set of human-readable names currently in use on the remote.
+    """
+    try:
+        # ls-remote returns: <SHA> refs/heads/wip/pulsar/<slug>/<branch>
+        output = repo._run(
+            ["ls-remote", "origin", f"refs/heads/{BACKUP_NAMESPACE}/*"], capture=True
+        )
+    except Exception:
+        return set()
+
+    used_names = set()
+    for line in output.splitlines():
+        parts = line.split()
+        if len(parts) < 2:
+            continue
+
+        ref = parts[1]  # refs/heads/wip/pulsar/slug/branch
+        try:
+            # Extract slug: refs/heads/wip/pulsar/{slug}/...
+            # Split by '/' and take the 4th element (index 4)
+            # refs[0] / heads[1] / wip[2] / pulsar[3] / slug[4]
+            segments = ref.split("/")
+            if len(segments) > 4:
+                slug = segments[4]
+                if "--" in slug:
+                    name, _ = slug.split("--", 1)
+                    used_names.add(name)
+        except ValueError:
+            continue
+
+    return used_names
+
+
+def configure_identity(repo: GitRepo | None = None) -> None:
+    """Interactively configures the identity for this machine.
+
+    Syncs with the remote to prevent naming collisions.
+
+    Args:
+        repo (GitRepo | None): Optional repo to use for remote discovery.
+    """
+    name_file = get_machine_name_file()
+    id_file = get_machine_id_file()
+
+    # 1. Ensure Stable ID is persisted
+    if not id_file.exists():
+        stable_id = get_machine_id()
+        id_file.parent.mkdir(parents=True, exist_ok=True)
+        id_file.write_text(stable_id)
+
+    if name_file.exists():
+        return
+
+    console.print("[bold]Git Pulsar Identity Setup[/bold]")
+    console.print("   To enable seamless roaming, this machine needs a name.")
+
+    # 2. Discover Remote Identities (Identity Sync)
+    used_names = set()
+    if repo:
+        console.print("   [dim]Scanning remote for existing devices...[/dim]")
+        used_names = _fetch_remote_identities(repo)
+
+    default_name = socket.gethostname().split(".")[0]
+
+    while True:
+        console.print(f"\n   Suggested name: [bold]{default_name}[/bold]")
+        choice = console.input("   Enter name (or press Enter to accept): ").strip()
+        name = choice if choice else default_name
+
+        # 3. Collision Check
+        if name in used_names:
+            console.print(
+                f"   [bold yellow]WARNING:[/bold yellow] The name '{name}' "
+                "is already used by another device."
+            )
+            console.print("   If you reuse it, you might confuse backup streams.")
+            confirm = console.input("   Use this name anyway? [y/N] ").lower()
+            if confirm != "y":
+                continue
+
+        # 4. Save
+        name_file.parent.mkdir(parents=True, exist_ok=True)
+        name_file.write_text(name)
+        console.print(f"[bold green]SUCCESS:[/bold green] Machine set to: '{name}'\n")
+        break
