@@ -93,10 +93,14 @@ def test_setup_repo_triggers_identity_config(tmp_path: Path, mocker: MagicMock) 
     (tmp_path / ".git").mkdir()
     mocker.patch.object(Path, "cwd", return_value=tmp_path)
 
+    # Use a fake registry so we don't pollute the real user's registry
+    mock_registry = tmp_path / "registry"
+
     # Mock system.configure_identity
     mock_config_id = mocker.patch("git_pulsar.system.configure_identity")
 
-    cli.setup_repo()
+    # Pass the mock registry explicitly
+    cli.setup_repo(registry_path=mock_registry)
 
     # Assert it was called with a GitRepo instance
     mock_config_id.assert_called_once()
