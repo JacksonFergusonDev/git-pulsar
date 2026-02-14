@@ -35,7 +35,9 @@ def test_run_backup_shadow_commit_flow(
     # Mock system dependencies
     mocker.patch("git_pulsar.daemon.SYSTEM.is_under_load", return_value=False)
     mocker.patch("git_pulsar.daemon.SYSTEM.get_battery", return_value=(100, True))
-    mocker.patch("git_pulsar.daemon.get_machine_id", return_value="test-unit")
+
+    # Mock the slug function
+    mocker.patch("git_pulsar.system.get_identity_slug", return_value="test-unit--1234")
 
     # Mock has_large_files to avoid subprocess/git errors
     mocker.patch("git_pulsar.daemon.has_large_files", return_value=False)
@@ -46,9 +48,6 @@ def test_run_backup_shadow_commit_flow(
     repo.current_branch.return_value = "main"
 
     # Simulate ref timestamps to ensure Push triggers:
-    # 1. Last Commit TS: 0 (triggers commit)
-    # 2. Current Local TS: 100 (after commit)
-    # 3. Last Remote TS: 0 (triggers push since 100 > 0)
     mocker.patch("git_pulsar.daemon._get_ref_timestamp", side_effect=[0, 100, 0])
 
     # Simulate parent resolution (Head exists, Backup doesn't)
@@ -64,7 +63,9 @@ def test_run_backup_shadow_commit_flow(
     # Verify ref update
     repo.update_ref.assert_called()
     args, _ = repo.update_ref.call_args
-    assert f"refs/heads/{BACKUP_NAMESPACE}/test-unit/main" == args[0]
+
+    # FIXED: Assert the ref contains the FULL SLUG (test-unit--1234)
+    assert f"refs/heads/{BACKUP_NAMESPACE}/test-unit--1234/main" == args[0]
 
     # Verify push
     repo._run.assert_any_call(
@@ -85,7 +86,7 @@ def test_run_backup_decoupled_push(
     mock_config.daemon.push_interval = 3600
 
     mocker.patch("git_pulsar.daemon.SYSTEM.get_battery", return_value=(100, True))
-    mocker.patch("git_pulsar.daemon.get_machine_id", return_value="id")
+    mocker.patch("git_pulsar.system.get_identity_slug", return_value="id--1234")
     mocker.patch("git_pulsar.daemon.has_large_files", return_value=False)
 
     mock_cls = mocker.patch("git_pulsar.daemon.GitRepo")

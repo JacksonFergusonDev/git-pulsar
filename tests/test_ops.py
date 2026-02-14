@@ -70,45 +70,6 @@ def test_bootstrap_env_scaffolds_files(tmp_path: Path, mocker: MagicMock) -> Non
     assert "source .venv/bin/activate" in envrc.read_text()
 
 
-# Identity Tests
-
-
-def test_configure_identity_creates_file(tmp_path: Path, mocker: MagicMock) -> None:
-    """Verifies that `configure_identity` creates the machine_id file if missing.
-
-    Args:
-        tmp_path (Path): Pytest fixture for a temporary directory.
-        mocker (MagicMock): Pytest fixture for mocking.
-    """
-    mock_console = mocker.patch("git_pulsar.ops.console")
-    mock_console.input.return_value = "my-laptop"
-
-    mock_id_file = tmp_path / "machine_id"
-    mocker.patch("git_pulsar.ops.get_machine_id_file", return_value=mock_id_file)
-
-    ops.configure_identity()
-
-    assert mock_id_file.read_text() == "my-laptop"
-
-
-def test_configure_identity_skips_existing(tmp_path: Path, mocker: MagicMock) -> None:
-    """Verifies that `configure_identity` does nothing if the ID file already exists.
-
-    Args:
-        tmp_path (Path): Pytest fixture for a temporary directory.
-        mocker (MagicMock): Pytest fixture for mocking.
-    """
-    mock_id_file = tmp_path / "machine_id"
-    mock_id_file.write_text("existing-id")
-    mocker.patch("git_pulsar.ops.get_machine_id_file", return_value=mock_id_file)
-
-    mock_console = mocker.patch("git_pulsar.ops.console")
-
-    ops.configure_identity()
-
-    mock_console.input.assert_not_called()
-
-
 # Restore / Sync Tests
 
 
@@ -124,14 +85,14 @@ def test_restore_clean(mocker: MagicMock) -> None:
 
     mocker.patch("git_pulsar.ops.console")
 
-    # Mock current branch and machine ID for ref construction.
+    # Mock get_identity_slug
     mock_repo.current_branch.return_value = "main"
-    mocker.patch("git_pulsar.ops.get_machine_id", return_value="test-unit")
+    mocker.patch("git_pulsar.system.get_identity_slug", return_value="my-mac--1234")
 
     ops.restore_file("script.py")
 
-    # Expect namespaced ref checkout.
-    expected_ref = f"refs/heads/{BACKUP_NAMESPACE}/test-unit/main"
+    # Expect namespaced ref with the slug
+    expected_ref = f"refs/heads/{BACKUP_NAMESPACE}/my-mac--1234/main"
     mock_repo.checkout.assert_called_with(expected_ref, file="script.py")
 
 

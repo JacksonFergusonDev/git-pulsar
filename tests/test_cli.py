@@ -86,3 +86,19 @@ def test_main_runs_daemon_command(mocker: MagicMock) -> None:
     cli.main()
 
     mock_daemon.assert_called_with(interactive=True)
+
+
+def test_setup_repo_triggers_identity_config(tmp_path: Path, mocker: MagicMock) -> None:
+    """Verifies that setting up a repo triggers identity configuration."""
+    (tmp_path / ".git").mkdir()
+    mocker.patch.object(Path, "cwd", return_value=tmp_path)
+
+    # Mock system.configure_identity
+    mock_config_id = mocker.patch("git_pulsar.system.configure_identity")
+
+    cli.setup_repo()
+
+    # Assert it was called with a GitRepo instance
+    mock_config_id.assert_called_once()
+    args = mock_config_id.call_args[0]
+    assert isinstance(args[0], cli.GitRepo)
