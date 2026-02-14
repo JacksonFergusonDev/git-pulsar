@@ -91,3 +91,95 @@ def test_get_machine_id_hostname_fallback(mocker: MagicMock) -> None:
 
     # Expect only the short hostname (first component).
     assert system.get_machine_id() == "host"
+
+
+def test_get_identity_slug_combines_name_and_id(
+    tmp_path: Path, mocker: MagicMock
+) -> None:
+    """
+    Verifies that the slug combines the human name and the first 8 chars of the ID.
+    """
+    # Mock the stable machine ID
+    mocker.patch("git_pulsar.system.get_machine_id", return_value="1234567890abcdef")
+
+    # Mock the machine name file
+    name_file = tmp_path / "machine_name"
+    name_file.write_text("my-macbook")
+    mocker.patch("git_pulsar.system.get_machine_name_file", return_value=name_file)
+
+    # Expect: name + double-dash + first 8 chars of ID
+    assert system.get_identity_slug() == "my-macbook--12345678"
+
+
+def test_fetch_remote_identities_parses_slugs(mocker: MagicMock) -> None:
+    """Verifies that `_fetch_remote_identities` correctly extracts names from refs."""
+    mock_repo = MagicMock()
+    # Simulate git ls-remote output
+    mock_repo._run.return_value = (
+        "sha1 refs/heads/wip/pulsar/macbook--12345678/main\n"
+        "sha2 refs/heads/wip/pulsar/desktop--abcdef12/dev\n"
+        "sha3 refs/heads/wip/pulsar/weird-ref/main\n"  # Should be ignored (no --)
+    )
+
+    identities = system._fetch_remote_identities(mock_repo)
+
+    assert "macbook" in identities
+    assert "desktop" in identities
+    assert "weird-ref" not in identities
+    assert len(identities) == 2
+
+
+def test_configure_identity_creates_file(tmp_path: Path, mocker: MagicMock) -> None:
+    """Verifies that `configure_identity` writes the human-readable name to disk.
+
+    Args:
+        tmp_path (Path): Pytest fixture for a temporary directory.
+        mocker (MagicMock): Pytest fixture for mocking.
+    """
+    mock_console = mocker.patch("git_pulsar.system.console")
+    mock_console.input.return_value = "my-laptop"
+
+    # 'machine_id' is for the stable UUID (generated automatically)
+    # 'machine_name' is for the user input
+    mock_id_file = tmp_path / "machine_id"
+    mock_name_file = tmp_path / "machine_name"
+
+    mocker.patch("git_pulsar.system.get_machine_id_file", return_value=mock_id_file)
+    mocker.patch("git_pulsar.system.get_machine_name_file", return_value=mock_name_file)
+
+    # Mock get_machine_id so it doesn't try to use system calls,
+    # ensuring the ID file gets populated with a known value.
+    mocker.patch("git_pulsar.system.get_machine_id", return_value="UUID-1234")
+
+    system.configure_identity()
+
+    # Assert that the NAME file contains the input "my-laptop"
+    assert mock_name_file.read_text() == "my-laptop"
+
+    # Assert the ID file was also created/preserved
+    assert mock_id_file.exists()
+    assert mock_id_file.read_text() == "UUID-1234"
+
+
+def test_configure_identity_skips_existing(tmp_path: Path, mocker: MagicMock) -> None:
+    """Verifies that `configure_identity` does nothing if the Name file already exists.
+
+    Args:
+        tmp_path (Path): Pytest fixture for a temporary directory.
+        mocker (MagicMock): Pytest fixture for mocking.
+    """
+    # Mock ID file (Safety check)
+    mock_id_file = tmp_path / "machine_id"
+    mock_id_file.write_text("existing-id")
+    mocker.patch("git_pulsar.system.get_machine_id_file", return_value=mock_id_file)
+
+    mock_name_file = tmp_path / "machine_name"
+    mock_name_file.write_text("existing-name")
+    mocker.patch("git_pulsar.system.get_machine_name_file", return_value=mock_name_file)
+
+    mock_console = mocker.patch("git_pulsar.system.console")
+
+    system.configure_identity()
+
+    # Should exit early without asking for input
+    mock_console.input.assert_not_called()

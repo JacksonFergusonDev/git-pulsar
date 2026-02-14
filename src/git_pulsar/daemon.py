@@ -15,7 +15,7 @@ from typing import Iterator
 
 from rich.console import Console
 
-from . import ops
+from . import ops, system
 from .config import Config
 from .constants import (
     APP_NAME,
@@ -25,7 +25,7 @@ from .constants import (
     REGISTRY_FILE,
 )
 from .git_wrapper import GitRepo
-from .system import get_machine_id, get_system
+from .system import get_system
 
 SYSTEM = get_system()
 
@@ -392,14 +392,14 @@ def run_backup(original_path_str: str, interactive: bool = False) -> None:
         if not current_branch:
             return
 
-        machine_id = get_machine_id()
+        slug = system.get_identity_slug()
         namespace = config.core.backup_branch
 
         # Define Refs
-        local_backup_ref = f"refs/heads/{namespace}/{machine_id}/{current_branch}"
+        local_backup_ref = f"refs/heads/{namespace}/{slug}/{current_branch}"
         remote_backup_ref = (
             f"refs/remotes/{config.core.remote_name}/"
-            f"{namespace}/{machine_id}/{current_branch}"
+            f"{namespace}/{slug}/{current_branch}"
         )
 
         # --- COMMIT PHASE ---
@@ -452,8 +452,8 @@ def run_backup(original_path_str: str, interactive: bool = False) -> None:
             # Pass config to _attempt_push
             _attempt_push(repo, refspec, config, interactive)
 
-    except Exception as e:
-        logger.critical(f"CRITICAL {repo_path.name}: {e}")
+    except Exception:
+        logger.exception(f"CRITICAL {repo_path.name}: Backup iteration failed")
 
 
 def setup_logging(interactive: bool) -> None:

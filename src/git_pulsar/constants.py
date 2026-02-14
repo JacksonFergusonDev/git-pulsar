@@ -47,6 +47,9 @@ CONFIG_FILE: Path = CONFIG_DIR / "config.toml"
 MACHINE_ID_FILE: Path = CONFIG_DIR / "machine_id"
 """Path: The file path storing the unique machine identifier."""
 
+MACHINE_NAME_FILE: Path = CONFIG_DIR / "machine_name"
+"""Path: The file path storing the user-defined human-readable name."""
+
 # --- Git / Logic Constants ---
 DEFAULT_IGNORES = [
     "__pycache__/",

@@ -11,7 +11,7 @@ from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
 
-from . import daemon, ops, service
+from . import daemon, ops, service, system
 from .config import CONFIG_FILE, Config
 from .constants import (
     APP_LABEL,
@@ -102,8 +102,8 @@ def _analyze_logs(hours: int = 24) -> list[str]:
                     errors.append(line.strip())
                 except ValueError:
                     pass
-    except Exception:
-        pass  # Fail silently on log read errors to prevent CLI interruption.
+    except Exception as e:
+        return [f"Error reading log file: {e}"]
 
     return errors
 
@@ -144,8 +144,8 @@ def _check_repo_health(path: Path) -> str | None:
         if time.time() - last_backup_ts > 7200:
             return "Stalled: Changes pending > 2 hours."
 
-    except Exception:
-        return "Unable to verify git status."
+    except Exception as e:
+        return f"Unable to verify git status: {e}"
 
     return None
 
@@ -551,6 +551,10 @@ def setup_repo(registry_path: Path = REGISTRY_FILE) -> None:
         subprocess.run(["git", "init"], check=True)
 
     repo = GitRepo(cwd)
+
+    # Trigger Identity Configuration (with Sync)
+    # We pass the repo so it can check 'origin' for collisions.
+    system.configure_identity(repo)
 
     # Ensure a .gitignore file exists and contains default patterns.
     gitignore = cwd / ".gitignore"
