@@ -452,8 +452,8 @@ def run_backup(original_path_str: str, interactive: bool = False) -> None:
             # Pass config to _attempt_push
             _attempt_push(repo, refspec, config, interactive)
 
-    except Exception as e:
-        logger.critical(f"CRITICAL {repo_path.name}: {e}")
+    except Exception:
+        logger.exception(f"CRITICAL {repo_path.name}: Backup iteration failed")
 
 
 def setup_logging(interactive: bool) -> None:

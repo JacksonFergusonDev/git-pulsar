@@ -1,3 +1,4 @@
+import logging
 import os
 import plistlib
 import socket
@@ -7,10 +8,11 @@ from pathlib import Path
 
 from rich.console import Console
 
-from .constants import BACKUP_NAMESPACE, MACHINE_ID_FILE, MACHINE_NAME_FILE
+from .constants import APP_NAME, BACKUP_NAMESPACE, MACHINE_ID_FILE, MACHINE_NAME_FILE
 from .git_wrapper import GitRepo
 
 console = Console()
+logger = logging.getLogger(APP_NAME)
 
 
 class SystemStrategy:
@@ -247,7 +249,8 @@ def _fetch_remote_identities(repo: GitRepo) -> set[str]:
         output = repo._run(
             ["ls-remote", "origin", f"refs/heads/{BACKUP_NAMESPACE}/*"], capture=True
         )
-    except Exception:
+    except Exception as e:
+        logger.warning(f"Identity Sync: Could not query remote (Offline?): {e}")
         return set()
 
     used_names = set()

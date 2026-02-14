@@ -102,8 +102,8 @@ def _analyze_logs(hours: int = 24) -> list[str]:
                     errors.append(line.strip())
                 except ValueError:
                     pass
-    except Exception:
-        pass  # Fail silently on log read errors to prevent CLI interruption.
+    except Exception as e:
+        return [f"Error reading log file: {e}"]
 
     return errors
 
@@ -144,8 +144,8 @@ def _check_repo_health(path: Path) -> str | None:
         if time.time() - last_backup_ts > 7200:
             return "Stalled: Changes pending > 2 hours."
 
-    except Exception:
-        return "Unable to verify git status."
+    except Exception as e:
+        return f"Unable to verify git status: {e}"
 
     return None
 
