@@ -162,18 +162,24 @@ def test_configure_identity_creates_file(tmp_path: Path, mocker: MagicMock) -> N
 
 
 def test_configure_identity_skips_existing(tmp_path: Path, mocker: MagicMock) -> None:
-    """Verifies that `configure_identity` does nothing if the ID file already exists.
+    """Verifies that `configure_identity` does nothing if the Name file already exists.
 
     Args:
         tmp_path (Path): Pytest fixture for a temporary directory.
         mocker (MagicMock): Pytest fixture for mocking.
     """
+    # Mock ID file (Safety check)
     mock_id_file = tmp_path / "machine_id"
     mock_id_file.write_text("existing-id")
     mocker.patch("git_pulsar.system.get_machine_id_file", return_value=mock_id_file)
+
+    mock_name_file = tmp_path / "machine_name"
+    mock_name_file.write_text("existing-name")
+    mocker.patch("git_pulsar.system.get_machine_name_file", return_value=mock_name_file)
 
     mock_console = mocker.patch("git_pulsar.system.console")
 
     system.configure_identity()
 
+    # Should exit early without asking for input
     mock_console.input.assert_not_called()
