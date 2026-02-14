@@ -51,6 +51,7 @@ In a distributed environment (Laptop ↔ Desktop), state drift is inevitable.
 ## ⚡ Features
 
 * **Decoupled Cycles:** Independent intervals for local commits and remote pushes. Save your battery while staying protected.
+* **Smart Identity:** Automatically detects naming collisions with other devices on the remote, ensuring unique backup streams for every machine.
 * **Out-of-Band Indexing:** Backups are stored in a configured namespace (default: `refs/heads/wip/pulsar/...`). Your `git status`, `git branch`, and `git log` remain completely clean.
 * **Distributed Sessions:** Hop between machines. Pulsar tracks sessions per device and lets you `sync` to pick up exactly where you left off.
 * **Zero-Interference:**
@@ -88,7 +89,7 @@ git pulsar install-service --interval 300
 Pulsar is designed to feel like a native git command.
 
 ### 1. Initialize & Identify
-Navigate to your project. The first time you run Pulsar, it will register the repo and start the background protection loop.
+Navigate to your project. The first time you run Pulsar, it will register the repo, **check for naming collisions**, and start the background protection loop.
 
 ```bash
 cd ~/University/Astro401
@@ -235,7 +236,6 @@ ignore = ["*.tmp", "node_modules/"]
 - [ ] **Universal Bootstrap:** Expand `git pulsar --env` to support Linux (apt/dnf) environments alongside macOS.
 
 ### Future Horizons
-- [ ] **Identity Sync:** Automatically fetch used Machine IDs from the remote to prevent collisions when setting up a new device.
 - [ ] **End-to-End Encryption:** Optional GPG encryption for shadow commits.
 - [ ] **Windows Support:** Native support for PowerShell and Task Scheduler.
 
