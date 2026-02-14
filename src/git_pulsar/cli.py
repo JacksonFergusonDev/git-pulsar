@@ -11,7 +11,7 @@ from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
 
-from . import daemon, ops, service
+from . import daemon, ops, service, system
 from .config import CONFIG_FILE, Config
 from .constants import (
     APP_LABEL,
@@ -551,6 +551,10 @@ def setup_repo(registry_path: Path = REGISTRY_FILE) -> None:
         subprocess.run(["git", "init"], check=True)
 
     repo = GitRepo(cwd)
+
+    # Trigger Identity Configuration (with Sync)
+    # We pass the repo so it can check 'origin' for collisions.
+    system.configure_identity(repo)
 
     # Ensure a .gitignore file exists and contains default patterns.
     gitignore = cwd / ".gitignore"
