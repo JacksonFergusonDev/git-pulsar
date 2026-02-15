@@ -195,11 +195,9 @@ def show_status() -> None:
 
         # Check registration status.
         is_registered = False
-        if REGISTRY_FILE.exists():
-            with open(REGISTRY_FILE, "r") as f:
-                registered = {line.strip() for line in f if line.strip()}
-            if str(cwd) in registered:
-                is_registered = True
+        # Use the system helper (returns list[Path])
+        if cwd in system.get_registered_repos():
+            is_registered = True
 
         if not is_registered:
             console.print(
