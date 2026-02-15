@@ -181,8 +181,7 @@ def is_repo_busy(repo_path: Path, interactive: bool = False) -> bool:
         except OSError:
             pass  # File vanished (race resolved).
 
-        # B. Wait-and-see (Micro-retry) to handle transient operations.
-        time.sleep(1.0)
+        # B. Fail fast if lock still exists
         if lock_file.exists():
             return True
 
