@@ -492,16 +492,15 @@ def main(interactive: bool = False) -> None:
     """
     setup_logging(interactive)
 
-    if not REGISTRY_FILE.exists():
+    repos = [str(p) for p in system.get_registered_repos()]
+
+    if not repos:
         if interactive:
             console.print(
                 "[yellow]Registry empty. Run 'git-pulsar' in "
                 "a repo to register it.[/yellow]"
             )
         return
-
-    with open(REGISTRY_FILE, "r") as f:
-        repos = [line.strip() for line in f if line.strip()]
 
     # Set a timeout handler for stalled network mounts.
     def timeout_handler(_signum: int, _frame: FrameType | None) -> None:

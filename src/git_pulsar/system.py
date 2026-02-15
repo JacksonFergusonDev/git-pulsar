@@ -8,11 +8,25 @@ from pathlib import Path
 
 from rich.console import Console
 
-from .constants import APP_NAME, BACKUP_NAMESPACE, MACHINE_ID_FILE, MACHINE_NAME_FILE
+from .constants import (
+    APP_NAME,
+    BACKUP_NAMESPACE,
+    MACHINE_ID_FILE,
+    MACHINE_NAME_FILE,
+    REGISTRY_FILE,
+)
 from .git_wrapper import GitRepo
 
 console = Console()
 logger = logging.getLogger(APP_NAME)
+
+
+def get_registered_repos() -> list[Path]:
+    """Reads the registry file and returns a list of registered repository paths."""
+    if not REGISTRY_FILE.exists():
+        return []
+    with open(REGISTRY_FILE, "r") as f:
+        return [Path(line.strip()) for line in f if line.strip()]
 
 
 class SystemStrategy:
