@@ -155,12 +155,12 @@ def test_sync_session_success(mocker: MagicMock) -> None:
 
     ops.sync_session()
 
-    # Verify fetch of all namespaces.
+    # Verify fetch of specific branch only
     repo._run.assert_any_call(
         [
             "fetch",
             "origin",
-            f"refs/heads/{BACKUP_NAMESPACE}/*:refs/heads/{BACKUP_NAMESPACE}/*",
+            f"refs/heads/{BACKUP_NAMESPACE}/*/main:refs/heads/{BACKUP_NAMESPACE}/*/main",
         ],
         capture=True,
     )

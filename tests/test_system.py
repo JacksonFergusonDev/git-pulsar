@@ -183,3 +183,16 @@ def test_configure_identity_skips_existing(tmp_path: Path, mocker: MagicMock) ->
 
     # Should exit early without asking for input
     mock_console.input.assert_not_called()
+
+
+def test_get_registered_repos_parses_cleanly(tmp_path: Path, mocker: MagicMock) -> None:
+    """Verifies that the registry helper strips whitespace and empty lines."""
+    reg_file = tmp_path / "registry"
+    reg_file.write_text("\n  /path/one  \n\n/path/two\n")
+
+    mocker.patch("git_pulsar.system.REGISTRY_FILE", reg_file)
+
+    repos = system.get_registered_repos()
+    assert len(repos) == 2
+    assert Path("/path/one") in repos
+    assert Path("/path/two") in repos

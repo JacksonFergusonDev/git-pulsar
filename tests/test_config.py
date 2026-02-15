@@ -1,9 +1,20 @@
 """Tests for the configuration management subsystem."""
 
 from pathlib import Path
+from typing import Any
 from unittest.mock import MagicMock
 
+import pytest
+
 from git_pulsar.config import Config
+
+
+@pytest.fixture(autouse=True)
+def clear_config_cache() -> Any:
+    """Ensures every test starts with a clean config cache."""
+    Config._global_cache = None
+    yield
+    Config._global_cache = None
 
 
 def test_config_defaults() -> None:
