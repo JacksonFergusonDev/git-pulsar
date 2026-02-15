@@ -181,8 +181,7 @@ def is_repo_busy(repo_path: Path, interactive: bool = False) -> bool:
         except OSError:
             pass  # File vanished (race resolved).
 
-        # B. Wait-and-see (Micro-retry) to handle transient operations.
-        time.sleep(1.0)
+        # B. Fail fast if lock still exists
         if lock_file.exists():
             return True
 
@@ -205,7 +204,8 @@ def has_large_files(repo_path: Path, config: Config) -> bool:
     try:
         cmd = ["git", "ls-files", "--others", "--modified", "--exclude-standard"]
         candidates = subprocess.check_output(cmd, cwd=repo_path, text=True).splitlines()
-    except subprocess.CalledProcessError:
+    except subprocess.CalledProcessError as e:
+        logger.warning(f"Large file scan failed for {repo_path.name}: {e}")
         return False
 
     for name in candidates:
@@ -221,7 +221,8 @@ def has_large_files(repo_path: Path, config: Config) -> bool:
                 )
                 SYSTEM.notify("Backup Aborted", f"File >{limit_mb}MB detected: {name}")
                 return True
-        except OSError:
+        except OSError as e:
+            logger.warning(f"Failed to check size of file {name}: {e}")
             continue
 
     return False
@@ -361,7 +362,8 @@ def _get_ref_timestamp(repo: GitRepo, ref: str) -> int:
     try:
         ts = repo._run(["log", "-1", "--format=%ct", ref])
         return int(ts.strip())
-    except Exception:
+    except Exception as e:
+        logger.debug(f"Could not get timestamp for {ref}: {e}")
         return 0
 
 
@@ -392,15 +394,10 @@ def run_backup(original_path_str: str, interactive: bool = False) -> None:
         if not current_branch:
             return
 
-        slug = system.get_identity_slug()
-        namespace = config.core.backup_branch
-
         # Define Refs
-        local_backup_ref = f"refs/heads/{namespace}/{slug}/{current_branch}"
-        remote_backup_ref = (
-            f"refs/remotes/{config.core.remote_name}/"
-            f"{namespace}/{slug}/{current_branch}"
-        )
+        local_backup_ref = ops.get_backup_ref(current_branch)
+        ref_suffix = local_backup_ref.replace("refs/heads/", "")
+        remote_backup_ref = f"refs/remotes/{config.core.remote_name}/{ref_suffix}"
 
         # --- COMMIT PHASE ---
         last_commit_ts = _get_ref_timestamp(repo, local_backup_ref)
@@ -409,6 +406,10 @@ def run_backup(original_path_str: str, interactive: bool = False) -> None:
         if time_since_commit >= config.daemon.commit_interval:
             with temporary_index(repo_path) as env:
                 # Stage current working directory into temp index.
+                # Use wrapper method if available, or repo._run(["add", "."], env=env)
+                repo.add_all()
+                # Note: GitRepo.add_all() in wrapper doesn't accept env.
+                # Keeping manual run with env.
                 repo._run(["add", "."], env=env)
 
                 # Write Tree.
@@ -430,9 +431,16 @@ def run_backup(original_path_str: str, interactive: bool = False) -> None:
 
                 if should_commit:
                     timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+                    # Use wrapper method
                     commit_oid = repo.commit_tree(
-                        tree_oid, parents, f"Shadow backup {timestamp}", env=env
+                        tree=tree_oid,
+                        parents=parents,
+                        message=f"Shadow backup {timestamp}",
+                        env=env,
                     )
+
+                    # Use wrapper method
                     repo.update_ref(local_backup_ref, commit_oid, parent_backup)
 
                     if interactive:
@@ -492,16 +500,15 @@ def main(interactive: bool = False) -> None:
     """
     setup_logging(interactive)
 
-    if not REGISTRY_FILE.exists():
+    repos = [str(p) for p in system.get_registered_repos()]
+
+    if not repos:
         if interactive:
             console.print(
                 "[yellow]Registry empty. Run 'git-pulsar' in "
                 "a repo to register it.[/yellow]"
             )
         return
-
-    with open(REGISTRY_FILE, "r") as f:
-        repos = [line.strip() for line in f if line.strip()]
 
     # Set a timeout handler for stalled network mounts.
     def timeout_handler(_signum: int, _frame: FrameType | None) -> None:

@@ -14,9 +14,7 @@ from rich.text import Text
 from . import daemon, ops, service, system
 from .config import CONFIG_FILE, Config
 from .constants import (
-    APP_LABEL,
     DEFAULT_IGNORES,
-    HOMEBREW_LABEL,
     LOG_FILE,
     PID_FILE,
     REGISTRY_FILE,
@@ -36,27 +34,6 @@ def _get_ref(repo: GitRepo) -> str:
         str: The fully qualified backup reference string based on the current branch.
     """
     return ops.get_backup_ref(repo.current_branch())
-
-
-def _is_service_enabled() -> bool:
-    """Checks if the system service is currently loaded and active.
-
-    Supports both launchd (macOS) and systemd (Linux).
-
-    Returns:
-        bool: True if the service is active/loaded, False otherwise.
-    """
-    if sys.platform == "darwin":
-        res = subprocess.run(["launchctl", "list"], capture_output=True, text=True)
-        return HOMEBREW_LABEL in res.stdout
-    elif sys.platform.startswith("linux"):
-        res = subprocess.run(
-            ["systemctl", "--user", "is-active", f"{APP_LABEL}.timer"],
-            capture_output=True,
-            text=True,
-        )
-        return res.stdout.strip() == "active"
-    return False
 
 
 def _analyze_logs(hours: int = 24) -> list[str]:
@@ -194,7 +171,7 @@ def show_status() -> None:
             pid_running = False
 
     # Check if the system service is scheduled/enabled.
-    service_enabled = _is_service_enabled()
+    service_enabled = service.is_service_enabled()
 
     if pid_running:
         status_text = "Active (Running)"
@@ -218,11 +195,9 @@ def show_status() -> None:
 
         # Check registration status.
         is_registered = False
-        if REGISTRY_FILE.exists():
-            with open(REGISTRY_FILE, "r") as f:
-                registered = {line.strip() for line in f if line.strip()}
-            if str(cwd) in registered:
-                is_registered = True
+        # Use the system helper (returns list[Path])
+        if cwd in system.get_registered_repos():
+            is_registered = True
 
         if not is_registered:
             console.print(
@@ -277,8 +252,7 @@ def show_status() -> None:
 
     # Display global repository count if not currently in a repository.
     elif REGISTRY_FILE.exists():
-        with open(REGISTRY_FILE) as f:
-            count = len([line for line in f if line.strip()])
+        count = len(system.get_registered_repos())
         console.print(f"[dim]Watching {count} repositories.[/dim]")
 
 
@@ -314,11 +288,9 @@ def list_repos() -> None:
     table.add_column("Status")
     table.add_column("Last Backup", justify="right", style="dim")
 
-    with open(REGISTRY_FILE, "r") as f:
-        lines = [line.strip() for line in f if line.strip()]
+    repos = system.get_registered_repos()
 
-    for path_str in lines:
-        path = Path(path_str)
+    for path in repos:
         display_path = str(path).replace(str(Path.home()), "~")
 
         status_text = "Unknown"
@@ -362,19 +334,17 @@ def unregister_repo() -> None:
         console.print("Registry is empty.", style="yellow")
         return
 
-    with open(REGISTRY_FILE, "r") as f:
-        lines = [line.strip() for line in f if line.strip()]
-
-    if cwd not in lines:
+    current_paths = [str(p) for p in system.get_registered_repos()]
+    if cwd not in current_paths:
         console.print(
             f"Current path not registered: [cyan]{cwd}[/cyan]", style="yellow"
         )
         return
 
     with open(REGISTRY_FILE, "w") as f:
-        for line in lines:
-            if line != cwd:
-                f.write(f"{line}\n")
+        for path in current_paths:
+            if path != cwd:
+                f.write(f"{path}\n")
     console.print(f"✔ Unregistered: [cyan]{cwd}[/cyan]", style="green")
 
 
@@ -386,17 +356,15 @@ def run_doctor() -> None:
 
     # Verify and clean the registry.
     with console.status("[bold blue]Checking Registry...", spinner="dots"):
-        if not REGISTRY_FILE.exists():
+        repos = system.get_registered_repos()
+        if not repos and not REGISTRY_FILE.exists():
             console.print("   [green]✔ Registry empty/clean.[/green]")
         else:
-            with open(REGISTRY_FILE, "r") as f:
-                lines = [line.strip() for line in f if line.strip()]
-
             valid_lines = []
             fixed = False
-            for line in lines:
-                if Path(line).exists():
-                    valid_lines.append(line)
+            for p in repos:
+                if p.exists():
+                    valid_lines.append(str(p))
                 else:
                     fixed = True
 
@@ -411,7 +379,7 @@ def run_doctor() -> None:
 
     # Check daemon status.
     with console.status("[bold blue]Checking Daemon...", spinner="dots"):
-        if _is_service_enabled():
+        if service.is_service_enabled():
             console.print("   [green]✔ Daemon is active.[/green]")
         else:
             console.print(

@@ -25,7 +25,7 @@ def test_show_status_displays_timestamps(
     # Mock Registry to include the current path
     registry_path = tmp_path / "registry"
     registry_path.write_text(str(tmp_path))
-    mocker.patch("git_pulsar.cli.REGISTRY_FILE", registry_path)
+    mocker.patch("git_pulsar.system.REGISTRY_FILE", registry_path)
 
     # Mock Config loading
     mocker.patch("git_pulsar.config.Config.load", return_value=Config())
@@ -95,6 +95,8 @@ def test_setup_repo_triggers_identity_config(tmp_path: Path, mocker: MagicMock) 
 
     # Use a fake registry so we don't pollute the real user's registry
     mock_registry = tmp_path / "registry"
+
+    mocker.patch("git_pulsar.constants.REGISTRY_FILE", mock_registry)
 
     # Mock system.configure_identity
     mock_config_id = mocker.patch("git_pulsar.system.configure_identity")

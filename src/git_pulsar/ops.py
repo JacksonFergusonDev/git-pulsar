@@ -1,3 +1,4 @@
+import logging
 import os
 import shutil
 import subprocess
@@ -10,10 +11,11 @@ from rich.console import Console
 from rich.panel import Panel
 
 from . import system
-from .constants import BACKUP_NAMESPACE
+from .constants import APP_NAME, BACKUP_NAMESPACE
 from .git_wrapper import GitRepo
 
 console = Console()
+logger = logging.getLogger(APP_NAME)
 
 
 def get_backup_ref(branch: str) -> str:
@@ -167,6 +169,7 @@ def restore_file(path_str: str, force: bool = False) -> None:
         repo.checkout(backup_ref, file=path_str)
         console.print("[bold green]SUCCESS:[/bold green] Restore complete.")
     except Exception as e:
+        logger.error(f"Failed to restore {path_str}: {e}")
         console.print(f"[bold red]ERROR:[/bold red] Failed to restore: {e}")
         sys.exit(1)
 
@@ -187,15 +190,17 @@ def sync_session() -> None:
         spinner="dots",
     ):
         try:
+            # Only fetch backups related to the current branch
             repo._run(
                 [
                     "fetch",
                     "origin",
-                    f"refs/heads/{BACKUP_NAMESPACE}/*:refs/heads/{BACKUP_NAMESPACE}/*",
+                    f"refs/heads/{BACKUP_NAMESPACE}/*/{current_branch}:refs/heads/{BACKUP_NAMESPACE}/*/{current_branch}",
                 ],
                 capture=True,
             )
-        except Exception:
+        except Exception as e:
+            logger.warning(f"Fetch error: {e}")
             console.print(
                 "[yellow][bold]WARNING:[/bold] Fetch warning: network might be down "
                 "(checking local cache).[/yellow]"
@@ -265,6 +270,7 @@ def sync_session() -> None:
             "[bold green]SUCCESS:[/bold green] Session synced. You may resume work."
         )
     except Exception as e:
+        logger.warning(f"Sync failed: {e}")
         console.print(f"[bold red]ERROR:[/bold red] Sync failed: {e}")
         sys.exit(1)
 
@@ -352,6 +358,7 @@ def finalize_work() -> None:
         console.print(f"   Your backup history remains in refs/{BACKUP_NAMESPACE}/...")
 
     except Exception as e:
+        logger.error(f"Finalize failed: {e}")
         console.print(f"\n[bold red]ERROR:[/bold red] Error during finalize: {e}")
         sys.exit(1)
 
@@ -441,5 +448,6 @@ def add_ignore(pattern: str) -> None:
             if confirm == "y":
                 repo._run(["rm", "--cached", pattern], capture=False)
                 console.print("   Removed from index (file preserved on disk).")
-    except Exception:
+    except Exception as e:
+        logger.warning(f"Failed to remove tracked files: {e}")
         pass

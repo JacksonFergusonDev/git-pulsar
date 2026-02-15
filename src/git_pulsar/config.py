@@ -100,6 +100,9 @@ class Config:
     files: FilesConfig = field(default_factory=FilesConfig)
     daemon: DaemonConfig = field(default_factory=DaemonConfig)
 
+    # Cache for the base global configuration
+    _global_cache: "Config | None" = None
+
     @classmethod
     def load(cls, repo_path: Path | None = None) -> "Config":
         """Loads and merges configuration from defaults, global, and local sources.
@@ -110,11 +113,15 @@ class Config:
         Returns:
             Config: The fully merged configuration object.
         """
-        instance = cls()
+        # 1. Load or Retrieve Global Config
+        if cls._global_cache is None:
+            instance = cls()
+            if CONFIG_FILE.exists():
+                instance._merge_from_file(CONFIG_FILE)
+            cls._global_cache = instance
 
-        # 1. Load Global Config
-        if CONFIG_FILE.exists():
-            instance._merge_from_file(CONFIG_FILE)
+        # Start with a copy of the cached global config
+        instance = replace(cls._global_cache)
 
         # 2. Load Local Config (if applicable)
         if repo_path:

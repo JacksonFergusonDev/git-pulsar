@@ -5,9 +5,28 @@ from pathlib import Path
 
 from rich.console import Console
 
-from .constants import APP_LABEL, LOG_FILE
+from .constants import APP_LABEL, HOMEBREW_LABEL, LOG_FILE
 
 console = Console()
+
+
+def is_service_enabled() -> bool:
+    """Checks if the system service is currently loaded and active.
+
+    Returns:
+        bool: True if the service is active/loaded, False otherwise.
+    """
+    if sys.platform == "darwin":
+        res = subprocess.run(["launchctl", "list"], capture_output=True, text=True)
+        return HOMEBREW_LABEL in res.stdout
+    elif sys.platform.startswith("linux"):
+        res = subprocess.run(
+            ["systemctl", "--user", "is-active", f"{APP_LABEL}.timer"],
+            capture_output=True,
+            text=True,
+        )
+        return res.stdout.strip() == "active"
+    return False
 
 
 def get_executable() -> str:
