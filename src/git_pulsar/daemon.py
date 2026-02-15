@@ -205,7 +205,8 @@ def has_large_files(repo_path: Path, config: Config) -> bool:
     try:
         cmd = ["git", "ls-files", "--others", "--modified", "--exclude-standard"]
         candidates = subprocess.check_output(cmd, cwd=repo_path, text=True).splitlines()
-    except subprocess.CalledProcessError:
+    except subprocess.CalledProcessError as e:
+        logger.warning(f"Large file scan failed for {repo_path.name}: {e}")
         return False
 
     for name in candidates:
@@ -221,7 +222,8 @@ def has_large_files(repo_path: Path, config: Config) -> bool:
                 )
                 SYSTEM.notify("Backup Aborted", f"File >{limit_mb}MB detected: {name}")
                 return True
-        except OSError:
+        except OSError as e:
+            logger.warning(f"Failed to check size of file {name}: {e}")
             continue
 
     return False
@@ -361,7 +363,8 @@ def _get_ref_timestamp(repo: GitRepo, ref: str) -> int:
     try:
         ts = repo._run(["log", "-1", "--format=%ct", ref])
         return int(ts.strip())
-    except Exception:
+    except Exception as e:
+        logger.debug(f"Could not get timestamp for {ref}: {e}")
         return 0
 
 
