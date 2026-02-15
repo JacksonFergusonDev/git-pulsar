@@ -392,15 +392,10 @@ def run_backup(original_path_str: str, interactive: bool = False) -> None:
         if not current_branch:
             return
 
-        slug = system.get_identity_slug()
-        namespace = config.core.backup_branch
-
         # Define Refs
-        local_backup_ref = f"refs/heads/{namespace}/{slug}/{current_branch}"
-        remote_backup_ref = (
-            f"refs/remotes/{config.core.remote_name}/"
-            f"{namespace}/{slug}/{current_branch}"
-        )
+        local_backup_ref = ops.get_backup_ref(current_branch)
+        ref_suffix = local_backup_ref.replace("refs/heads/", "")
+        remote_backup_ref = f"refs/remotes/{config.core.remote_name}/{ref_suffix}"
 
         # --- COMMIT PHASE ---
         last_commit_ts = _get_ref_timestamp(repo, local_backup_ref)
@@ -409,6 +404,10 @@ def run_backup(original_path_str: str, interactive: bool = False) -> None:
         if time_since_commit >= config.daemon.commit_interval:
             with temporary_index(repo_path) as env:
                 # Stage current working directory into temp index.
+                # Use wrapper method if available, or repo._run(["add", "."], env=env)
+                repo.add_all()
+                # Note: GitRepo.add_all() in wrapper doesn't accept env.
+                # Keeping manual run with env.
                 repo._run(["add", "."], env=env)
 
                 # Write Tree.
@@ -430,9 +429,16 @@ def run_backup(original_path_str: str, interactive: bool = False) -> None:
 
                 if should_commit:
                     timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+                    # Use wrapper method
                     commit_oid = repo.commit_tree(
-                        tree_oid, parents, f"Shadow backup {timestamp}", env=env
+                        tree=tree_oid,
+                        parents=parents,
+                        message=f"Shadow backup {timestamp}",
+                        env=env,
                     )
+
+                    # Use wrapper method
                     repo.update_ref(local_backup_ref, commit_oid, parent_backup)
 
                     if interactive:
