@@ -14,9 +14,7 @@ from rich.text import Text
 from . import daemon, ops, service, system
 from .config import CONFIG_FILE, Config
 from .constants import (
-    APP_LABEL,
     DEFAULT_IGNORES,
-    HOMEBREW_LABEL,
     LOG_FILE,
     PID_FILE,
     REGISTRY_FILE,
@@ -36,27 +34,6 @@ def _get_ref(repo: GitRepo) -> str:
         str: The fully qualified backup reference string based on the current branch.
     """
     return ops.get_backup_ref(repo.current_branch())
-
-
-def _is_service_enabled() -> bool:
-    """Checks if the system service is currently loaded and active.
-
-    Supports both launchd (macOS) and systemd (Linux).
-
-    Returns:
-        bool: True if the service is active/loaded, False otherwise.
-    """
-    if sys.platform == "darwin":
-        res = subprocess.run(["launchctl", "list"], capture_output=True, text=True)
-        return HOMEBREW_LABEL in res.stdout
-    elif sys.platform.startswith("linux"):
-        res = subprocess.run(
-            ["systemctl", "--user", "is-active", f"{APP_LABEL}.timer"],
-            capture_output=True,
-            text=True,
-        )
-        return res.stdout.strip() == "active"
-    return False
 
 
 def _analyze_logs(hours: int = 24) -> list[str]:
@@ -194,7 +171,7 @@ def show_status() -> None:
             pid_running = False
 
     # Check if the system service is scheduled/enabled.
-    service_enabled = _is_service_enabled()
+    service_enabled = service.is_service_enabled()
 
     if pid_running:
         status_text = "Active (Running)"
@@ -411,7 +388,7 @@ def run_doctor() -> None:
 
     # Check daemon status.
     with console.status("[bold blue]Checking Daemon...", spinner="dots"):
-        if _is_service_enabled():
+        if service.is_service_enabled():
             console.print("   [green]✔ Daemon is active.[/green]")
         else:
             console.print(
