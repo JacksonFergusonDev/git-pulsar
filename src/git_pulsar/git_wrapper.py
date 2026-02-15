@@ -1,6 +1,11 @@
+import logging
 import subprocess
 from pathlib import Path
 from typing import Optional
+
+from .constants import APP_NAME
+
+logger = logging.getLogger(APP_NAME)
 
 
 class GitRepo:
@@ -164,7 +169,8 @@ class GitRepo:
         try:
             output = self._run(["for-each-ref", "--format=%(refname)", pattern])
             return output.splitlines() if output else []
-        except Exception:
+        except Exception as e:
+            logger.warning(f"Git error listing refs for {pattern}: {e}")
             return []
 
     def get_last_commit_time(self, branch: str) -> str:
@@ -193,7 +199,8 @@ class GitRepo:
         """
         try:
             return self._run(["rev-parse", rev])
-        except Exception:
+        except Exception as e:
+            logger.debug(f"rev-parse failed for '{rev}': {e}")
             return None
 
     def write_tree(self, env: Optional[dict] = None) -> str:
@@ -226,7 +233,11 @@ class GitRepo:
         cmd = ["commit-tree", tree, "-m", message]
         for p in parents:
             cmd.extend(["-p", p])
-        return self._run(cmd, env=env)
+        try:
+            return self._run(cmd, env=env)
+        except Exception as e:
+            logger.warning(f"Failed to commit tree {tree}: {e}")
+            raise
 
     def update_ref(self, ref: str, new_oid: str, old_oid: Optional[str] = None) -> None:
         """Safely updates a reference to a new object ID.
@@ -241,7 +252,11 @@ class GitRepo:
         cmd = ["update-ref", "-m", "Pulsar backup", ref, new_oid]
         if old_oid:
             cmd.append(old_oid)
-        self._run(cmd)
+        try:
+            self._run(cmd)
+        except Exception as e:
+            logger.warning(f"Failed to update ref {ref}: {e}")
+            raise
 
     def get_untracked_files(self) -> list[str]:
         """Lists files that are not tracked by git and are not ignored.
