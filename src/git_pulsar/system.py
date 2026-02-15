@@ -57,7 +57,8 @@ class SystemStrategy:
             load_1m, _, _ = os.getloadavg()
             cpu_count = os.cpu_count() or 1
             return load_1m > (cpu_count * 2.5)
-        except OSError:
+        except OSError as e:
+            logger.warning(f"Failed to determine system load: {e}")
             return False
 
     def notify(self, title: str, message: str) -> None:
@@ -83,7 +84,8 @@ class MacOSStrategy(SystemStrategy):
             match = re.search(r"(\d+)%", out)
             percent = int(match.group(1)) if match else 100
             return percent, is_plugged
-        except Exception:
+        except Exception as e:
+            logger.warning(f"MacOS battery check failed: {e}")
             return 100, True
 
     def notify(self, title: str, message: str) -> None:
@@ -93,8 +95,8 @@ class MacOSStrategy(SystemStrategy):
         script = f'display notification "{clean_msg}" with title "{title}"'
         try:
             subprocess.run(["osascript", "-e", script], stderr=subprocess.DEVNULL)
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning(f"Notification failed: {e}")
 
 
 class LinuxStrategy(SystemStrategy):
@@ -113,7 +115,8 @@ class LinuxStrategy(SystemStrategy):
                 with open(bat_path / "status", "r") as f:
                     is_plugged = f.read().strip() != "Discharging"
                 return percent, is_plugged
-        except Exception:
+        except Exception as e:
+            logger.warning(f"Linux battery check failed: {e}")
             pass
         return 100, True
 
@@ -122,7 +125,7 @@ class LinuxStrategy(SystemStrategy):
         try:
             subprocess.run(["notify-send", title, message], stderr=subprocess.DEVNULL)
         except FileNotFoundError:
-            pass
+            logger.warning("notify-send not available")
 
 
 def get_system() -> SystemStrategy:
@@ -202,8 +205,8 @@ def get_machine_id() -> str:
             uuid = data[0].get("IOPlatformUUID")
             if isinstance(uuid, str) and uuid.strip():
                 return uuid.strip()
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning(f"Failed to extract IOPlatformUUID: {e}")
 
         # Secondary: stable-ish local name
         try:
@@ -215,8 +218,8 @@ def get_machine_id() -> str:
             )
             if res.returncode == 0 and res.stdout.strip():
                 return res.stdout.strip()
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning(f"Failed to extract LocalHostName: {e}")
 
     # Generic fallback (not a true machine ID)
     name = socket.gethostname()
@@ -284,7 +287,8 @@ def _fetch_remote_identities(repo: GitRepo) -> set[str]:
                 if "--" in slug:
                     name, _ = slug.split("--", 1)
                     used_names.add(name)
-        except ValueError:
+        except ValueError as e:
+            logger.warning(f"Failed to parse slug from ref '{ref}': {e}")
             continue
 
     return used_names
