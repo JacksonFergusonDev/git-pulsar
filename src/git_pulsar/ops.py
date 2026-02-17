@@ -420,7 +420,7 @@ def add_ignore(pattern: str) -> None:
     # 1. Append to .gitignore if not present.
     content = ""
     if gitignore.exists():
-        with open(gitignore, "r") as f:
+        with open(gitignore) as f:
             content = f.read()
 
     if pattern in content:

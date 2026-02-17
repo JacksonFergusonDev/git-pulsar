@@ -1,7 +1,6 @@
 import logging
 import subprocess
 from pathlib import Path
-from typing import Optional
 
 from .constants import APP_NAME
 
@@ -33,7 +32,7 @@ class GitRepo:
             raise ValueError(f"Not a git repository: {self.path}")
 
     def _run(
-        self, args: list[str], capture: bool = True, env: Optional[dict] = None
+        self, args: list[str], capture: bool = True, env: dict | None = None
     ) -> str:
         """Executes a Git command within the repository context.
 
@@ -73,7 +72,7 @@ class GitRepo:
         """
         return self._run(["branch", "--show-current"])
 
-    def status_porcelain(self, path: Optional[str] = None) -> list[str]:
+    def status_porcelain(self, path: str | None = None) -> list[str]:
         """Returns the porcelain (machine-readable) status of the repository.
 
         Args:
@@ -97,7 +96,7 @@ class GitRepo:
         self._run(["commit"], capture=False)
 
     def checkout(
-        self, branch: str, file: Optional[str] = None, force: bool = False
+        self, branch: str, file: str | None = None, force: bool = False
     ) -> None:
         """Checks out a specific branch or restores a file.
 
@@ -187,7 +186,7 @@ class GitRepo:
         """
         return self._run(["log", "-1", "--format=%cr", branch])
 
-    def rev_parse(self, rev: str) -> Optional[str]:
+    def rev_parse(self, rev: str) -> str | None:
         """Resolves a revision (tag, branch, relative ref) to a full SHA-1 hash.
 
         Args:
@@ -203,7 +202,7 @@ class GitRepo:
             logger.debug(f"rev-parse failed for '{rev}': {e}")
             return None
 
-    def write_tree(self, env: Optional[dict] = None) -> str:
+    def write_tree(self, env: dict | None = None) -> str:
         """Creates a tree object from the current index.
 
         Args:
@@ -216,7 +215,7 @@ class GitRepo:
         return self._run(["write-tree"], env=env)
 
     def commit_tree(
-        self, tree: str, parents: list[str], message: str, env: Optional[dict] = None
+        self, tree: str, parents: list[str], message: str, env: dict | None = None
     ) -> str:
         """Creates a commit object from a tree object.
 
@@ -239,7 +238,7 @@ class GitRepo:
             logger.warning(f"Failed to commit tree {tree}: {e}")
             raise
 
-    def update_ref(self, ref: str, new_oid: str, old_oid: Optional[str] = None) -> None:
+    def update_ref(self, ref: str, new_oid: str, old_oid: str | None = None) -> None:
         """Safely updates a reference to a new object ID.
 
         Args:
