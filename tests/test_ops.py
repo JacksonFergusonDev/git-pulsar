@@ -168,7 +168,7 @@ def test_sync_session_success(mocker: MagicMock) -> None:
     # Verify checkout of the newer 'desktop' ref.
     # We inspect the call history to find the checkout command.
     checkout_call = [
-        c for c in repo._run.call_args_list if c[0][0] and "checkout" == c[0][0][0]
+        c for c in repo._run.call_args_list if c[0][0] and c[0][0][0] == "checkout"
     ]
     assert checkout_call, "Checkout was never called!"
 

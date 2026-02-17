@@ -10,6 +10,19 @@ requires-python = ">=3.12"
 dependencies = [
     "rich>=14.2.0",
 ]
+license = {file = "LICENSE"}
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Operating System :: MacOS",
+    "Operating System :: POSIX :: Linux",
+]
+
+[project.urls]
+Repository = "https://github.com/jacksonfergusondev/git-pulsar"
+Issues = "https://github.com/jacksonfergusondev/git-pulsar/issues"
 
 [build-system]
 requires = ["hatchling"]
@@ -33,19 +46,59 @@ dev = [
 ]
 
 [tool.ruff]
+target-version = "py312"
 line-length = 88
-target-version = "py314"
+indent-width = 4
+
+exclude = [
+    ".git",
+    ".mypy_cache",
+    ".ruff_cache",
+    ".venv",
+    "build",
+    "dist",
+]
 
 [tool.ruff.lint]
-select = ["E", "F", "I"]  # pycodestyle, pyflakes, isort
-ignore = []
+# E, W: Standard linting
+# F: Pyflakes (errors)
+# I: Isort (imports)
+# B: Bugbear (catches subtle bugs like mutable default args)
+# UP: Pyupgrade (modernizes syntax, e.g. types)
+# SIM: Simplify (refactors logic)
+# T20: Print (prevents accidentally leaving print() in CLI tools)
+# PT: Pytest style
+# C4: Comprehensions (better list/dict comp usage)
+select = ["E", "F", "I", "B", "UP", "SIM", "T20", "PT", "C4"]
+ignore = ["E501"] # Line length handled by formatter
+
+# Allow ignored variables (e.g. for unpacking)
+dummy-variable-rgx = "^(_+|(_+[a-zA-Z0-9_]*[a-zA-Z0-9]+?))$"
+
+[tool.ruff.lint.isort]
+known-first-party = ["git_pulsar"]
+section-order = ["future", "standard-library", "third-party", "first-party", "local-folder"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*.py" = ["T201"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+skip-magic-trailing-comma = false
+line-ending = "auto"
 
 [tool.mypy]
 python_version = "3.12"
 warn_return_any = true
 warn_unused_configs = true
+check_untyped_defs = true
 disallow_untyped_defs = true
-ignore_missing_imports = true
+ignore_missing_imports = false
+
+[[tool.mypy.overrides]]
+module = "tests.*"
+disallow_untyped_defs = false
 
 [tool.pytest.ini_options]
 addopts = "--cov=src --cov-report=term-missing"
@@ -53,7 +106,7 @@ testpaths = ["tests"]
 pythonpath = ["."]
 
 [tool.coverage.run]
-omit = ["src/service.py"]
+omit = ["src/git_pulsar/service.py"]
 
 [tool.bumpversion]
 current_version = "0.14.0"
@@ -81,8 +134,3 @@ replace = 'version = "{new_version}"'
 filename = "README.md"
 search = "# 🔭 Git Pulsar (v{current_version})"
 replace = "# 🔭 Git Pulsar (v{new_version})"
-
-[[tool.bumpversion.files]]
-filename = "uv.lock"
-search = "name = \"git-pulsar\"\nversion = \"{current_version}\""
-replace = "name = \"git-pulsar\"\nversion = \"{new_version}\""

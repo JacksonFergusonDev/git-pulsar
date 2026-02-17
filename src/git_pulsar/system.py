@@ -25,7 +25,7 @@ def get_registered_repos() -> list[Path]:
     """Reads the registry file and returns a list of registered repository paths."""
     if not REGISTRY_FILE.exists():
         return []
-    with open(REGISTRY_FILE, "r") as f:
+    with open(REGISTRY_FILE) as f:
         return [Path(line.strip()) for line in f if line.strip()]
 
 
@@ -110,9 +110,9 @@ class LinuxStrategy(SystemStrategy):
                 bat_path = Path("/sys/class/power_supply/BAT1")
 
             if bat_path.exists():
-                with open(bat_path / "capacity", "r") as f:
+                with open(bat_path / "capacity") as f:
                     percent = int(f.read().strip())
-                with open(bat_path / "status", "r") as f:
+                with open(bat_path / "status") as f:
                     is_plugged = f.read().strip() != "Discharging"
                 return percent, is_plugged
         except Exception as e:

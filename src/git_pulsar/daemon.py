@@ -7,11 +7,11 @@ import socket
 import subprocess
 import sys
 import time
+from collections.abc import Iterator
 from contextlib import contextmanager
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
 from types import FrameType
-from typing import Iterator
 
 from rich.console import Console
 
@@ -242,7 +242,7 @@ def prune_registry(original_path_str: str) -> None:
 
     try:
         # 1. Read existing registry.
-        with open(REGISTRY_FILE, "r") as f:
+        with open(REGISTRY_FILE) as f:
             lines = f.readlines()
 
         # 2. Write valid lines to temp file.

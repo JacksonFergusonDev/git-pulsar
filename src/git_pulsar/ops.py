@@ -152,14 +152,12 @@ def restore_file(path_str: str, force: bool = False) -> None:
     backup_ref = get_backup_ref(current_branch)
 
     # 1. Safety Check: Verify if the file is dirty.
-    if not force and path.exists():
-        # Check status specifically for this file.
-        if repo.status_porcelain(path_str):
-            console.print(
-                f"[bold red]ABORTED:[/bold red] '{path_str}' has uncommitted changes."
-            )
-            console.print("   Use --force to overwrite them.")
-            sys.exit(1)
+    if not force and path.exists() and repo.status_porcelain(path_str):
+        console.print(
+            f"[bold red]ABORTED:[/bold red] '{path_str}' has uncommitted changes."
+        )
+        console.print("   Use --force to overwrite them.")
+        sys.exit(1)
 
     # 2. Restore file from backup ref.
     console.print(
@@ -420,7 +418,7 @@ def add_ignore(pattern: str) -> None:
     # 1. Append to .gitignore if not present.
     content = ""
     if gitignore.exists():
-        with open(gitignore, "r") as f:
+        with open(gitignore) as f:
             content = f.read()
 
     if pattern in content:

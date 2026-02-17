@@ -58,7 +58,7 @@ def _analyze_logs(hours: int = 24) -> list[str]:
         file_size = LOG_FILE.stat().st_size
         read_size = min(file_size, 50 * 1024)
 
-        with open(LOG_FILE, "r") as f:
+        with open(LOG_FILE) as f:
             if file_size > read_size:
                 f.seek(file_size - read_size)
             lines = f.readlines()
@@ -163,7 +163,7 @@ def show_status() -> None:
     pid_running = False
     if PID_FILE.exists():
         try:
-            with open(PID_FILE, "r") as f:
+            with open(PID_FILE) as f:
                 pid = int(f.read().strip())
             os.kill(pid, 0)
             pid_running = True
@@ -425,14 +425,13 @@ def run_doctor() -> None:
     # Check the health of registered repositories (Pulse Check).
     with console.status("[bold blue]Checking Repository Health...", spinner="dots"):
         if REGISTRY_FILE.exists():
-            with open(REGISTRY_FILE, "r") as f:
+            with open(REGISTRY_FILE) as f:
                 paths = [Path(line.strip()) for line in f if line.strip()]
 
             issues = []
             for p in paths:
-                if p.exists():
-                    if problem := _check_repo_health(p):
-                        issues.append(f"{p.name}: {problem}")
+                if p.exists() and (problem := _check_repo_health(p)):
+                    issues.append(f"{p.name}: {problem}")
 
             if issues:
                 console.print(
@@ -535,7 +534,7 @@ def setup_repo(registry_path: Path = REGISTRY_FILE) -> None:
         console.print(
             "Existing .gitignore found. Checking for missing defaults...", style="dim"
         )
-        with open(gitignore, "r") as f:
+        with open(gitignore) as f:
             existing_content = f.read()
 
         missing_defaults = [d for d in DEFAULT_IGNORES if d not in existing_content]
