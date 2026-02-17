@@ -430,9 +430,8 @@ def run_doctor() -> None:
 
             issues = []
             for p in paths:
-                if p.exists():
-                    if problem := _check_repo_health(p):
-                        issues.append(f"{p.name}: {problem}")
+                if p.exists() and (problem := _check_repo_health(p)):
+                    issues.append(f"{p.name}: {problem}")
 
             if issues:
                 console.print(
