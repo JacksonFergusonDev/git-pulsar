@@ -222,7 +222,8 @@ def sync_session() -> None:
             if ts > latest_time:
                 latest_time = ts
                 latest_ref = ref
-        except Exception:
+        except Exception as e:
+            logger.warning(f"Failed to parse timestamp for backup ref '{ref}': {e}")
             continue
 
     if not latest_ref:
@@ -389,7 +390,8 @@ def prune_backups(days: int, repo_path: Path | None = None) -> None:
                 console.print(f"   Deleting {ref} (Age: {age_days:.1f} days)")
                 repo._run(["update-ref", "-d", ref], capture=False)
                 deleted_count += 1
-        except Exception:
+        except Exception as e:
+            logger.warning(f"Failed to process old backup ref '{ref}': {e}")
             continue
 
     if deleted_count == 0:
