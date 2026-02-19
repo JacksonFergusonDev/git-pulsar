@@ -1,5 +1,6 @@
 import argparse
 import datetime
+import logging
 import os
 import subprocess
 import sys
@@ -14,6 +15,7 @@ from rich.text import Text
 from . import daemon, ops, service, system
 from .config import CONFIG_FILE, Config
 from .constants import (
+    APP_NAME,
     DEFAULT_IGNORES,
     LOG_FILE,
     PID_FILE,
@@ -21,6 +23,7 @@ from .constants import (
 )
 from .git_wrapper import GitRepo
 
+logger = logging.getLogger(APP_NAME)
 console = Console()
 
 
@@ -86,8 +89,7 @@ def _analyze_logs(hours: int = 24) -> list[str]:
 
 
 def _check_repo_health(path: Path) -> str | None:
-    """
-    Evaluates the health of a repository, checking for stale backups or stalled states.
+    """Evaluates the health of a repository, checking for stale backups or stalled states.
 
     Args:
         path (Path): The file system path to the repository.
@@ -112,8 +114,9 @@ def _check_repo_health(path: Path) -> str | None:
             # Retrieve the raw Unix timestamp of the backup reference.
             ts_str = repo._run(["log", "-1", "--format=%ct", ref])
             last_backup_ts = int(ts_str.strip())
-        except Exception:
-            return "Has changes, but NO backup found."
+        except Exception as e:
+            logger.debug(f"Failed to retrieve backup timestamp for {path.name}: {e}")
+            return f"Has changes, but NO backup found. (Error: {e})"
 
         # Check against the stale threshold (e.g., 2 hours).
         # If changes are pending and no backup has occurred recently,
@@ -224,7 +227,8 @@ def show_status() -> None:
             commit_ts = repo._run(["log", "-1", "--format=%ct", ref]).strip()
             last_commit_time = datetime.datetime.fromtimestamp(int(commit_ts))
             commit_str = last_commit_time.strftime("%Y-%m-%d %H:%M")
-        except Exception:
+        except Exception as e:
+            logger.debug(f"Failed to retrieve last commit time for {ref}: {e}")
             commit_str = "Never"
 
         # Get Push Time
@@ -232,7 +236,8 @@ def show_status() -> None:
             push_ts = repo._run(["log", "-1", "--format=%ct", remote_ref]).strip()
             last_push_time = datetime.datetime.fromtimestamp(int(push_ts))
             push_str = last_push_time.strftime("%Y-%m-%d %H:%M")
-        except Exception:
+        except Exception as e:
+            logger.debug(f"Failed to retrieve last push time for {remote_ref}: {e}")
             push_str = "Never"
 
         count = len(repo.status_porcelain())
@@ -312,11 +317,13 @@ def list_repos() -> None:
                 r = GitRepo(path)
                 ref = _get_ref(r)
                 last_backup = r.get_last_commit_time(ref)
-            except Exception:
+            except Exception as e:
+                logger.debug(f"Failed to retrieve backup info for {path}: {e}")
                 if status_text == "Active":
                     try:
                         GitRepo(path)
-                    except Exception:
+                    except Exception as inner_e:
+                        logger.debug(f"Repo instantiation failed for {path}: {inner_e}")
                         status_text = "Error"
                         status_style = "bold red"
 
