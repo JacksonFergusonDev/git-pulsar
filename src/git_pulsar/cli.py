@@ -575,10 +575,12 @@ def setup_repo(registry_path: Path = REGISTRY_FILE) -> None:
         if remotes:
             console.print("Verifying git access...", style="dim")
             repo._run(["push", "--dry-run"], capture=False)
-    except Exception:
+    except Exception as e:
+        logger.debug(f"Dry-run push verification failed: {e}")
         console.print(
-            "⚠ WARNING: Git push failed. Ensure you have "
-            "SSH keys set up or credentials cached.",
+            f"⚠ WARNING: Git push failed. Ensure you have "
+            f"SSH keys set up or credentials cached.\n"
+            f"[dim]Diagnostic info: {e}[/dim]",
             style="bold yellow",
         )
 
