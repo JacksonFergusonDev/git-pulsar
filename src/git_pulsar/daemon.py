@@ -113,7 +113,8 @@ def get_remote_host(repo_path: Path, remote_name: str) -> str | None:
         if "://" in url:
             return url.split("://")[1].split("/")[0]
         return None
-    except Exception:
+    except Exception as e:
+        logger.debug(f"Failed to parse remote host for '{remote_name}': {e}")
         return None
 
 

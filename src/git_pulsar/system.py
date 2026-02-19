@@ -179,8 +179,8 @@ def get_machine_id() -> str:
                     mid = p.read_text().strip()
                     if mid:
                         return mid
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug(f"Failed to read machine-id from {p}: {e}")
 
         # Optional extra fallback: product_uuid (common on x86)
         try:
@@ -189,8 +189,8 @@ def get_machine_id() -> str:
                 v = p.read_text().strip()
                 if v:
                     return v
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(f"Failed to read product_uuid from {p}: {e}")
 
     # macOS: hardware UUID from IORegistry (IOPlatformUUID)
     if sys.platform == "darwin":
