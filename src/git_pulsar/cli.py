@@ -465,6 +465,37 @@ def _check_remote_drift(repo_path: Path) -> str | None:
     return None
 
 
+def _check_git_hooks(repo_path: Path) -> list[str]:
+    """Scans the repository for executable git hooks that might block the daemon.
+
+    Args:
+        repo_path (Path): Path to the local git repository.
+
+    Returns:
+        list[str]: A list of warning messages regarding potentially blocking hooks.
+    """
+    warnings: list[str] = []
+    hooks_dir = repo_path / ".git" / "hooks"
+
+    if not hooks_dir.exists():
+        return warnings
+
+    for hook in ["pre-commit", "pre-push"]:
+        hook_path = hooks_dir / hook
+        if hook_path.exists() and os.access(hook_path, os.X_OK):
+            try:
+                content = hook_path.read_text(errors="ignore")
+                if "pulsar" not in content.lower():
+                    warnings.append(
+                        f"Strict '{hook}' hook detected. If it runs tests/linters, "
+                        f"ensure it explicitly bypasses '{BACKUP_NAMESPACE}'."
+                    )
+            except Exception as e:
+                logger.debug(f"Failed to read {hook} hook for {repo_path.name}: {e}")
+
+    return warnings
+
+
 def run_doctor() -> None:
     """
     Diagnoses system health, cleans the registry, and checks connectivity and logs.
@@ -543,7 +574,7 @@ def run_doctor() -> None:
     # Perform diagnostics on logs and repository freshness.
     console.print("\n[bold]Diagnostics[/bold]")
 
-    # 1. Check the health of registered repositories (State Check).
+    # 1. Check the health of registered repositories (State Check + Hook Interference).
     is_healthy = True
     with console.status("[bold blue]Checking Repository Health...", spinner="dots"):
         if REGISTRY_FILE.exists():
@@ -552,13 +583,17 @@ def run_doctor() -> None:
 
             issues = []
             for p in paths:
-                if p.exists() and (problem := _check_repo_health(p)):
-                    issues.append(f"{p.name}: {problem}")
+                if p.exists():
+                    if problem := _check_repo_health(p):
+                        issues.append(f"{p.name}: {problem}")
+
+                    for hook_warning in _check_git_hooks(p):
+                        issues.append(f"{p.name} (Hook): {hook_warning}")
 
             if issues:
                 is_healthy = False
                 console.print(
-                    f"   [yellow]⚠ Found {len(issues)} stalled repository(s):[/yellow]"
+                    f"   [yellow]⚠ Found {len(issues)} repository issue(s):[/yellow]"
                 )
                 for issue in issues:
                     console.print(f"     - {issue}")
