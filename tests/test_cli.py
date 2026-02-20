@@ -108,3 +108,84 @@ def test_setup_repo_triggers_identity_config(tmp_path: Path, mocker: MagicMock) 
     mock_config_id.assert_called_once()
     args = mock_config_id.call_args[0]
     assert isinstance(args[0], cli.GitRepo)
+
+
+def test_check_systemd_linger_non_linux(mocker: MagicMock) -> None:
+    """Verifies that the linger check safely ignores non-Linux platforms.
+
+    Args:
+        mocker (MagicMock): Pytest fixture for mocking.
+    """
+    mocker.patch("sys.platform", "darwin")
+    result = cli._check_systemd_linger()
+    assert result is None
+
+
+def test_check_systemd_linger_no_user(mocker: MagicMock) -> None:
+    """Verifies that the linger check aborts if the USER env var is missing.
+
+    Args:
+        mocker (MagicMock): Pytest fixture for mocking.
+    """
+    mocker.patch("sys.platform", "linux")
+    mocker.patch.dict("os.environ", clear=True)
+
+    result = cli._check_systemd_linger()
+    assert result is None
+
+
+def test_check_systemd_linger_enabled(mocker: MagicMock) -> None:
+    """Verifies that no warning is issued if Linger=yes is detected.
+
+    Args:
+        mocker (MagicMock): Pytest fixture for mocking.
+    """
+    mocker.patch("sys.platform", "linux")
+    mocker.patch.dict("os.environ", {"USER": "astro_dev"})
+
+    mock_run = mocker.patch("subprocess.run")
+    mock_run.return_value = mocker.MagicMock(stdout="Linger=yes\n")
+
+    result = cli._check_systemd_linger()
+
+    mock_run.assert_called_once_with(
+        ["loginctl", "show-user", "astro_dev", "-p", "Linger"],
+        capture_output=True,
+        text=True,
+        timeout=2,
+    )
+    assert result is None
+
+
+def test_check_systemd_linger_disabled(mocker: MagicMock) -> None:
+    """Verifies that a warning is returned if Linger=no is detected.
+
+    Args:
+        mocker (MagicMock): Pytest fixture for mocking.
+    """
+    mocker.patch("sys.platform", "linux")
+    mocker.patch.dict("os.environ", {"USER": "astro_dev"})
+
+    mock_run = mocker.patch("subprocess.run")
+    mock_run.return_value = mocker.MagicMock(stdout="Linger=no\n")
+
+    result = cli._check_systemd_linger()
+    assert result is not None
+    assert "disabled" in result
+    assert "loginctl enable-linger" in result
+
+
+def test_check_systemd_linger_exception(mocker: MagicMock) -> None:
+    """Verifies that the linger check fails gracefully on subprocess errors.
+
+    Args:
+        mocker (MagicMock): Pytest fixture for mocking.
+    """
+    mocker.patch("sys.platform", "linux")
+    mocker.patch.dict("os.environ", {"USER": "astro_dev"})
+
+    mock_run = mocker.patch("subprocess.run")
+    mock_run.side_effect = FileNotFoundError("loginctl not found")
+
+    result = cli._check_systemd_linger()
+    assert result is None
