@@ -39,12 +39,12 @@ def _get_ref(repo: GitRepo) -> str:
     return ops.get_backup_ref(repo.current_branch())
 
 
-def _analyze_logs(hours: int = 24) -> list[str]:
+def _analyze_logs(seconds: int = 86400) -> list[str]:
     """
     Scans the daemon log for error messages that occurred within a recent time window.
 
     Args:
-        hours (int, optional): The number of hours to look back. Defaults to 24.
+        seconds (int, optional): The number of seconds to look back. Defaults to 86400 (24h).
 
     Returns:
         list[str]: A list of error or critical log lines found within the time window.
@@ -53,7 +53,7 @@ def _analyze_logs(hours: int = 24) -> list[str]:
         return []
 
     errors = []
-    threshold = datetime.datetime.now() - datetime.timedelta(hours=hours)
+    threshold = datetime.datetime.now() - datetime.timedelta(seconds=seconds)
 
     try:
         # Read the last 50KB of the log file
@@ -417,7 +417,7 @@ def run_doctor() -> None:
     console.print("\n[bold]Diagnostics[/bold]")
 
     # Check logs for recent errors.
-    recent_errors = _analyze_logs(hours=24)
+    recent_errors = _analyze_logs()
     if recent_errors:
         console.print(
             f"   [red]✘ Found {len(recent_errors)} errors in the last 24h:[/red]"
