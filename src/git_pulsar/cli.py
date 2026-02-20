@@ -416,11 +416,15 @@ def run_doctor() -> None:
     # Perform diagnostics on logs and repository freshness.
     console.print("\n[bold]Diagnostics[/bold]")
 
-    # Check logs for recent errors.
-    recent_errors = _analyze_logs()
+    # Calculate dynamic lookback (e.g., 3 push cycles to allow for self-healing)
+    conf = Config.load()
+    lookback_secs = conf.daemon.push_interval * 3
+
+    # Check logs for recent errors using dynamic window.
+    recent_errors = _analyze_logs(seconds=lookback_secs)
     if recent_errors:
         console.print(
-            f"   [red]✘ Found {len(recent_errors)} errors in the last 24h:[/red]"
+            f"   [red]✘ Found {len(recent_errors)} errors in the last {lookback_secs // 3600}h:[/red]"
         )
         for err in recent_errors[-3:]:  # Show last 3
             console.print(f"     [dim]{err}[/dim]")
