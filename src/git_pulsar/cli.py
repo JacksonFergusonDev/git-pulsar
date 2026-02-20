@@ -416,24 +416,8 @@ def run_doctor() -> None:
     # Perform diagnostics on logs and repository freshness.
     console.print("\n[bold]Diagnostics[/bold]")
 
-    # Calculate dynamic lookback (e.g., 3 push cycles to allow for self-healing)
-    conf = Config.load()
-    lookback_secs = conf.daemon.push_interval * 3
-
-    # Check logs for recent errors using dynamic window.
-    recent_errors = _analyze_logs(seconds=lookback_secs)
-    if recent_errors:
-        console.print(
-            f"   [red]✘ Found {len(recent_errors)} errors in the last {lookback_secs // 3600}h:[/red]"
-        )
-        for err in recent_errors[-3:]:  # Show last 3
-            console.print(f"     [dim]{err}[/dim]")
-        if len(recent_errors) > 3:
-            console.print("     ... (run 'git pulsar log' to see full history)")
-    else:
-        console.print("   [green]✔ Recent logs are clean.[/green]")
-
-    # Check the health of registered repositories (Pulse Check).
+    # 1. Check the health of registered repositories (State Check).
+    is_healthy = True
     with console.status("[bold blue]Checking Repository Health...", spinner="dots"):
         if REGISTRY_FILE.exists():
             with open(REGISTRY_FILE) as f:
@@ -445,6 +429,7 @@ def run_doctor() -> None:
                     issues.append(f"{p.name}: {problem}")
 
             if issues:
+                is_healthy = False
                 console.print(
                     f"   [yellow]⚠ Found {len(issues)} stalled repository(s):[/yellow]"
                 )
@@ -459,6 +444,33 @@ def run_doctor() -> None:
                     "   [green]✔ All repositories are healthy "
                     "(clean or backed up).[/green]"
                 )
+
+    # 2. Check logs for recent errors using dynamic window (Event Check).
+    conf = Config.load()
+    lookback_secs = conf.daemon.push_interval * 3
+    recent_errors = _analyze_logs(seconds=lookback_secs)
+
+    # 3. Correlate State and Events
+    if recent_errors:
+        lookback_hours = lookback_secs // 3600
+        time_str = f"{lookback_hours}h" if lookback_hours > 0 else f"{lookback_secs}s"
+
+        if is_healthy:
+            console.print(
+                f"   [dim]ℹ {len(recent_errors)} transient error(s) logged in the last "
+                f"{time_str}, but system automatically recovered.[/dim]"
+            )
+        else:
+            console.print(
+                f"   [red]✘ Found {len(recent_errors)} active error(s) in the last "
+                f"{time_str}:[/red]"
+            )
+            for err in recent_errors[-3:]:  # Show last 3
+                console.print(f"     [dim]{err}[/dim]")
+            if len(recent_errors) > 3:
+                console.print("     ... (run 'git pulsar log' to see full history)")
+    else:
+        console.print("   [green]✔ Recent logs are clean.[/green]")
 
 
 def add_ignore_cli(pattern: str) -> None:
