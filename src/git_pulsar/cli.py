@@ -16,6 +16,7 @@ from . import daemon, ops, service, system
 from .config import CONFIG_FILE, Config
 from .constants import (
     APP_NAME,
+    BACKUP_NAMESPACE,
     DEFAULT_IGNORES,
     LOG_FILE,
     PID_FILE,
@@ -39,12 +40,12 @@ def _get_ref(repo: GitRepo) -> str:
     return ops.get_backup_ref(repo.current_branch())
 
 
-def _analyze_logs(hours: int = 24) -> list[str]:
+def _analyze_logs(seconds: int = 86400) -> list[str]:
     """
     Scans the daemon log for error messages that occurred within a recent time window.
 
     Args:
-        hours (int, optional): The number of hours to look back. Defaults to 24.
+        seconds (int, optional): The number of seconds to look back. Defaults to 86400 (24h).
 
     Returns:
         list[str]: A list of error or critical log lines found within the time window.
@@ -53,7 +54,7 @@ def _analyze_logs(hours: int = 24) -> list[str]:
         return []
 
     errors = []
-    threshold = datetime.datetime.now() - datetime.timedelta(hours=hours)
+    threshold = datetime.datetime.now() - datetime.timedelta(seconds=seconds)
 
     try:
         # Read the last 50KB of the log file
@@ -355,6 +356,146 @@ def unregister_repo() -> None:
     console.print(f"✔ Unregistered: [cyan]{cwd}[/cyan]", style="green")
 
 
+def _check_systemd_linger() -> str | None:
+    """Checks if systemd linger is enabled for the current Linux user.
+
+    Returns:
+        str | None: A warning message if linger is disabled, or None if
+                    enabled, or if the system is not Linux.
+    """
+    if not sys.platform.startswith("linux"):
+        return None
+
+    user = os.environ.get("USER")
+    if not user:
+        return None
+
+    try:
+        res = subprocess.run(
+            ["loginctl", "show-user", user, "-p", "Linger"],
+            capture_output=True,
+            text=True,
+            timeout=2,
+        )
+        if "Linger=yes" not in res.stdout:
+            return (
+                "systemd 'linger' is disabled. Daemon will die when you log out. "
+                "Run 'loginctl enable-linger' to fix."
+            )
+    except Exception as e:
+        logger.debug(f"Failed to check systemd linger status: {e}")
+
+    return None
+
+
+def _check_remote_drift(repo_path: Path) -> str | None:
+    """Checks if another machine has a newer backup session for the current branch.
+
+    Args:
+        repo_path (Path): Path to the local git repository.
+
+    Returns:
+        str | None: A warning message if drift is detected, otherwise None.
+    """
+    try:
+        repo = GitRepo(repo_path)
+        current_branch = repo.current_branch()
+        if not current_branch:
+            return None
+
+        # Lightweight fetch of backup refs for the current branch
+        try:
+            repo._run(
+                [
+                    "fetch",
+                    "origin",
+                    f"refs/heads/{BACKUP_NAMESPACE}/*/{current_branch}:refs/heads/{BACKUP_NAMESPACE}/*/{current_branch}",
+                ],
+                capture=True,
+            )
+        except Exception as e:
+            logger.debug(f"Fetch failed during drift check: {e}")
+            return None  # Silently fail if offline or remote is unreachable
+
+        candidates = repo.list_refs(f"refs/heads/{BACKUP_NAMESPACE}/*/{current_branch}")
+        if not candidates:
+            return None
+
+        my_slug = system.get_identity_slug()
+        my_backup_ref = ops.get_backup_ref(current_branch)
+
+        # Determine our local latest timestamp (backup ref or HEAD)
+        local_ts = 0
+        try:
+            if my_backup_ref in candidates:
+                local_ts = int(
+                    repo._run(["log", "-1", "--format=%ct", my_backup_ref]).strip()
+                )
+            else:
+                local_ts = int(repo._run(["log", "-1", "--format=%ct", "HEAD"]).strip())
+        except Exception as e:
+            logger.debug(f"Failed to get local timestamp: {e}")
+
+        newest_ts = 0
+        newest_machine = ""
+        # Dynamically calculate the machine index in the ref string
+        machine_index = 2 + len(BACKUP_NAMESPACE.split("/"))
+
+        for ref in candidates:
+            try:
+                ts = int(repo._run(["log", "-1", "--format=%ct", ref]).strip())
+                if ts > newest_ts:
+                    newest_ts = ts
+                    parts = ref.split("/")
+                    if len(parts) > machine_index:
+                        newest_machine = parts[machine_index]
+            except Exception as e:
+                logger.debug(f"Failed to process ref {ref}: {e}")
+                continue
+
+        if newest_ts > local_ts and newest_machine and newest_machine != my_slug:
+            minutes_ago = int((time.time() - newest_ts) / 60)
+            return (
+                f"Divergence Risk: '{newest_machine}' pushed a newer session "
+                f"~{minutes_ago} mins ago. Consider running 'git pulsar sync'."
+            )
+    except Exception as e:
+        logger.debug(f"Drift check failed: {e}")
+
+    return None
+
+
+def _check_git_hooks(repo_path: Path) -> list[str]:
+    """Scans the repository for executable git hooks that might block the daemon.
+
+    Args:
+        repo_path (Path): Path to the local git repository.
+
+    Returns:
+        list[str]: A list of warning messages regarding potentially blocking hooks.
+    """
+    warnings: list[str] = []
+    hooks_dir = repo_path / ".git" / "hooks"
+
+    if not hooks_dir.exists():
+        return warnings
+
+    for hook in ["pre-commit", "pre-push"]:
+        hook_path = hooks_dir / hook
+        if hook_path.exists() and os.access(hook_path, os.X_OK):
+            try:
+                content = hook_path.read_text(errors="ignore")
+                if "pulsar" not in content.lower():
+                    warnings.append(
+                        f"Strict '{hook}' hook detected. If it runs tests/linters, "
+                        f"ensure it explicitly bypasses '{BACKUP_NAMESPACE}'."
+                    )
+            except Exception as e:
+                logger.debug(f"Failed to read {hook} hook for {repo_path.name}: {e}")
+
+    return warnings
+
+
 def run_doctor() -> None:
     """
     Diagnoses system health, cleans the registry, and checks connectivity and logs.
@@ -388,6 +529,10 @@ def run_doctor() -> None:
     with console.status("[bold blue]Checking Daemon...", spinner="dots"):
         if service.is_service_enabled():
             console.print("   [green]✔ Daemon is active.[/green]")
+
+            # Sub-check: Systemd Linger on Linux
+            if linger_warning := _check_systemd_linger():
+                console.print(f"   [yellow]⚠ {linger_warning}[/yellow]")
         else:
             console.print(
                 "   [red]✘ Daemon is STOPPED.[/red] Run 'git pulsar install-service'."
@@ -413,23 +558,24 @@ def run_doctor() -> None:
         except Exception as e:
             console.print(f"   [red]✘ SSH Check failed: {e}[/red]")
 
+    # Check for remote session drift (if currently in a registered repository).
+    cwd = Path.cwd()
+    if (cwd / ".git").exists() and cwd in system.get_registered_repos():
+        with console.status(
+            "[bold blue]Checking Remote Session Drift...", spinner="dots"
+        ):
+            if drift_warning := _check_remote_drift(cwd):
+                console.print(f"   [yellow]⚠ {drift_warning}[/yellow]")
+            else:
+                console.print(
+                    "   [green]✔ Local session is up-to-date with remote.[/green]"
+                )
+
     # Perform diagnostics on logs and repository freshness.
     console.print("\n[bold]Diagnostics[/bold]")
 
-    # Check logs for recent errors.
-    recent_errors = _analyze_logs(hours=24)
-    if recent_errors:
-        console.print(
-            f"   [red]✘ Found {len(recent_errors)} errors in the last 24h:[/red]"
-        )
-        for err in recent_errors[-3:]:  # Show last 3
-            console.print(f"     [dim]{err}[/dim]")
-        if len(recent_errors) > 3:
-            console.print("     ... (run 'git pulsar log' to see full history)")
-    else:
-        console.print("   [green]✔ Recent logs are clean.[/green]")
-
-    # Check the health of registered repositories (Pulse Check).
+    # 1. Check the health of registered repositories (State Check + Hook Interference).
+    is_healthy = True
     with console.status("[bold blue]Checking Repository Health...", spinner="dots"):
         if REGISTRY_FILE.exists():
             with open(REGISTRY_FILE) as f:
@@ -437,12 +583,17 @@ def run_doctor() -> None:
 
             issues = []
             for p in paths:
-                if p.exists() and (problem := _check_repo_health(p)):
-                    issues.append(f"{p.name}: {problem}")
+                if p.exists():
+                    if problem := _check_repo_health(p):
+                        issues.append(f"{p.name}: {problem}")
+
+                    for hook_warning in _check_git_hooks(p):
+                        issues.append(f"{p.name} (Hook): {hook_warning}")
 
             if issues:
+                is_healthy = False
                 console.print(
-                    f"   [yellow]⚠ Found {len(issues)} stalled repository(s):[/yellow]"
+                    f"   [yellow]⚠ Found {len(issues)} repository issue(s):[/yellow]"
                 )
                 for issue in issues:
                     console.print(f"     - {issue}")
@@ -455,6 +606,33 @@ def run_doctor() -> None:
                     "   [green]✔ All repositories are healthy "
                     "(clean or backed up).[/green]"
                 )
+
+    # 2. Check logs for recent errors using dynamic window (Event Check).
+    conf = Config.load()
+    lookback_secs = conf.daemon.push_interval * 3
+    recent_errors = _analyze_logs(seconds=lookback_secs)
+
+    # 3. Correlate State and Events
+    if recent_errors:
+        lookback_hours = lookback_secs // 3600
+        time_str = f"{lookback_hours}h" if lookback_hours > 0 else f"{lookback_secs}s"
+
+        if is_healthy:
+            console.print(
+                f"   [dim]ℹ {len(recent_errors)} transient error(s) logged in the last "
+                f"{time_str}, but system automatically recovered.[/dim]"
+            )
+        else:
+            console.print(
+                f"   [red]✘ Found {len(recent_errors)} active error(s) in the last "
+                f"{time_str}:[/red]"
+            )
+            for err in recent_errors[-3:]:  # Show last 3
+                console.print(f"     [dim]{err}[/dim]")
+            if len(recent_errors) > 3:
+                console.print("     ... (run 'git pulsar log' to see full history)")
+    else:
+        console.print("   [green]✔ Recent logs are clean.[/green]")
 
 
 def add_ignore_cli(pattern: str) -> None:

@@ -29,6 +29,12 @@ Ensures the **Cascading Configuration** system behaves deterministically.
 * **Priority Resolution:** Verifies that Local config (`pulsar.toml`) overrides Global config (`config.toml`), and list values (like `ignore`) are appended rather than replaced.
 * **Preset Logic:** Tests that abstract presets (e.g., `paranoid`, `lazy`) correctly expand into concrete integer intervals for the daemon.
 
+### 6. Diagnostics & CLI Interaction (`test_cli.py`)
+Validates the state-aware diagnostic engine and user-facing CLI commands.
+* **State vs. Event Correlation:** Tests the `doctor` command by decoupling repository health (state) from daemon logs (events). We mock dynamic lookback windows to verify that naturally resolved transient anomalies are suppressed, while active correlated failures trigger alerts.
+* **Environment Simulation:** Uses `tmp_path` and `mocker` to synthesize restrictive `.git/hooks`, detached HEAD states, offline networks, and Linux `systemd` configurations (`loginctl`) without executing side effects on the host.
+* **UI Determinism:** Ensures commands like `status` and `config` parse timestamps and route to standard system editors (`$EDITOR`, `nano`) correctly.
+
 ---
 
 ## Running Tests
