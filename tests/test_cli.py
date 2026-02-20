@@ -381,3 +381,112 @@ def test_check_git_hooks_strict_blocking(tmp_path: Path, mocker: MagicMock) -> N
     assert len(warnings) == 2
     assert "Strict 'pre-commit' hook detected" in warnings[0]
     assert "Strict 'pre-push' hook detected" in warnings[1]
+
+
+def test_run_doctor_transient_error_suppression(
+    tmp_path: Path, mocker: MagicMock
+) -> None:
+    """Verifies that transient log errors are suppressed when the system state is healthy.
+
+    Args:
+        tmp_path (Path): Pytest fixture for a temporary directory.
+        mocker (MagicMock): Pytest fixture for mocking.
+    """
+    # 1. Mock Registry & File System using tmp_path
+    mock_repo = tmp_path / "mock_repo"
+    mock_repo.mkdir()
+
+    mock_registry = tmp_path / "registry"
+    mock_registry.write_text(f"{mock_repo}\n")
+
+    mocker.patch("git_pulsar.system.get_registered_repos", return_value=[mock_repo])
+    mocker.patch("git_pulsar.cli.REGISTRY_FILE", mock_registry)
+
+    # 2. Mock environment sub-checks
+    mocker.patch("git_pulsar.service.is_service_enabled", return_value=True)
+    mocker.patch("git_pulsar.cli._check_systemd_linger", return_value=None)
+    mocker.patch(
+        "subprocess.run",
+        return_value=mocker.MagicMock(stderr="successfully authenticated"),
+    )
+    mocker.patch("git_pulsar.cli._check_remote_drift", return_value=None)
+    mocker.patch("git_pulsar.cli._check_git_hooks", return_value=[])
+
+    # 3. Mock State & Event Correlation inputs
+    # State is healthy (None returned from health check)
+    mocker.patch("git_pulsar.cli._check_repo_health", return_value=None)
+
+    mock_conf = mocker.MagicMock()
+    mock_conf.daemon.push_interval = 3600
+    mocker.patch("git_pulsar.config.Config.load", return_value=mock_conf)
+
+    # Events exist but state is healthy -> Transient
+    mocker.patch(
+        "git_pulsar.cli._analyze_logs", return_value=["Transient connection drop"]
+    )
+
+    # 4. Mock the console to capture output formatting
+    mock_console = mocker.patch("git_pulsar.cli.console")
+
+    cli.run_doctor()
+
+    # 5. Assert correlation correctly identified transient anomaly
+    output = " ".join(
+        [call.args[0] for call in mock_console.print.call_args_list if call.args]
+    )
+    assert "transient error(s) logged" in output
+    assert "automatically recovered" in output
+
+
+def test_run_doctor_active_error_correlation(tmp_path: Path, mocker: MagicMock) -> None:
+    """Verifies that log errors are displayed loudly when the system state is failing.
+
+    Args:
+        tmp_path (Path): Pytest fixture for a temporary directory.
+        mocker (MagicMock): Pytest fixture for mocking.
+    """
+    # 1. Mock Registry & File System using tmp_path
+    mock_repo = tmp_path / "mock_repo"
+    mock_repo.mkdir()
+
+    mock_registry = tmp_path / "registry"
+    mock_registry.write_text(f"{mock_repo}\n")
+
+    mocker.patch("git_pulsar.system.get_registered_repos", return_value=[mock_repo])
+    mocker.patch("git_pulsar.cli.REGISTRY_FILE", mock_registry)
+
+    # 2. Mock environment sub-checks
+    mocker.patch("git_pulsar.service.is_service_enabled", return_value=True)
+    mocker.patch("git_pulsar.cli._check_systemd_linger", return_value=None)
+    mocker.patch(
+        "subprocess.run",
+        return_value=mocker.MagicMock(stderr="successfully authenticated"),
+    )
+    mocker.patch("git_pulsar.cli._check_remote_drift", return_value=None)
+    mocker.patch("git_pulsar.cli._check_git_hooks", return_value=[])
+
+    # 3. State is UNHEALTHY
+    mocker.patch(
+        "git_pulsar.cli._check_repo_health",
+        return_value="Stalled: Changes pending > 2 hours.",
+    )
+
+    mock_conf = mocker.MagicMock()
+    mock_conf.daemon.push_interval = 3600
+    mocker.patch("git_pulsar.config.Config.load", return_value=mock_conf)
+
+    # Events exist and correlate with Unhealthy state
+    mocker.patch(
+        "git_pulsar.cli._analyze_logs", return_value=["Connection refused", "Timeout"]
+    )
+
+    mock_console = mocker.patch("git_pulsar.cli.console")
+
+    cli.run_doctor()
+
+    # Assert correlation correctly escalated the errors
+    output = " ".join(
+        [call.args[0] for call in mock_console.print.call_args_list if call.args]
+    )
+    assert "active error(s) in the last" in output
+    assert "Connection refused" in output
