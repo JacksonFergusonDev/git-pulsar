@@ -1,3 +1,5 @@
+import contextlib
+import json
 import logging
 import os
 import shutil
@@ -113,6 +115,68 @@ def get_remote_drift_state(repo_path: Path) -> tuple[bool, int, str, str]:
         logger.debug(f"Drift check failed: {e}")
 
     return False, 0, "", ""
+
+
+def get_drift_state(repo_path: Path) -> tuple[float, int]:
+    """Retrieves the cached state for remote drift detection.
+
+    Args:
+        repo_path (Path): The path to the repository.
+
+    Returns:
+        tuple[float, int]: A tuple containing:
+            - float: The Unix timestamp of the last time a drift check was performed.
+            - int: The Unix timestamp of the newest remote session the user was warned about.
+    """
+    state_file = repo_path / ".git" / "pulsar_drift_state"
+    if not state_file.exists():
+        return 0.0, 0
+
+    try:
+        content = state_file.read_text().strip()
+        if not content:
+            return 0.0, 0
+
+        data = json.loads(content)
+        return float(data.get("last_check_ts", 0.0)), int(
+            data.get("warned_remote_ts", 0)
+        )
+    except (OSError, ValueError, json.JSONDecodeError) as e:
+        logger.debug(f"Failed to read drift state: {e}")
+        return 0.0, 0
+
+
+def set_drift_state(
+    repo_path: Path, last_check_ts: float, warned_remote_ts: int
+) -> None:
+    """Persists the drift detection state to disk atomically.
+
+    Args:
+        repo_path (Path): The path to the repository.
+        last_check_ts (float): The Unix timestamp of the current check.
+        warned_remote_ts (int): The Unix timestamp of the remote session warned about.
+    """
+    state_file = repo_path / ".git" / "pulsar_drift_state"
+    tmp_file = state_file.with_suffix(".tmp")
+
+    data = {
+        "last_check_ts": last_check_ts,
+        "warned_remote_ts": warned_remote_ts,
+    }
+
+    try:
+        with open(tmp_file, "w") as f:
+            json.dump(data, f)
+            f.flush()
+            os.fsync(f.fileno())  # Force hardware write
+
+        # Atomic pointer swap at the filesystem level
+        os.replace(tmp_file, state_file)
+    except OSError as e:
+        logger.debug(f"Failed to write drift state: {e}")
+        if tmp_file.exists():
+            with contextlib.suppress(OSError):
+                tmp_file.unlink()
 
 
 def bootstrap_env() -> None:
