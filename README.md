@@ -54,6 +54,7 @@ In a distributed environment (Laptop ↔ Desktop), state drift is inevitable.
 * **Smart Identity:** Automatically detects naming collisions with other devices on the remote, ensuring unique backup streams for every machine.
 * **Out-of-Band Indexing:** Backups are stored in a configured namespace (default: `refs/heads/wip/pulsar/...`). Your `git status`, `git branch`, and `git log` remain completely clean.
 * **Distributed Sessions:** Hop between machines. Pulsar tracks sessions per device and lets you `sync` to pick up exactly where you left off.
+* **State-Aware Diagnostics:** The `doctor` command correlates transient log events with active system health to prevent alert fatigue, and proactively scans for pipeline blockers like strict git hooks or broken `systemd` configurations.
 * **Zero-Interference:**
     * Uses a temporary index so it never messes up your partial `git add`.
     * Detects if you are rebasing or merging and waits for you to finish.
@@ -176,7 +177,7 @@ This bootstraps the current directory with:
 ### Maintenance
 | Command | Description |
 | :--- | :--- |
-| `git pulsar doctor` | Run deep diagnostics (logs, stuck repos) and clean up the registry. |
+| `git pulsar doctor` | Run state-aware diagnostics (logs, repo health, drift detection, hook interference) and clean up the registry. |
 | `git pulsar prune` | Delete old backup history (>30 days). Runs automatically weekly. |
 | `git pulsar log` | View recent log history (last 1000 lines) and tail new entries. |
 
@@ -227,7 +228,7 @@ ignore = ["*.tmp", "node_modules/"]
 *Focus: Leveraging data to make the tool feel alive and aware of your workflow.*
 
 - [ ] **Semantic Shadow Logs:** Replace generic "Shadow backup" messages with auto-generated summaries (e.g., `backup: modified daemon.py (+15 lines)`).
-- [ ] **Roaming Radar:** Proactively detect if a different machine has pushed newer work to the same branch and notify the user to `sync`.
+- [x] **Roaming Radar:** Proactively detect if a different machine has pushed newer work to the same branch and notify the user to `sync`.
 - [ ] **Decaying Retention:** Implement "Grandfather-Father-Son" pruning (keep all hourly backups for 24h, then daily summaries) to balance safety with disk space.
 
 ### Phase 3: The "TUI" Experience (Visuals)
