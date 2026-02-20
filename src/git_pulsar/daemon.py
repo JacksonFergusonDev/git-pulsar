@@ -395,12 +395,45 @@ def run_backup(original_path_str: str, interactive: bool = False) -> None:
         if not current_branch:
             return
 
+        # --- ROAMING RADAR (DRIFT DETECTION) ---
+        if not interactive:
+            last_check_ts, warned_ts = ops.get_drift_state(repo_path)
+            current_time = time.time()
+
+            # Throttle checks to every 15 minutes (900 seconds) to prevent network thrashing
+            if current_time - last_check_ts >= 900:
+                pct, plugged = SYSTEM.get_battery()
+                # Respect eco-mode: avoid spinning up the radio if battery is low
+                if plugged or pct >= config.daemon.eco_mode_percent:
+                    remote_name = config.core.remote_name
+                    host = get_remote_host(repo_path, remote_name)
+
+                    # Quick TCP check to prevent git fetch from hanging
+                    if host and is_remote_reachable(host):
+                        drift_detected, newest_ts, _, warning = (
+                            ops.get_remote_drift_state(repo_path)
+                        )
+
+                        if drift_detected and newest_ts > warned_ts:
+                            logger.warning(
+                                f"DRIFT DETECTED {repo_path.name}: {warning}"
+                            )
+                            # Trigger the OS interrupt
+                            SYSTEM.notify("Pulsar Drift Detected", warning)
+                            ops.set_drift_state(repo_path, current_time, newest_ts)
+                        else:
+                            # State is clean or already warned; update the check timestamp
+                            ops.set_drift_state(repo_path, current_time, warned_ts)
+                    else:
+                        # Offline; update check timestamp to avoid spamming TCP handshakes
+                        ops.set_drift_state(repo_path, current_time, warned_ts)
+
+        # --- COMMIT PHASE ---
         # Define Refs
         local_backup_ref = ops.get_backup_ref(current_branch)
         ref_suffix = local_backup_ref.replace("refs/heads/", "")
         remote_backup_ref = f"refs/remotes/{config.core.remote_name}/{ref_suffix}"
 
-        # --- COMMIT PHASE ---
         last_commit_ts = _get_ref_timestamp(repo, local_backup_ref)
         time_since_commit = time.time() - last_commit_ts
 

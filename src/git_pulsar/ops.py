@@ -1,3 +1,5 @@
+import contextlib
+import json
 import logging
 import os
 import shutil
@@ -30,6 +32,151 @@ def get_backup_ref(branch: str) -> str:
     """
     slug = system.get_identity_slug()
     return f"refs/heads/{BACKUP_NAMESPACE}/{slug}/{branch}"
+
+
+def get_remote_drift_state(repo_path: Path) -> tuple[bool, int, str, str]:
+    """Checks if another machine has a newer backup session for the current branch.
+
+    Args:
+        repo_path (Path): Path to the local git repository.
+
+    Returns:
+        tuple[bool, int, str, str]: A tuple containing:
+            - bool: True if divergence/drift is detected, False otherwise.
+            - int: The Unix timestamp of the newest remote session (0 if none/error).
+            - str: The machine slug that pushed the newest session (empty if none).
+            - str: A human-readable warning message (empty if no drift).
+    """
+    try:
+        repo = GitRepo(repo_path)
+        current_branch = repo.current_branch()
+        if not current_branch:
+            return False, 0, "", ""
+
+        # Lightweight fetch of backup refs for the current branch
+        try:
+            repo._run(
+                [
+                    "fetch",
+                    "origin",
+                    f"refs/heads/{BACKUP_NAMESPACE}/*/{current_branch}:refs/heads/{BACKUP_NAMESPACE}/*/{current_branch}",
+                ],
+                capture=True,
+            )
+        except Exception as e:
+            logger.debug(f"Fetch failed during drift check: {e}")
+            return False, 0, "", ""  # Silently fail if offline or remote is unreachable
+
+        candidates = repo.list_refs(f"refs/heads/{BACKUP_NAMESPACE}/*/{current_branch}")
+        if not candidates:
+            return False, 0, "", ""
+
+        my_slug = system.get_identity_slug()
+        my_backup_ref = get_backup_ref(current_branch)
+
+        # Determine our local latest timestamp (backup ref or HEAD)
+        local_ts = 0
+        try:
+            if my_backup_ref in candidates:
+                local_ts = int(
+                    repo._run(["log", "-1", "--format=%ct", my_backup_ref]).strip()
+                )
+            else:
+                local_ts = int(repo._run(["log", "-1", "--format=%ct", "HEAD"]).strip())
+        except Exception as e:
+            logger.debug(f"Failed to get local timestamp: {e}")
+
+        newest_ts = 0
+        newest_machine = ""
+        # Dynamically calculate the machine index in the ref string
+        machine_index = 2 + len(BACKUP_NAMESPACE.split("/"))
+
+        for ref in candidates:
+            try:
+                ts = int(repo._run(["log", "-1", "--format=%ct", ref]).strip())
+                if ts > newest_ts:
+                    newest_ts = ts
+                    parts = ref.split("/")
+                    if len(parts) > machine_index:
+                        newest_machine = parts[machine_index]
+            except Exception as e:
+                logger.debug(f"Failed to process ref {ref}: {e}")
+                continue
+
+        if newest_ts > local_ts and newest_machine and newest_machine != my_slug:
+            minutes_ago = int((time.time() - newest_ts) / 60)
+            warning = (
+                f"Divergence Risk: '{newest_machine}' pushed a newer session "
+                f"~{minutes_ago} mins ago. Consider running 'git pulsar sync'."
+            )
+            return True, newest_ts, newest_machine, warning
+
+    except Exception as e:
+        logger.debug(f"Drift check failed: {e}")
+
+    return False, 0, "", ""
+
+
+def get_drift_state(repo_path: Path) -> tuple[float, int]:
+    """Retrieves the cached state for remote drift detection.
+
+    Args:
+        repo_path (Path): The path to the repository.
+
+    Returns:
+        tuple[float, int]: A tuple containing:
+            - float: The Unix timestamp of the last time a drift check was performed.
+            - int: The Unix timestamp of the newest remote session the user was warned about.
+    """
+    state_file = repo_path / ".git" / "pulsar_drift_state"
+    if not state_file.exists():
+        return 0.0, 0
+
+    try:
+        content = state_file.read_text().strip()
+        if not content:
+            return 0.0, 0
+
+        data = json.loads(content)
+        return float(data.get("last_check_ts", 0.0)), int(
+            data.get("warned_remote_ts", 0)
+        )
+    except (OSError, ValueError, json.JSONDecodeError) as e:
+        logger.debug(f"Failed to read drift state: {e}")
+        return 0.0, 0
+
+
+def set_drift_state(
+    repo_path: Path, last_check_ts: float, warned_remote_ts: int
+) -> None:
+    """Persists the drift detection state to disk atomically.
+
+    Args:
+        repo_path (Path): The path to the repository.
+        last_check_ts (float): The Unix timestamp of the current check.
+        warned_remote_ts (int): The Unix timestamp of the remote session warned about.
+    """
+    state_file = repo_path / ".git" / "pulsar_drift_state"
+    tmp_file = state_file.with_suffix(".tmp")
+
+    data = {
+        "last_check_ts": last_check_ts,
+        "warned_remote_ts": warned_remote_ts,
+    }
+
+    try:
+        with open(tmp_file, "w") as f:
+            json.dump(data, f)
+            f.flush()
+            os.fsync(f.fileno())  # Force hardware write
+
+        # Atomic pointer swap at the filesystem level
+        os.replace(tmp_file, state_file)
+    except OSError as e:
+        logger.debug(f"Failed to write drift state: {e}")
+        if tmp_file.exists():
+            with contextlib.suppress(OSError):
+                tmp_file.unlink()
 
 
 def bootstrap_env() -> None:

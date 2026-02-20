@@ -1,3 +1,4 @@
+import json
 import os
 from pathlib import Path
 from typing import Any
@@ -211,3 +212,130 @@ def test_finalize_octopus_merge(mocker: MagicMock) -> None:
 
     # 3. Verify Interactive Commit trigger.
     repo.commit_interactive.assert_called_once()
+
+
+# --- Roaming Radar & State Tests ---
+
+
+def test_get_remote_drift_state_no_branch(tmp_path: Path, mocker: MagicMock) -> None:
+    mock_cls = mocker.patch("git_pulsar.ops.GitRepo")
+    repo = mock_cls.return_value
+    repo.current_branch.return_value = ""
+
+    drift, ts, machine, warning = ops.get_remote_drift_state(tmp_path)
+    assert not drift
+    assert ts == 0
+
+
+def test_get_remote_drift_state_fetch_fails(tmp_path: Path, mocker: MagicMock) -> None:
+    mock_cls = mocker.patch("git_pulsar.ops.GitRepo")
+    repo = mock_cls.return_value
+    repo.current_branch.return_value = "main"
+    repo._run.side_effect = Exception("Network offline")
+
+    drift, ts, machine, warning = ops.get_remote_drift_state(tmp_path)
+    assert not drift
+
+
+def test_get_remote_drift_state_local_is_newer(
+    tmp_path: Path, mocker: MagicMock
+) -> None:
+    mock_cls = mocker.patch("git_pulsar.ops.GitRepo")
+    repo = mock_cls.return_value
+    repo.current_branch.return_value = "main"
+
+    mocker.patch("git_pulsar.system.get_identity_slug", return_value="laptop--123")
+    mocker.patch(
+        "git_pulsar.ops.get_backup_ref",
+        return_value="refs/heads/wip/pulsar/laptop--123/main",
+    )
+
+    repo.list_refs.return_value = [
+        "refs/heads/wip/pulsar/desktop--456/main",
+        "refs/heads/wip/pulsar/laptop--123/main",
+    ]
+
+    def mock_run_side_effect(cmd: list[str], **kwargs: Any) -> str:
+        if cmd[0] == "fetch":
+            return ""
+        if cmd[0] == "log":
+            if "desktop" in cmd[-1]:
+                return "1000"
+            if "laptop" in cmd[-1]:
+                return "2000"
+        return "0"
+
+    repo._run.side_effect = mock_run_side_effect
+
+    drift, ts, machine, warning = ops.get_remote_drift_state(tmp_path)
+    assert not drift
+    assert ts == 0
+
+
+def test_get_remote_drift_state_remote_is_newer(
+    tmp_path: Path, mocker: MagicMock
+) -> None:
+    mock_cls = mocker.patch("git_pulsar.ops.GitRepo")
+    repo = mock_cls.return_value
+    repo.current_branch.return_value = "main"
+
+    mocker.patch("git_pulsar.system.get_identity_slug", return_value="laptop--123")
+    mocker.patch(
+        "git_pulsar.ops.get_backup_ref",
+        return_value="refs/heads/wip/pulsar/laptop--123/main",
+    )
+
+    repo.list_refs.return_value = [
+        "refs/heads/wip/pulsar/desktop--456/main",
+        "refs/heads/wip/pulsar/laptop--123/main",
+    ]
+
+    def mock_run_side_effect(cmd: list[str], **kwargs: Any) -> str:
+        if cmd[0] == "fetch":
+            return ""
+        if cmd[0] == "log":
+            if "desktop" in cmd[-1]:
+                return "2000"
+            if "laptop" in cmd[-1]:
+                return "1000"
+        return "0"
+
+    repo._run.side_effect = mock_run_side_effect
+    mocker.patch("time.time", return_value=2900.0)
+
+    drift, ts, machine, warning = ops.get_remote_drift_state(tmp_path)
+    assert drift is True
+    assert ts == 2000
+    assert machine == "desktop--456"
+    assert "15 mins" in warning
+
+
+def test_get_drift_state_empty(tmp_path: Path) -> None:
+    (tmp_path / ".git").mkdir()
+    last_check, warned_ts = ops.get_drift_state(tmp_path)
+    assert last_check == 0.0
+    assert warned_ts == 0
+
+
+def test_get_drift_state_valid(tmp_path: Path) -> None:
+    git_dir = tmp_path / ".git"
+    git_dir.mkdir()
+    state_file = git_dir / "pulsar_drift_state"
+    state_file.write_text(json.dumps({"last_check_ts": 500.5, "warned_remote_ts": 100}))
+
+    last_check, warned_ts = ops.get_drift_state(tmp_path)
+    assert last_check == 500.5
+    assert warned_ts == 100
+
+
+def test_set_drift_state_atomic(tmp_path: Path) -> None:
+    git_dir = tmp_path / ".git"
+    git_dir.mkdir()
+    state_file = git_dir / "pulsar_drift_state"
+
+    ops.set_drift_state(tmp_path, 999.9, 200)
+
+    assert state_file.exists()
+    data = json.loads(state_file.read_text())
+    assert data["last_check_ts"] == 999.9
+    assert data["warned_remote_ts"] == 200
