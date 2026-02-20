@@ -138,3 +138,69 @@ def test_has_large_files_uses_config_limit(
 
     assert result is True
     mock_notify.assert_called_with("Backup Aborted", mocker.ANY)
+
+
+def test_run_backup_drift_detection_throttled(
+    tmp_path: Path, mocker: MagicMock, mock_config: Config
+) -> None:
+    """Verifies that the daemon respects the 15-minute polling interval."""
+    (tmp_path / ".git").mkdir()
+    mocker.patch("git_pulsar.daemon.SYSTEM.is_under_load", return_value=False)
+    mocker.patch("git_pulsar.daemon.SYSTEM.get_battery", return_value=(100, True))
+    mocker.patch("git_pulsar.daemon.has_large_files", return_value=False)
+
+    mock_repo = mocker.patch("git_pulsar.daemon.GitRepo").return_value
+    mock_repo.current_branch.return_value = "main"
+
+    # Set last check to exactly 10 minutes ago (600 seconds), interval requires 900
+    current_time = 10000.0
+    mocker.patch("time.time", return_value=current_time)
+    mocker.patch("git_pulsar.ops.get_drift_state", return_value=(current_time - 600, 0))
+
+    mock_get_host = mocker.patch("git_pulsar.daemon.get_remote_host")
+
+    daemon.run_backup(str(tmp_path), interactive=False)
+
+    # Assert network host was never checked because it was throttled
+    mock_get_host.assert_not_called()
+
+
+def test_run_backup_drift_detection_triggers_notification(
+    tmp_path: Path, mocker: MagicMock, mock_config: Config
+) -> None:
+    """Verifies that unacknowledged drift triggers an OS notification and updates state."""
+    (tmp_path / ".git").mkdir()
+    mocker.patch("git_pulsar.daemon.SYSTEM.is_under_load", return_value=False)
+    mocker.patch("git_pulsar.daemon.SYSTEM.get_battery", return_value=(100, True))
+    mocker.patch("git_pulsar.daemon.has_large_files", return_value=False)
+
+    mock_repo = mocker.patch("git_pulsar.daemon.GitRepo").return_value
+    mock_repo.current_branch.return_value = "main"
+
+    # Simulate 20 minutes since last check (exceeds 900s throttle)
+    current_time = 10000.0
+    mocker.patch("time.time", return_value=current_time)
+    mocker.patch(
+        "git_pulsar.ops.get_drift_state", return_value=(current_time - 1200, 0)
+    )
+
+    mocker.patch("git_pulsar.daemon.get_remote_host", return_value="github.com")
+    mocker.patch("git_pulsar.daemon.is_remote_reachable", return_value=True)
+
+    # Simulate finding newer drift
+    warning_msg = "Divergence Risk: 'desktop' pushed newer session"
+    mocker.patch(
+        "git_pulsar.ops.get_remote_drift_state",
+        return_value=(True, 5000, "desktop", warning_msg),
+    )
+
+    mock_notify = mocker.patch("git_pulsar.daemon.SYSTEM.notify")
+    mock_set_state = mocker.patch("git_pulsar.ops.set_drift_state")
+
+    daemon.run_backup(str(tmp_path), interactive=False)
+
+    # Assert OS interrupt was fired
+    mock_notify.assert_called_once_with("Pulsar Drift Detected", warning_msg)
+
+    # Assert state was updated so we don't spam the user again for timestamp 5000
+    mock_set_state.assert_called_once_with(tmp_path.resolve(), current_time, 5000)
