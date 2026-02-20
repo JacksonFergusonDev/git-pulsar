@@ -36,35 +36,37 @@ This system is designed to operate safely alongside standard Git commands withou
 ### 1. Out-of-Band Indexing (The "Shadow" Index)
 
 Most autosave tools aggressively run `git add .`, which destroys the user's carefully staged partial commits.
-* **The Invariant:** The user's `.git/index` must never be touched by the daemon.
-* **The Implementation:** Pulsar sets the `GIT_INDEX_FILE` environment variable to a temporary location (`.git/pulsar_index`). It constructs the tree object using low-level plumbing commands (`git write-tree`), bypassing the porcelain entirely. This ensures **Zero-Interference** with your active workflow.
+
+- **The Invariant:** The user's `.git/index` must never be touched by the daemon.
+- **The Implementation:** Pulsar sets the `GIT_INDEX_FILE` environment variable to a temporary location (`.git/pulsar_index`). It constructs the tree object using low-level plumbing commands (`git write-tree`), bypassing the porcelain entirely. This ensures **Zero-Interference** with your active workflow.
 
 ### 2. Distributed State Reconciliation (The "Zipper" Graph)
 
 In a distributed environment (Laptop ↔ Desktop), state drift is inevitable.
-* **The Mechanism:** Pulsar maintains a separate refspec for each machine ID.
-* **The Topology:** When you run `git pulsar finalize`, the engine performs an **Octopus Merge**, traversing the DAG (Directed Acyclic Graph) of all machine streams and squashing them into a single, clean commit on `main`.
+
+- **The Mechanism:** Pulsar maintains a separate refspec for each machine ID.
+- **The Topology:** When you run `git pulsar finalize`, the engine performs an **Octopus Merge**, traversing the DAG (Directed Acyclic Graph) of all machine streams and squashing them into a single, clean commit on `main`.
 
 ### 3. Fault Tolerance
 
-* **The Problem:** Laptops die. SSH connections drop.
-* **The Solution:** By decoupling commits from pushes, Pulsar can capture local state every few minutes while conserving battery by pushing to the remote at a lower frequency (e.g., hourly). This guarantees that the **Mean Time To Recovery (MTTR)** is minimized regardless of network availability or hardware failure.
+- **The Problem:** Laptops die. SSH connections drop.
+- **The Solution:** By decoupling commits from pushes, Pulsar can capture local state every few minutes while conserving battery by pushing to the remote at a lower frequency (e.g., hourly). This guarantees that the **Mean Time To Recovery (MTTR)** is minimized regardless of network availability or hardware failure.
 
 ---
 
 ## ⚡ Features
 
-* **Decoupled Cycles:** Independent intervals for local commits and remote pushes. Save your battery while staying protected.
-* **Smart Identity:** Automatically detects naming collisions with other devices on the remote, ensuring unique backup streams for every machine.
-* **Roaming Radar:** The background daemon actively polls for topological drift, firing a cross-platform OS notification if another machine leapfrogs your local session so you can `sync` before conflicts arise.
-* **Out-of-Band Indexing:** Backups are stored in a configured namespace (default: `refs/heads/wip/pulsar/...`). Your `git status`, `git branch`, and `git log` remain completely clean.
-* **Distributed Sessions:** Hop between machines. Pulsar tracks sessions per device and lets you `sync` to pick up exactly where you left off.
-* **State-Aware Diagnostics:** The `doctor` command correlates transient log events with active system health to prevent alert fatigue, and proactively scans for pipeline blockers like strict git hooks or broken `systemd` configurations.
-* **Zero-Interference:**
-  * Uses a temporary index so it never messes up your partial `git add`.
-  * Detects if you are rebasing or merging and waits for you to finish.
-  * Prevents accidental upload of large binaries (configurable threshold).
-* **Cascading Config:** Settings are merged from global defaults, `~/.config/git-pulsar/config.toml`, and local `pulsar.toml` or `pyproject.toml` files.
+- **Decoupled Cycles:** Independent intervals for local commits and remote pushes. Save your battery while staying protected.
+- **Smart Identity:** Automatically detects naming collisions with other devices on the remote, ensuring unique backup streams for every machine.
+- **Roaming Radar:** The background daemon actively polls for topological drift, firing a cross-platform OS notification if another machine leapfrogs your local session so you can `sync` before conflicts arise.
+- **Out-of-Band Indexing:** Backups are stored in a configured namespace (default: `refs/heads/wip/pulsar/...`). Your `git status`, `git branch`, and `git log` remain completely clean.
+- **Distributed Sessions:** Hop between machines. Pulsar tracks sessions per device and lets you `sync` to pick up exactly where you left off.
+- **State-Aware Diagnostics:** The `doctor` command correlates transient log events with active system health to prevent alert fatigue, and proactively scans for pipeline blockers like strict git hooks or broken `systemd` configurations.
+- **Zero-Interference:**
+  - Uses a temporary index so it never messes up your partial `git add`.
+  - Detects if you are rebasing or merging and waits for you to finish.
+  - Prevents accidental upload of large binaries (configurable threshold).
+- **Cascading Config:** Settings are merged from global defaults, `~/.config/git-pulsar/config.toml`, and local `pulsar.toml` or `pyproject.toml` files.
 
 ---
 
@@ -104,6 +106,7 @@ Navigate to your project. The first time you run Pulsar, it will register the re
 cd ~/University/Astro401
 git pulsar
 ```
+
 *The daemon will now silently snapshot your work based on your configured intervals.*
 
 ### 2. Configure Your Intensity
@@ -124,6 +127,7 @@ You worked on your **Desktop** all night but forgot to push manually. You open y
 ```bash
 git pulsar sync
 ```
+
 *Pulsar checks the remote, finds the newer session from `desktop`, and fast-forwards your working directory to match it.*
 
 ### 4. Restore a File
@@ -142,6 +146,7 @@ When you are ready to submit or merge to `main`:
 ```bash
 git pulsar finalize
 ```
+
 *This performs an **Octopus Merge**. It pulls the backup history from your Laptop, Desktop, and Lab PC, squashes them all together, and stages the result on `main`.*
 
 ---
@@ -156,11 +161,11 @@ git pulsar --env
 
 This bootstraps the current directory with:
 
-* **uv:** Initializes a project with fast package management and Python 3.12+ pinning.
+- **uv:** Initializes a project with fast package management and Python 3.12+ pinning.
 
-* **direnv:** Creates an .envrc for auto-activating virtual environments and hooking into the shell.
+- **direnv:** Creates an .envrc for auto-activating virtual environments and hooking into the shell.
 
-* **VS Code:** Generates a .vscode/settings.json pre-configured to exclude build artifacts and use the local venv.
+- **VS Code:** Generates a .vscode/settings.json pre-configured to exclude build artifacts and use the local venv.
 
 ---
 
@@ -238,28 +243,29 @@ ignore = ["*.tmp", "node_modules/"]
 
 *Focus: Turning the tool from a blind script into a helpful partner that negotiates with you.*
 
-* [ ] **Smart Restore:** Replace hard failures on "dirty" files with a negotiation menu (Overwrite / View Diff / Cancel).
-* [ ] **Pre-Flight Checklists:** Display a summary table of incoming changes (machines, timestamps, file counts) before running destructive commands like `finalize`.
-* [ ] **Active Doctor:** Upgrade `git pulsar doctor` to not just diagnose issues (like stopped daemons), but offer to auto-fix them interactively.
+- [ ] **Smart Restore:** Replace hard failures on "dirty" files with a negotiation menu (Overwrite / View Diff / Cancel).
+- [ ] **Pre-Flight Checklists:** Display a summary table of incoming changes (machines, timestamps, file counts) before running destructive commands like `finalize`.
+- [ ] **Active Doctor:** Upgrade `git pulsar doctor` to not just diagnose issues (like stopped daemons), but offer to auto-fix them interactively.
 
 ### Phase 2: "Deep Thought" (Context & Intelligence)
 
 *Focus: Leveraging data to make the tool feel alive and aware of your workflow.*
 
-* [ ] **Semantic Shadow Logs:** Replace generic "Shadow backup" messages with auto-generated summaries (e.g., `backup: modified daemon.py (+15 lines)`).
-* [x] **Roaming Radar:** Proactively detect if a different machine has pushed newer work to the same branch and notify the user to `sync`.
-* [ ] **Decaying Retention:** Implement "Grandfather-Father-Son" pruning (keep all hourly backups for 24h, then daily summaries) to balance safety with disk space.
+- [ ] **Semantic Shadow Logs:** Replace generic "Shadow backup" messages with auto-generated summaries (e.g., `backup: modified daemon.py (+15 lines)`).
+- [x] **Roaming Radar:** Proactively detect if a different machine has pushed newer work to the same branch and notify the user to `sync`.
+- [ ] **Decaying Retention:** Implement "Grandfather-Father-Son" pruning (keep all hourly backups for 24h, then daily summaries) to balance safety with disk space.
 
 ### Phase 3: The "TUI" Experience (Visuals)
 
 *Focus: Making the invisible backup history tangible and explorable.*
-* [ ] **Time Machine UI:** A terminal-based visual browser for `git pulsar restore` that lets you scroll through file history and view side-by-side diffs.
-* [ ] **Universal Bootstrap:** Expand `git pulsar --env` to support Linux (apt/dnf) environments alongside macOS.
+
+- [ ] **Time Machine UI:** A terminal-based visual browser for `git pulsar restore` that lets you scroll through file history and view side-by-side diffs.
+- [ ] **Universal Bootstrap:** Expand `git pulsar --env` to support Linux (apt/dnf) environments alongside macOS.
 
 ### Future Horizons
 
-* [ ] **End-to-End Encryption:** Optional GPG encryption for shadow commits.
-* [ ] **Windows Support:** Native support for PowerShell and Task Scheduler.
+- [ ] **End-to-End Encryption:** Optional GPG encryption for shadow commits.
+- [ ] **Windows Support:** Native support for PowerShell and Task Scheduler.
 
 ---
 
