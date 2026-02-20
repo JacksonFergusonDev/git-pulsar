@@ -30,9 +30,9 @@ The `src/` directory contains the package source code. The architecture strictly
     * **Logic:** Generates and registers `systemd` user timers (Linux) or instructions for `launchd` (macOS/Homebrew).
 
 ### 4. The Interface
-* **`git_pulsar/cli.py`**: The User Entry Point.
-    * **Role:** Argument parsing and UI rendering.
-    * **Tech:** Uses `rich` for terminal visualization. It delegates all logic to `ops.py` or `daemon.py`.
+* **`git_pulsar/cli.py`**: The User Entry Point & Diagnostic Engine.
+    * **Role:** Argument parsing, UI rendering, and system health evaluation.
+    * **Logic:** Uses `rich` for terminal visualization. Beyond routing subcommands to `ops.py` and `daemon.py`, it houses the `doctor` logic. It correlates repository state against transient event logs, detects topological drift across distributed sessions, and scans for host-environment pipeline blockers (e.g., strict git hooks, missing `systemd` linger).
 
 ---
 
@@ -42,3 +42,4 @@ The `src/` directory contains the package source code. The architecture strictly
 2.  **Zero-Destruction:** The `prune` logic in `ops.py` relies on strictly namespaced refspecs (`refs/heads/wip/pulsar/...`) and never touches standard heads.
 3.  **Identity Stability:** The `system` module guarantees that a Machine ID persists across reboots, preventing "Split Brain" backup histories.
 4.  **Configuration Precedence:** Local project configuration MUST always override global user settings to ensure repo-specific constraints (e.g., large file limits) are respected.
+5.  **State Over Events:** The diagnostic engine (`cli.py`) MUST prioritize current repository and environmental state over historical log events to prevent alert fatigue from self-healing anomalies.
