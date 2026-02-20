@@ -355,6 +355,38 @@ def unregister_repo() -> None:
     console.print(f"✔ Unregistered: [cyan]{cwd}[/cyan]", style="green")
 
 
+def _check_systemd_linger() -> str | None:
+    """Checks if systemd linger is enabled for the current Linux user.
+
+    Returns:
+        str | None: A warning message if linger is disabled, or None if
+                    enabled, or if the system is not Linux.
+    """
+    if not sys.platform.startswith("linux"):
+        return None
+
+    user = os.environ.get("USER")
+    if not user:
+        return None
+
+    try:
+        res = subprocess.run(
+            ["loginctl", "show-user", user, "-p", "Linger"],
+            capture_output=True,
+            text=True,
+            timeout=2,
+        )
+        if "Linger=yes" not in res.stdout:
+            return (
+                "systemd 'linger' is disabled. Daemon will die when you log out. "
+                "Run 'loginctl enable-linger' to fix."
+            )
+    except Exception as e:
+        logger.debug(f"Failed to check systemd linger status: {e}")
+
+    return None
+
+
 def run_doctor() -> None:
     """
     Diagnoses system health, cleans the registry, and checks connectivity and logs.
@@ -388,6 +420,10 @@ def run_doctor() -> None:
     with console.status("[bold blue]Checking Daemon...", spinner="dots"):
         if service.is_service_enabled():
             console.print("   [green]✔ Daemon is active.[/green]")
+
+            # Sub-check: Systemd Linger on Linux
+            if linger_warning := _check_systemd_linger():
+                console.print(f"   [yellow]⚠ {linger_warning}[/yellow]")
         else:
             console.print(
                 "   [red]✘ Daemon is STOPPED.[/red] Run 'git pulsar install-service'."
