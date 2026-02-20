@@ -16,6 +16,7 @@ from . import daemon, ops, service, system
 from .config import CONFIG_FILE, Config
 from .constants import (
     APP_NAME,
+    BACKUP_NAMESPACE,
     DEFAULT_IGNORES,
     LOG_FILE,
     PID_FILE,
@@ -387,6 +388,83 @@ def _check_systemd_linger() -> str | None:
     return None
 
 
+def _check_remote_drift(repo_path: Path) -> str | None:
+    """Checks if another machine has a newer backup session for the current branch.
+
+    Args:
+        repo_path (Path): Path to the local git repository.
+
+    Returns:
+        str | None: A warning message if drift is detected, otherwise None.
+    """
+    try:
+        repo = GitRepo(repo_path)
+        current_branch = repo.current_branch()
+        if not current_branch:
+            return None
+
+        # Lightweight fetch of backup refs for the current branch
+        try:
+            repo._run(
+                [
+                    "fetch",
+                    "origin",
+                    f"refs/heads/{BACKUP_NAMESPACE}/*/{current_branch}:refs/heads/{BACKUP_NAMESPACE}/*/{current_branch}",
+                ],
+                capture=True,
+            )
+        except Exception as e:
+            logger.debug(f"Fetch failed during drift check: {e}")
+            return None  # Silently fail if offline or remote is unreachable
+
+        candidates = repo.list_refs(f"refs/heads/{BACKUP_NAMESPACE}/*/{current_branch}")
+        if not candidates:
+            return None
+
+        my_slug = system.get_identity_slug()
+        my_backup_ref = ops.get_backup_ref(current_branch)
+
+        # Determine our local latest timestamp (backup ref or HEAD)
+        local_ts = 0
+        try:
+            if my_backup_ref in candidates:
+                local_ts = int(
+                    repo._run(["log", "-1", "--format=%ct", my_backup_ref]).strip()
+                )
+            else:
+                local_ts = int(repo._run(["log", "-1", "--format=%ct", "HEAD"]).strip())
+        except Exception as e:
+            logger.debug(f"Failed to get local timestamp: {e}")
+
+        newest_ts = 0
+        newest_machine = ""
+        # Dynamically calculate the machine index in the ref string
+        machine_index = 2 + len(BACKUP_NAMESPACE.split("/"))
+
+        for ref in candidates:
+            try:
+                ts = int(repo._run(["log", "-1", "--format=%ct", ref]).strip())
+                if ts > newest_ts:
+                    newest_ts = ts
+                    parts = ref.split("/")
+                    if len(parts) > machine_index:
+                        newest_machine = parts[machine_index]
+            except Exception as e:
+                logger.debug(f"Failed to process ref {ref}: {e}")
+                continue
+
+        if newest_ts > local_ts and newest_machine and newest_machine != my_slug:
+            minutes_ago = int((time.time() - newest_ts) / 60)
+            return (
+                f"Divergence Risk: '{newest_machine}' pushed a newer session "
+                f"~{minutes_ago} mins ago. Consider running 'git pulsar sync'."
+            )
+    except Exception as e:
+        logger.debug(f"Drift check failed: {e}")
+
+    return None
+
+
 def run_doctor() -> None:
     """
     Diagnoses system health, cleans the registry, and checks connectivity and logs.
@@ -448,6 +526,19 @@ def run_doctor() -> None:
 
         except Exception as e:
             console.print(f"   [red]✘ SSH Check failed: {e}[/red]")
+
+    # Check for remote session drift (if currently in a registered repository).
+    cwd = Path.cwd()
+    if (cwd / ".git").exists() and cwd in system.get_registered_repos():
+        with console.status(
+            "[bold blue]Checking Remote Session Drift...", spinner="dots"
+        ):
+            if drift_warning := _check_remote_drift(cwd):
+                console.print(f"   [yellow]⚠ {drift_warning}[/yellow]")
+            else:
+                console.print(
+                    "   [green]✔ Local session is up-to-date with remote.[/green]"
+                )
 
     # Perform diagnostics on logs and repository freshness.
     console.print("\n[bold]Diagnostics[/bold]")
