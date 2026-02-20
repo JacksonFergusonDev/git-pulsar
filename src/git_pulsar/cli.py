@@ -388,83 +388,6 @@ def _check_systemd_linger() -> str | None:
     return None
 
 
-def _check_remote_drift(repo_path: Path) -> str | None:
-    """Checks if another machine has a newer backup session for the current branch.
-
-    Args:
-        repo_path (Path): Path to the local git repository.
-
-    Returns:
-        str | None: A warning message if drift is detected, otherwise None.
-    """
-    try:
-        repo = GitRepo(repo_path)
-        current_branch = repo.current_branch()
-        if not current_branch:
-            return None
-
-        # Lightweight fetch of backup refs for the current branch
-        try:
-            repo._run(
-                [
-                    "fetch",
-                    "origin",
-                    f"refs/heads/{BACKUP_NAMESPACE}/*/{current_branch}:refs/heads/{BACKUP_NAMESPACE}/*/{current_branch}",
-                ],
-                capture=True,
-            )
-        except Exception as e:
-            logger.debug(f"Fetch failed during drift check: {e}")
-            return None  # Silently fail if offline or remote is unreachable
-
-        candidates = repo.list_refs(f"refs/heads/{BACKUP_NAMESPACE}/*/{current_branch}")
-        if not candidates:
-            return None
-
-        my_slug = system.get_identity_slug()
-        my_backup_ref = ops.get_backup_ref(current_branch)
-
-        # Determine our local latest timestamp (backup ref or HEAD)
-        local_ts = 0
-        try:
-            if my_backup_ref in candidates:
-                local_ts = int(
-                    repo._run(["log", "-1", "--format=%ct", my_backup_ref]).strip()
-                )
-            else:
-                local_ts = int(repo._run(["log", "-1", "--format=%ct", "HEAD"]).strip())
-        except Exception as e:
-            logger.debug(f"Failed to get local timestamp: {e}")
-
-        newest_ts = 0
-        newest_machine = ""
-        # Dynamically calculate the machine index in the ref string
-        machine_index = 2 + len(BACKUP_NAMESPACE.split("/"))
-
-        for ref in candidates:
-            try:
-                ts = int(repo._run(["log", "-1", "--format=%ct", ref]).strip())
-                if ts > newest_ts:
-                    newest_ts = ts
-                    parts = ref.split("/")
-                    if len(parts) > machine_index:
-                        newest_machine = parts[machine_index]
-            except Exception as e:
-                logger.debug(f"Failed to process ref {ref}: {e}")
-                continue
-
-        if newest_ts > local_ts and newest_machine and newest_machine != my_slug:
-            minutes_ago = int((time.time() - newest_ts) / 60)
-            return (
-                f"Divergence Risk: '{newest_machine}' pushed a newer session "
-                f"~{minutes_ago} mins ago. Consider running 'git pulsar sync'."
-            )
-    except Exception as e:
-        logger.debug(f"Drift check failed: {e}")
-
-    return None
-
-
 def _check_git_hooks(repo_path: Path) -> list[str]:
     """Scans the repository for executable git hooks that might block the daemon.
 
@@ -564,7 +487,8 @@ def run_doctor() -> None:
         with console.status(
             "[bold blue]Checking Remote Session Drift...", spinner="dots"
         ):
-            if drift_warning := _check_remote_drift(cwd):
+            drift_detected, _, _, drift_warning = ops.get_remote_drift_state(cwd)
+            if drift_detected:
                 console.print(f"   [yellow]⚠ {drift_warning}[/yellow]")
             else:
                 console.print(
