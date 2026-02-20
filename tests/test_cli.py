@@ -1,6 +1,7 @@
 """Tests for the Command Line Interface (CLI) module."""
 
 from pathlib import Path
+from typing import Any
 from unittest.mock import MagicMock
 
 import pytest
@@ -189,3 +190,117 @@ def test_check_systemd_linger_exception(mocker: MagicMock) -> None:
 
     result = cli._check_systemd_linger()
     assert result is None
+
+
+def test_check_remote_drift_no_branch(tmp_path: Path, mocker: MagicMock) -> None:
+    """Verifies that drift detection aborts if the repository is in a detached HEAD state.
+
+    Args:
+        tmp_path (Path): Pytest fixture for a temporary directory.
+        mocker (MagicMock): Pytest fixture for mocking.
+    """
+    mock_cls = mocker.patch("git_pulsar.cli.GitRepo")
+    repo = mock_cls.return_value
+    repo.current_branch.return_value = ""
+
+    result = cli._check_remote_drift(tmp_path)
+    assert result is None
+
+
+def test_check_remote_drift_fetch_fails(tmp_path: Path, mocker: MagicMock) -> None:
+    """Verifies that drift detection fails gracefully when offline.
+
+    Args:
+        tmp_path (Path): Pytest fixture for a temporary directory.
+        mocker (MagicMock): Pytest fixture for mocking.
+    """
+    mock_cls = mocker.patch("git_pulsar.cli.GitRepo")
+    repo = mock_cls.return_value
+    repo.current_branch.return_value = "main"
+    repo._run.side_effect = Exception("Network offline")
+
+    result = cli._check_remote_drift(tmp_path)
+    assert result is None
+
+
+def test_check_remote_drift_local_is_newer(tmp_path: Path, mocker: MagicMock) -> None:
+    """Verifies that no warning is issued when the local session is the most recent.
+
+    Args:
+        tmp_path (Path): Pytest fixture for a temporary directory.
+        mocker (MagicMock): Pytest fixture for mocking.
+    """
+    mock_cls = mocker.patch("git_pulsar.cli.GitRepo")
+    repo = mock_cls.return_value
+    repo.current_branch.return_value = "main"
+
+    mocker.patch("git_pulsar.system.get_identity_slug", return_value="laptop--123")
+    mocker.patch(
+        "git_pulsar.ops.get_backup_ref",
+        return_value="refs/heads/wip/pulsar/laptop--123/main",
+    )
+
+    repo.list_refs.return_value = [
+        "refs/heads/wip/pulsar/desktop--456/main",
+        "refs/heads/wip/pulsar/laptop--123/main",
+    ]
+
+    def mock_run_side_effect(cmd: list[str], **kwargs: Any) -> str:
+        if cmd[0] == "fetch":
+            return ""
+        if cmd[0] == "log":
+            # Local is 2000, remote is 1000
+            if "desktop" in cmd[-1]:
+                return "1000"
+            if "laptop" in cmd[-1]:
+                return "2000"
+        return "0"
+
+    repo._run.side_effect = mock_run_side_effect
+
+    result = cli._check_remote_drift(tmp_path)
+    assert result is None
+
+
+def test_check_remote_drift_remote_is_newer(tmp_path: Path, mocker: MagicMock) -> None:
+    """Verifies that a warning is issued when another machine has a newer backup stream.
+
+    Args:
+        tmp_path (Path): Pytest fixture for a temporary directory.
+        mocker (MagicMock): Pytest fixture for mocking.
+    """
+    mock_cls = mocker.patch("git_pulsar.cli.GitRepo")
+    repo = mock_cls.return_value
+    repo.current_branch.return_value = "main"
+
+    mocker.patch("git_pulsar.system.get_identity_slug", return_value="laptop--123")
+    mocker.patch(
+        "git_pulsar.ops.get_backup_ref",
+        return_value="refs/heads/wip/pulsar/laptop--123/main",
+    )
+
+    repo.list_refs.return_value = [
+        "refs/heads/wip/pulsar/desktop--456/main",
+        "refs/heads/wip/pulsar/laptop--123/main",
+    ]
+
+    def mock_run_side_effect(cmd: list[str], **kwargs: Any) -> str:
+        if cmd[0] == "fetch":
+            return ""
+        if cmd[0] == "log":
+            # Remote is 2000, Local is 1000
+            if "desktop" in cmd[-1]:
+                return "2000"
+            if "laptop" in cmd[-1]:
+                return "1000"
+        return "0"
+
+    repo._run.side_effect = mock_run_side_effect
+
+    # Mock time.time() to simulate 15 minutes since the remote commit (2000 + 900)
+    mocker.patch("time.time", return_value=2900.0)
+
+    result = cli._check_remote_drift(tmp_path)
+    assert result is not None
+    assert "desktop--456" in result
+    assert "15 mins" in result
