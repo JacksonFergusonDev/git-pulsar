@@ -304,3 +304,80 @@ def test_check_remote_drift_remote_is_newer(tmp_path: Path, mocker: MagicMock) -
     assert result is not None
     assert "desktop--456" in result
     assert "15 mins" in result
+
+
+def test_check_git_hooks_no_dir(tmp_path: Path) -> None:
+    """Verifies that the hook check passes silently if no hooks directory exists.
+
+    Args:
+        tmp_path (Path): Pytest fixture for a temporary directory.
+    """
+    (tmp_path / ".git").mkdir()
+    warnings = cli._check_git_hooks(tmp_path)
+    assert len(warnings) == 0
+
+
+def test_check_git_hooks_non_executable(tmp_path: Path, mocker: MagicMock) -> None:
+    """Verifies that non-executable hooks are safely ignored.
+
+    Args:
+        tmp_path (Path): Pytest fixture for a temporary directory.
+        mocker (MagicMock): Pytest fixture for mocking.
+    """
+    hooks_dir = tmp_path / ".git" / "hooks"
+    hooks_dir.mkdir(parents=True)
+    hook_file = hooks_dir / "pre-push"
+    hook_file.write_text("exit 1")
+
+    # Mock os.access to simulate a file lacking the +x bit
+    mocker.patch("os.access", return_value=False)
+
+    warnings = cli._check_git_hooks(tmp_path)
+    assert len(warnings) == 0
+
+
+def test_check_git_hooks_with_bypass(tmp_path: Path, mocker: MagicMock) -> None:
+    """Verifies that executable hooks containing the 'pulsar' bypass keyword are ignored.
+
+    Args:
+        tmp_path (Path): Pytest fixture for a temporary directory.
+        mocker (MagicMock): Pytest fixture for mocking.
+    """
+    hooks_dir = tmp_path / ".git" / "hooks"
+    hooks_dir.mkdir(parents=True)
+    hook_file = hooks_dir / "pre-commit"
+
+    # Write a hook that includes the 'pulsar' keyword
+    script_content = "#!/bin/sh\nif [[ $1 == *pulsar* ]]; then exit 0; fi\nmake test"
+    hook_file.write_text(script_content)
+
+    # Force os.access to treat the file as executable
+    mocker.patch("os.access", return_value=True)
+
+    warnings = cli._check_git_hooks(tmp_path)
+    assert len(warnings) == 0
+
+
+def test_check_git_hooks_strict_blocking(tmp_path: Path, mocker: MagicMock) -> None:
+    """Verifies that strict, executable hooks trigger a warning.
+
+    Args:
+        tmp_path (Path): Pytest fixture for a temporary directory.
+        mocker (MagicMock): Pytest fixture for mocking.
+    """
+    hooks_dir = tmp_path / ".git" / "hooks"
+    hooks_dir.mkdir(parents=True)
+
+    # Create two blocking hooks
+    for hook in ["pre-commit", "pre-push"]:
+        hook_file = hooks_dir / hook
+        hook_file.write_text(f"#!/bin/sh\necho 'Running strict {hook} linters'")
+
+    mocker.patch("os.access", return_value=True)
+
+    warnings = cli._check_git_hooks(tmp_path)
+
+    # We should get a warning for each strict hook
+    assert len(warnings) == 2
+    assert "Strict 'pre-commit' hook detected" in warnings[0]
+    assert "Strict 'pre-push' hook detected" in warnings[1]
