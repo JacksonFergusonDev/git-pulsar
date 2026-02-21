@@ -89,11 +89,12 @@ def _analyze_logs(seconds: int = 86400) -> list[str]:
     return errors
 
 
-def _check_repo_health(path: Path) -> str | None:
+def _check_repo_health(path: Path, config: Config) -> str | None:
     """Evaluates the health of a repository, checking for stale backups or stalled states.
 
     Args:
         path (Path): The file system path to the repository.
+        config (Config): The configuration instance for the repository.
 
     Returns:
         str | None: A warning message if an issue is detected,
@@ -119,11 +120,12 @@ def _check_repo_health(path: Path) -> str | None:
             logger.debug(f"Failed to retrieve backup timestamp for {path.name}: {e}")
             return f"Has changes, but NO backup found. (Error: {e})"
 
-        # Check against the stale threshold (e.g., 2 hours).
+        # Check against the dynamic stale threshold (2x commit interval).
         # If changes are pending and no backup has occurred recently,
         # the daemon may be stalled.
-        if time.time() - last_backup_ts > 7200:
-            return "Stalled: Changes pending > 2 hours."
+        stale_threshold = config.daemon.commit_interval * 2
+        if time.time() - last_backup_ts > stale_threshold:
+            return f"Stalled: Changes pending > {stale_threshold // 60} mins."
 
     except Exception as e:
         return f"Unable to verify git status: {e}"
@@ -508,7 +510,8 @@ def run_doctor() -> None:
             issues = []
             for p in paths:
                 if p.exists():
-                    if problem := _check_repo_health(p):
+                    repo_config = Config.load(p)
+                    if problem := _check_repo_health(p, repo_config):
                         issues.append(f"{p.name}: {problem}")
 
                     for hook_warning in _check_git_hooks(p):
