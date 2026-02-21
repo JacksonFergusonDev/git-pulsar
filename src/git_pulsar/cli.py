@@ -619,6 +619,25 @@ def run_doctor() -> None:
             drift_detected, _, _, drift_warning = ops.get_remote_drift_state(cwd)
             if drift_detected:
                 console.print(f"   [yellow]⚠ {drift_warning}[/yellow]")
+
+                def sync_drift() -> bool:
+                    try:
+                        # ops.sync_session handles its own UI and uses sys.exit
+                        ops.sync_session()
+                        return True
+                    except SystemExit as e:
+                        return e.code == 0
+                    except Exception as e:
+                        logger.error(f"Failed to sync session: {e}")
+                        return False
+
+                actions.append(
+                    DoctorAction(
+                        description="Sync local session with remote",
+                        prompt="Run 'git pulsar sync' to reconcile remote session?",
+                        action_callable=sync_drift,
+                    )
+                )
             else:
                 console.print(
                     "   [green]✔ Local session is up-to-date with remote.[/green]"
@@ -638,6 +657,60 @@ def run_doctor() -> None:
             for p in paths:
                 if p.exists():
                     repo_config = Config.load(p)
+
+                    # 1a. Check for paused state
+                    pause_file = p / ".git" / "pulsar_paused"
+                    if pause_file.exists():
+                        issues.append(f"{p.name}: Repository is explicitly paused.")
+
+                        def resume_repo(path_to_unpause: Path = pause_file) -> bool:
+                            try:
+                                path_to_unpause.unlink(missing_ok=True)
+                                return True
+                            except OSError as e:
+                                logger.error(f"Failed to resume {path_to_unpause}: {e}")
+                                return False
+
+                        actions.append(
+                            DoctorAction(
+                                description=f"Resume backups for {p.name}",
+                                prompt=f"Resume backups for {p.name}?",
+                                action_callable=resume_repo,
+                            )
+                        )
+
+                    # 1b. Check for stale index lock
+                    lock_file = p / ".git" / "index.lock"
+                    if lock_file.exists():
+                        try:
+                            mtime = lock_file.stat().st_mtime
+                            age_hours = (time.time() - mtime) / 3600
+                            if age_hours > 2:
+                                issues.append(
+                                    f"{p.name}: Stale index lock found ({age_hours:.1f}h old)."
+                                )
+
+                                def remove_lock(path_to_lock: Path = lock_file) -> bool:
+                                    try:
+                                        path_to_lock.unlink(missing_ok=True)
+                                        return True
+                                    except OSError as e:
+                                        logger.error(
+                                            f"Failed to remove lock at {path_to_lock}: {e}"
+                                        )
+                                        return False
+
+                                actions.append(
+                                    DoctorAction(
+                                        description=f"Remove stale index lock in {p.name}",
+                                        prompt=f"Stale index lock found in {p.name} ({age_hours:.1f}h old). Remove it?",
+                                        action_callable=remove_lock,
+                                    )
+                                )
+                        except OSError:
+                            pass  # Lock file vanished during read (race resolved)
+
+                    # 1c. Standard health check
                     if problem := _check_repo_health(p, repo_config):
                         issues.append(f"{p.name}: {problem}")
 
