@@ -62,6 +62,7 @@ In a distributed environment (Laptop ↔ Desktop), state drift is inevitable.
 - **Out-of-Band Indexing:** Backups are stored in a configured namespace (default: `refs/heads/wip/pulsar/...`). Your `git status`, `git branch`, and `git log` remain completely clean.
 - **Distributed Sessions:** Hop between machines. Pulsar tracks sessions per device and lets you `sync` to pick up exactly where you left off.
 - **State-Aware Diagnostics:** The `doctor` command correlates transient log events with active system health to prevent alert fatigue, and proactively scans for pipeline blockers like strict git hooks or broken `systemd` configurations.
+- **Active Observability:** The `status` dashboard provides zero-latency power telemetry (e.g., Eco-Mode throttling) and immediately surfaces cached warnings for remote session drift and oversized files.
 - **Zero-Interference:**
   - Uses a temporary index so it never messes up your partial `git add`.
   - Detects if you are rebasing or merging and waits for you to finish.
@@ -186,7 +187,7 @@ This bootstraps the current directory with:
 
 | Command | Description |
 | :--- | :--- |
-| `git pulsar status` | Show detailed daemon state and repository-specific commit/push history. |
+| `git pulsar status` | Show real-time daemon telemetry, active health blockers, and repository status. |
 | `git pulsar config` | Open the global configuration file in your default editor. |
 | `git pulsar list` | Show all watched repositories and their status. |
 | `git pulsar pause` | Temporarily suspend backups for this repo. |
