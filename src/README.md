@@ -12,7 +12,7 @@ The `src/` directory contains the package source code. The architecture strictly
   - **Safety:** Implements `GIT_INDEX_FILE` isolation to ensure it never locks or corrupts the user's active git index.
 - **`git_pulsar/ops.py`**: High-level Business Logic.
   - **Role:** The "Controller." It orchestrates complex multi-step operations like `finalize` (Octopus Merges), `restore`, and drift detection.
-  - **Logic:** Calculates the "Zipper Graph" topology to merge shadow commits back into the main branch, and manages atomic file I/O for cross-process state tracking.
+  - **Logic:** Calculates the "Zipper Graph" topology to merge shadow commits back into the main branch, manages atomic file I/O for cross-process state tracking, and evaluates pipeline blockers (e.g., oversized files).
 - **`git_pulsar/config.py`**: Configuration Engine.
   - **Role:** The "Source of Truth."
   - **Logic:** Implements a cascading hierarchy (Defaults → Global → Local) to merge settings from `~/.config/git-pulsar/config.toml` and project-level `pulsar.toml` or `pyproject.toml`.
@@ -35,8 +35,8 @@ The `src/` directory contains the package source code. The architecture strictly
 ### 4. The Interface
 
 - **`git_pulsar/cli.py`**: The User Entry Point & Diagnostic Engine.
-  - **Role:** Argument parsing, UI rendering, and system health evaluation.
-  - **Logic:** Uses `rich` for terminal visualization. Beyond routing subcommands to `ops.py` and `daemon.py`, it presents the `doctor` diagnostics. It correlates repository state against transient event logs, and relies on `ops.py` to evaluate topological drift across distributed sessions and scan for host-environment pipeline blockers (e.g., strict git hooks, missing `systemd` linger).
+  - **Role:** Argument parsing, UI rendering, real-time observability, and system health evaluation.
+  - **Logic:** Uses `rich` for terminal visualization. Beyond routing subcommands to `ops.py` and `daemon.py`, it presents the `doctor` diagnostics and the zero-latency `status` dashboard (surfacing power telemetry, dynamic health constraints, and cached drift warnings). It correlates repository state against transient event logs, and relies on `ops.py` to evaluate topological drift across distributed sessions and scan for host-environment pipeline blockers (e.g., strict git hooks, missing `systemd` linger).
 
 ---
 
@@ -46,4 +46,4 @@ The `src/` directory contains the package source code. The architecture strictly
 2. **Zero-Destruction:** The `prune` logic in `ops.py` relies on strictly namespaced refspecs (`refs/heads/wip/pulsar/...`) and never touches standard heads.
 3. **Identity Stability:** The `system` module guarantees that a Machine ID persists across reboots, preventing "Split Brain" backup histories.
 4. **Configuration Precedence:** Local project configuration MUST always override global user settings to ensure repo-specific constraints (e.g., large file limits) are respected.
-5. **State Over Events:** The diagnostic engine (`cli.py`) MUST prioritize current repository and environmental state over historical log events to prevent alert fatigue from self-healing anomalies.
+5. **State Over Events (Zero-Latency):** The diagnostic engine (`cli.py`) MUST prioritize current repository state and local caches (e.g., `.git/pulsar_drift_state`) over historical log events or live network calls, ensuring the CLI never blocks the user's terminal while evaluating system health.
