@@ -34,6 +34,7 @@ Verifies the "State Reconciliation" engine and primitive operations.
 - **Octopus Merges:** Simulates complex multi-head merge scenarios (e.g., merging 3 different machine streams into `main`) to ensure the DAG (Directed Acyclic Graph) is constructed correctly without conflicts.
 - **State Management:** Verifies atomic file I/O operations (`set_drift_state`) to ensure cross-process thread safety between the background daemon and foreground CLI.
 - **Drift Detection:** Tests the core logic for identifying when remote sessions leapfrog local ones, simulating various network failures and detached HEAD states.
+- **Pipeline Blockers:** Validates decoupled checks for oversized files (`has_large_files`), ensuring they safely abort operations and trigger system notifications without polluting the daemon's event loop.
 
 ### 5. Configuration Hierarchy (`test_config.py`)
 
@@ -46,6 +47,7 @@ Ensures the **Cascading Configuration** system behaves deterministically.
 
 Validates the state-aware diagnostic engine and user-facing CLI commands.
 
+- **Dashboard Observability:** Validates the `status` command's rendering of power telemetry (Eco-Mode vs. Critical), dynamic health thresholds, and zero-latency caching for drift/blocker warnings.
 - **State vs. Event Correlation:** Tests the `doctor` command by decoupling repository health (state) from daemon logs (events). We mock dynamic lookback windows to verify that naturally resolved transient anomalies are suppressed, while active correlated failures trigger alerts.
 - **Environment Simulation:** Uses `tmp_path` and `mocker` to synthesize restrictive `.git/hooks`, offline networks, and Linux `systemd` configurations (`loginctl`) without executing side effects on the host.
 - **UI Determinism:** Ensures commands like `status` and `config` parse timestamps and route to standard system editors (`$EDITOR`, `nano`) correctly.
