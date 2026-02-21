@@ -191,7 +191,26 @@ def show_status() -> None:
 
     system_content = Text()
     system_content.append("Daemon: ", style="bold")
-    system_content.append(status_text, style=status_style)
+    system_content.append(status_text + "\n", style=status_style)
+
+    # --- Power Telemetry Integration ---
+    conf = Config.load()
+    sys_strat = system.get_system()
+    pct, plugged = sys_strat.get_battery()
+
+    system_content.append("Power:  ", style="bold")
+    if plugged:
+        system_content.append("AC (Unrestricted)", style="green")
+    elif pct < conf.daemon.min_battery_percent:
+        system_content.append(
+            f"Critical {pct}% (All Backups Suspended)", style="bold red"
+        )
+    elif pct < conf.daemon.eco_mode_percent:
+        system_content.append(
+            f"Eco-Mode {pct}% (Pushes Suspended)", style="bold yellow"
+        )
+    else:
+        system_content.append(f"Battery {pct}% (Normal)", style="green")
 
     console.print(Panel(system_content, title="System Status", expand=False))
 
