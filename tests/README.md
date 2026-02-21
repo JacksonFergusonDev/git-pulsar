@@ -48,8 +48,9 @@ Ensures the **Cascading Configuration** system behaves deterministically.
 Validates the state-aware diagnostic engine and user-facing CLI commands.
 
 - **Dashboard Observability:** Validates the `status` command's rendering of power telemetry (Eco-Mode vs. Critical), dynamic health thresholds, and zero-latency caching for drift/blocker warnings.
+- **Interactive Resolution Queue:** Tests the `doctor` command's two-stage pipeline, ensuring execution loops correctly apply confirmed auto-fixes (e.g., stale index lock removal, ghost registry cleanup) and safely bypass declined ones.
 - **State vs. Event Correlation:** Tests the `doctor` command by decoupling repository health (state) from daemon logs (events). We mock dynamic lookback windows to verify that naturally resolved transient anomalies are suppressed, while active correlated failures trigger alerts.
-- **Environment Simulation:** Uses `tmp_path` and `mocker` to synthesize restrictive `.git/hooks`, offline networks, and Linux `systemd` configurations (`loginctl`) without executing side effects on the host.
+- **Environment Simulation & Guidance:** Uses `tmp_path` and `mocker` to synthesize restrictive `.git/hooks`, offline networks, and Linux `systemd` configurations (`loginctl`) without executing side effects on the host, verifying exact stdout formatting for manual interventions.
 - **UI Determinism:** Ensures commands like `status` and `config` parse timestamps and route to standard system editors (`$EDITOR`, `nano`) correctly.
 
 ---
