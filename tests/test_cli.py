@@ -1,5 +1,6 @@
 """Tests for the Command Line Interface (CLI) module."""
 
+import os
 import time
 from pathlib import Path
 from unittest.mock import MagicMock
@@ -527,3 +528,283 @@ def test_run_doctor_active_error_correlation(tmp_path: Path, mocker: MagicMock) 
     )
     assert "active error(s) in the last" in output
     assert "Connection refused" in output
+
+
+# Test run_doctor's interactive loop
+
+
+def test_run_doctor_executes_confirmed_actions(
+    tmp_path: Path, mocker: MagicMock
+) -> None:
+    """Verifies that the interactive loop executes the closure when confirmed."""
+    mock_repo = tmp_path / "mock_repo"
+    git_dir = mock_repo / ".git"
+    git_dir.mkdir(parents=True)
+    pause_file = git_dir / "pulsar_paused"
+    pause_file.touch()
+
+    mock_registry = tmp_path / "registry"
+    mock_registry.write_text(f"{mock_repo}\n")
+
+    mocker.patch("git_pulsar.system.get_registered_repos", return_value=[mock_repo])
+    mocker.patch("git_pulsar.cli.REGISTRY_FILE", mock_registry)
+    mocker.patch("git_pulsar.service.is_service_enabled", return_value=True)
+    mocker.patch("git_pulsar.cli._check_systemd_linger", return_value=None)
+    mocker.patch("subprocess.run")
+    mocker.patch(
+        "git_pulsar.ops.get_remote_drift_state", return_value=(False, 0, "", "")
+    )
+    mocker.patch("git_pulsar.cli._check_repo_health", return_value=None)
+    mocker.patch("git_pulsar.cli._check_git_hooks", return_value=[])
+    mocker.patch("git_pulsar.cli._analyze_logs", return_value=[])
+
+    mocker.patch("git_pulsar.cli.Confirm.ask", return_value=True)
+    mock_console = mocker.patch("git_pulsar.cli.console")
+
+    cli.run_doctor()
+
+    assert not pause_file.exists()
+
+    output = " ".join(
+        [call.args[0] for call in mock_console.print.call_args_list if call.args]
+    )
+    assert "✔ Resolved:" in output
+    assert "Resume backups for mock_repo" in output
+
+
+def test_run_doctor_skips_declined_actions(tmp_path: Path, mocker: MagicMock) -> None:
+    """Verifies that the interactive loop bypasses the closure when declined."""
+    mock_repo = tmp_path / "mock_repo"
+    git_dir = mock_repo / ".git"
+    git_dir.mkdir(parents=True)
+    pause_file = git_dir / "pulsar_paused"
+    pause_file.touch()
+
+    mock_registry = tmp_path / "registry"
+    mock_registry.write_text(f"{mock_repo}\n")
+
+    mocker.patch("git_pulsar.system.get_registered_repos", return_value=[mock_repo])
+    mocker.patch("git_pulsar.cli.REGISTRY_FILE", mock_registry)
+    mocker.patch("git_pulsar.service.is_service_enabled", return_value=True)
+    mocker.patch("git_pulsar.cli._check_systemd_linger", return_value=None)
+    mocker.patch("subprocess.run")
+    mocker.patch(
+        "git_pulsar.ops.get_remote_drift_state", return_value=(False, 0, "", "")
+    )
+    mocker.patch("git_pulsar.cli._check_repo_health", return_value=None)
+    mocker.patch("git_pulsar.cli._check_git_hooks", return_value=[])
+    mocker.patch("git_pulsar.cli._analyze_logs", return_value=[])
+
+    mocker.patch("git_pulsar.cli.Confirm.ask", return_value=False)
+    mock_console = mocker.patch("git_pulsar.cli.console")
+
+    cli.run_doctor()
+
+    assert pause_file.exists()
+
+    output = " ".join(
+        [call.args[0] for call in mock_console.print.call_args_list if call.args]
+    )
+    assert "[dim]Skipped.[/dim]" in output
+
+
+def test_run_doctor_fixes_stale_index_lock(tmp_path: Path, mocker: MagicMock) -> None:
+    """Verifies that locks older than 2 hours prompt a resolution action."""
+    mock_repo = tmp_path / "mock_repo"
+    git_dir = mock_repo / ".git"
+    git_dir.mkdir(parents=True)
+    lock_file = git_dir / "index.lock"
+    lock_file.touch()
+
+    old_time = time.time() - (3 * 3600)
+    os.utime(lock_file, (old_time, old_time))
+
+    mock_registry = tmp_path / "registry"
+    mock_registry.write_text(f"{mock_repo}\n")
+
+    mocker.patch("git_pulsar.system.get_registered_repos", return_value=[mock_repo])
+    mocker.patch("git_pulsar.cli.REGISTRY_FILE", mock_registry)
+    mocker.patch("git_pulsar.service.is_service_enabled", return_value=True)
+    mocker.patch("git_pulsar.cli._check_systemd_linger", return_value=None)
+    mocker.patch("subprocess.run")
+    mocker.patch(
+        "git_pulsar.ops.get_remote_drift_state", return_value=(False, 0, "", "")
+    )
+    mocker.patch("git_pulsar.cli._check_repo_health", return_value=None)
+    mocker.patch("git_pulsar.cli._check_git_hooks", return_value=[])
+    mocker.patch("git_pulsar.cli._analyze_logs", return_value=[])
+
+    mocker.patch("git_pulsar.cli.Confirm.ask", return_value=True)
+
+    cli.run_doctor()
+
+    assert not lock_file.exists()
+
+
+def test_run_doctor_ignores_fresh_index_lock(tmp_path: Path, mocker: MagicMock) -> None:
+    """Verifies that fresh index locks do not trigger a resolution prompt."""
+    mock_repo = tmp_path / "mock_repo"
+    git_dir = mock_repo / ".git"
+    git_dir.mkdir(parents=True)
+    lock_file = git_dir / "index.lock"
+    lock_file.touch()
+
+    # Manipulate file mtime to be 5 minutes old
+    recent_time = time.time() - 300
+    os.utime(lock_file, (recent_time, recent_time))
+
+    mock_registry = tmp_path / "registry"
+    mock_registry.write_text(f"{mock_repo}\n")
+
+    mocker.patch("git_pulsar.system.get_registered_repos", return_value=[mock_repo])
+    mocker.patch("git_pulsar.cli.REGISTRY_FILE", mock_registry)
+    mocker.patch("git_pulsar.service.is_service_enabled", return_value=True)
+    mocker.patch("git_pulsar.cli._check_systemd_linger", return_value=None)
+    mocker.patch("subprocess.run")
+    mocker.patch(
+        "git_pulsar.ops.get_remote_drift_state", return_value=(False, 0, "", "")
+    )
+    mocker.patch("git_pulsar.cli._check_repo_health", return_value=None)
+    mocker.patch("git_pulsar.cli._check_git_hooks", return_value=[])
+    mocker.patch("git_pulsar.cli._analyze_logs", return_value=[])
+
+    mock_confirm = mocker.patch("git_pulsar.cli.Confirm.ask", return_value=True)
+
+    cli.run_doctor()
+
+    # Lock file should still exist, and Confirm.ask should not have been called
+    assert lock_file.exists()
+    mock_confirm.assert_not_called()
+
+
+def test_run_doctor_cleans_ghost_registry(tmp_path: Path, mocker: MagicMock) -> None:
+    """Verifies the registry cleanup action drops missing paths and preserves valid ones."""
+    valid_repo = tmp_path / "valid_repo"
+    valid_repo.mkdir()
+    missing_repo = tmp_path / "missing_repo"
+
+    registry_path = tmp_path / "registry"
+    registry_path.write_text(f"{valid_repo}\n{missing_repo}\n")
+
+    mocker.patch(
+        "git_pulsar.system.get_registered_repos",
+        return_value=[valid_repo, missing_repo],
+    )
+    mocker.patch("git_pulsar.cli.REGISTRY_FILE", registry_path)
+    mocker.patch("git_pulsar.service.is_service_enabled", return_value=True)
+    mocker.patch("git_pulsar.cli._check_systemd_linger", return_value=None)
+    mocker.patch("subprocess.run")
+    mocker.patch(
+        "git_pulsar.ops.get_remote_drift_state", return_value=(False, 0, "", "")
+    )
+    mocker.patch("git_pulsar.cli._check_repo_health", return_value=None)
+    mocker.patch("git_pulsar.cli._check_git_hooks", return_value=[])
+    mocker.patch("git_pulsar.cli._analyze_logs", return_value=[])
+
+    mocker.patch("git_pulsar.cli.Confirm.ask", return_value=True)
+
+    cli.run_doctor()
+
+    # Verify registry content
+    registry_data = registry_path.read_text().splitlines()
+    assert str(valid_repo) in registry_data
+    assert str(missing_repo) not in registry_data
+
+
+def test_run_doctor_triggers_sync_on_drift(tmp_path: Path, mocker: MagicMock) -> None:
+    """Verifies that detected session drift queues the sync_session closure."""
+    mock_repo = tmp_path / "mock_repo"
+    (mock_repo / ".git").mkdir(parents=True)
+
+    mocker.patch.object(Path, "cwd", return_value=mock_repo)
+    mocker.patch("git_pulsar.system.get_registered_repos", return_value=[mock_repo])
+    mocker.patch("git_pulsar.cli.REGISTRY_FILE", tmp_path / "registry")
+    mocker.patch("git_pulsar.service.is_service_enabled", return_value=True)
+    mocker.patch("subprocess.run")
+
+    # Mock drift detection
+    mocker.patch(
+        "git_pulsar.ops.get_remote_drift_state",
+        return_value=(True, 9999, "remote_mac", "Drift detected!"),
+    )
+
+    mock_sync = mocker.patch("git_pulsar.ops.sync_session")
+    mocker.patch("git_pulsar.cli.Confirm.ask", return_value=True)
+
+    cli.run_doctor()
+
+    mock_sync.assert_called_once()
+
+
+def test_run_doctor_outputs_hook_bypass_snippet(
+    tmp_path: Path, mocker: MagicMock
+) -> None:
+    """Verifies that strict hooks output the exact shell snippet needed to bypass them."""
+    mock_repo = tmp_path / "mock_repo"
+    mock_repo.mkdir()
+
+    mock_registry = tmp_path / "registry"
+    mock_registry.write_text(f"{mock_repo}\n")
+
+    mocker.patch("git_pulsar.system.get_registered_repos", return_value=[mock_repo])
+    mocker.patch("git_pulsar.cli.REGISTRY_FILE", mock_registry)
+    mocker.patch("git_pulsar.service.is_service_enabled", return_value=True)
+    mocker.patch("git_pulsar.cli._check_systemd_linger", return_value=None)
+    mocker.patch("subprocess.run")
+    mocker.patch(
+        "git_pulsar.ops.get_remote_drift_state", return_value=(False, 0, "", "")
+    )
+    mocker.patch("git_pulsar.cli._check_repo_health", return_value=None)
+    mocker.patch("git_pulsar.cli._analyze_logs", return_value=[])
+    mocker.patch("git_pulsar.cli.Confirm.ask", return_value=True)
+
+    expected_snippet = 'if [[ $GIT_REFLOG_ACTION == *"wip/pulsar"* ]]; then exit 0; fi'
+    mocker.patch(
+        "git_pulsar.cli._check_git_hooks",
+        return_value=[f"Strict hook.\nAction required: Append...\n{expected_snippet}"],
+    )
+
+    mock_console = mocker.patch("git_pulsar.cli.console")
+
+    cli.run_doctor()
+
+    output = " ".join(
+        [call.args[0] for call in mock_console.print.call_args_list if call.args]
+    )
+    assert expected_snippet in output
+
+
+def test_run_doctor_outputs_large_file_action(
+    tmp_path: Path, mocker: MagicMock
+) -> None:
+    """Verifies that large files output clear instructions on how to ignore them."""
+    mock_repo = tmp_path / "mock_repo"
+    mock_repo.mkdir()
+
+    mock_registry = tmp_path / "registry"
+    mock_registry.write_text(f"{mock_repo}\n")
+
+    mocker.patch("git_pulsar.system.get_registered_repos", return_value=[mock_repo])
+    mocker.patch("git_pulsar.cli.REGISTRY_FILE", mock_registry)
+    mocker.patch("git_pulsar.service.is_service_enabled", return_value=True)
+    mocker.patch("git_pulsar.cli._check_systemd_linger", return_value=None)
+    mocker.patch("subprocess.run")
+    mocker.patch(
+        "git_pulsar.ops.get_remote_drift_state", return_value=(False, 0, "", "")
+    )
+    mocker.patch("git_pulsar.cli._check_repo_health", return_value=None)
+    mocker.patch("git_pulsar.cli._check_git_hooks", return_value=[])
+    mocker.patch("git_pulsar.cli._analyze_logs", return_value=[])
+    mocker.patch("git_pulsar.cli.Confirm.ask", return_value=True)
+
+    mocker.patch("git_pulsar.ops.has_large_files", return_value=True)
+
+    mock_console = mocker.patch("git_pulsar.cli.console")
+
+    cli.run_doctor()
+
+    output = " ".join(
+        [call.args[0] for call in mock_console.print.call_args_list if call.args]
+    )
+    assert "File >100MB detected" in output
+    assert "Untrack the file or run 'git pulsar ignore <filename>'" in output
