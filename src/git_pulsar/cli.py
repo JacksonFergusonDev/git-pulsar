@@ -275,7 +275,45 @@ def show_status() -> None:
         else:
             repo_content.append("Mode:        Active", style="green")
 
+        # --- 1. Health Integration ---
+        health_warning = None
+        if ops.has_large_files(cwd, conf):
+            limit_mb = int(conf.limits.large_file_threshold / (1024 * 1024))
+            health_warning = (
+                f"Daemon stalled.\n  File >{limit_mb}MB detected. "
+                "Run 'git pulsar doctor' for details."
+            )
+        else:
+            health_warning = _check_repo_health(cwd, conf)
+
+        if health_warning:
+            repo_content.append("\n\n⚠ WARNING: ", style="bold yellow")
+            repo_content.append(health_warning, style="yellow")
+
         console.print(Panel(repo_content, title="Repository Status", expand=False))
+
+        # --- 2. Roaming Radar Integration (Cached) ---
+        _, warned_ts = ops.get_drift_state(cwd)
+
+        # Ensure we only warn if the cached remote timestamp is strictly newer
+        # than our local backup reference.
+        if warned_ts > 0 and commit_str != "Never" and warned_ts > int(commit_ts):
+            minutes_ago = int((time.time() - warned_ts) / 60)
+            drift_content = Text()
+            drift_content.append(
+                "⚠ A remote machine pushed a newer session\n", style="bold yellow"
+            )
+            drift_content.append(
+                f"  ~{minutes_ago} mins ago. Run 'git pulsar sync'", style="yellow"
+            )
+            console.print(
+                Panel(
+                    drift_content,
+                    title="Session Drift",
+                    border_style="yellow",
+                    expand=False,
+                )
+            )
 
     # Display global repository count if not currently in a repository.
     elif REGISTRY_FILE.exists():
