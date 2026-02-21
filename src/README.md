@@ -35,8 +35,8 @@ The `src/` directory contains the package source code. The architecture strictly
 ### 4. The Interface
 
 - **`git_pulsar/cli.py`**: The User Entry Point & Diagnostic Engine.
-  - **Role:** Argument parsing, UI rendering, real-time observability, and system health evaluation.
-  - **Logic:** Uses `rich` for terminal visualization. Beyond routing subcommands to `ops.py` and `daemon.py`, it presents the `doctor` diagnostics and the zero-latency `status` dashboard (surfacing power telemetry, dynamic health constraints, and cached drift warnings). It correlates repository state against transient event logs, and relies on `ops.py` to evaluate topological drift across distributed sessions and scan for host-environment pipeline blockers (e.g., strict git hooks, missing `systemd` linger).
+  - **Role:** Argument parsing, UI rendering, real-time observability, system health evaluation, and interactive issue resolution.
+  - **Logic:** Uses `rich` for terminal visualization. Beyond routing subcommands to `ops.py` and `daemon.py`, it presents the `doctor` diagnostics and the zero-latency `status` dashboard (surfacing power telemetry, dynamic health constraints, and cached drift warnings). It correlates repository state against transient event logs and executes a two-stage diagnostic pipeline: scanning for host-environment pipeline blockers (e.g., strict git hooks, missing `systemd` linger), followed by an interactive resolution queue that prompts users to safely auto-fix specific issues (like stale index locks or ghost registry entries) or provides precise terminal commands for manual interventions.
 
 ---
 
@@ -47,3 +47,4 @@ The `src/` directory contains the package source code. The architecture strictly
 3. **Identity Stability:** The `system` module guarantees that a Machine ID persists across reboots, preventing "Split Brain" backup histories.
 4. **Configuration Precedence:** Local project configuration MUST always override global user settings to ensure repo-specific constraints (e.g., large file limits) are respected.
 5. **State Over Events (Zero-Latency):** The diagnostic engine (`cli.py`) MUST prioritize current repository state and local caches (e.g., `.git/pulsar_drift_state`) over historical log events or live network calls, ensuring the CLI never blocks the user's terminal while evaluating system health.
+6. **Interactive Safety:** The diagnostic engine's interactive resolution queue MUST explicitly prompt the user for confirmation before executing any state-altering auto-fixes (e.g., deleting locks or modifying the registry).
