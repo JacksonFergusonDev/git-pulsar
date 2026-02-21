@@ -339,3 +339,34 @@ def test_set_drift_state_atomic(tmp_path: Path) -> None:
     data = json.loads(state_file.read_text())
     assert data["last_check_ts"] == 999.9
     assert data["warned_remote_ts"] == 200
+
+
+def test_has_large_files_uses_config_limit(tmp_path: Path, mocker: MagicMock) -> None:
+    """Verifies that `has_large_files` uses the configured threshold.
+
+    Args:
+        tmp_path (Path): Pytest fixture for a temporary directory.
+        mocker (MagicMock): Pytest fixture for mocking.
+    """
+    from git_pulsar.config import Config
+
+    mock_config = Config()
+    # Set a custom small limit (500 bytes)
+    mock_config.limits.large_file_threshold = 500
+
+    # Mock the get_system factory directly in the ops module.
+    # This completely isolates the test and prevents REAL desktop notifications
+    # from firing on macOS or Linux.
+    mock_strat = mocker.patch("git_pulsar.ops.system.get_system").return_value
+
+    # Mock git ls-files to return a file
+    mocker.patch("subprocess.check_output", return_value="big_file.txt")
+
+    # Create the 'large' file in the isolated temp directory
+    (tmp_path / "big_file.txt").write_text("a" * 600)  # 600 bytes > 500 limit
+
+    result = ops.has_large_files(tmp_path, mock_config)
+
+    assert result is True
+    # Verify the mock strategy intercepted the call
+    mock_strat.notify.assert_called_with("Backup Aborted", mocker.ANY)

@@ -1,5 +1,6 @@
 """Tests for the Command Line Interface (CLI) module."""
 
+import time
 from pathlib import Path
 from unittest.mock import MagicMock
 
@@ -30,6 +31,14 @@ def test_show_status_displays_timestamps(
     # Mock Config loading
     mocker.patch("git_pulsar.config.Config.load", return_value=Config())
 
+    # Mock New Observability Integrations
+    mocker.patch("git_pulsar.cli.ops.has_large_files", return_value=False)
+    mocker.patch("git_pulsar.cli.ops.get_drift_state", return_value=(0.0, 0))
+
+    # Mock system strategy for telemetry
+    mock_strat = mocker.patch("git_pulsar.cli.system.get_system").return_value
+    mock_strat.get_battery.return_value = (100, True)
+
     # Mock GitRepo
     mock_cls = mocker.patch("git_pulsar.cli.GitRepo")
     repo = mock_cls.return_value
@@ -45,6 +54,145 @@ def test_show_status_displays_timestamps(
     assert "Last Commit:" in captured.out
     assert "Last Push:" in captured.out
     assert "Active" in captured.out
+
+
+@pytest.mark.parametrize(
+    ("commit_interval", "time_since_backup", "expected_warning"),
+    [
+        (300, 1000, True),  # 5 min interval, 16 mins stale -> Warn
+        (
+            600,
+            1000,
+            False,
+        ),  # 10 min interval, 16 mins stale -> No Warn (threshold 1200)
+        (3600, 8000, True),  # 1 hr interval, 2.2 hrs stale -> Warn
+    ],
+)
+def test_check_repo_health_dynamic_threshold(
+    tmp_path: Path,
+    mocker: MagicMock,
+    commit_interval: int,
+    time_since_backup: int,
+    expected_warning: bool,
+) -> None:
+    """Verifies that the stalled repository warning scales with the configured interval."""
+    conf = Config()
+    conf.daemon.commit_interval = commit_interval
+
+    mock_repo = mocker.patch("git_pulsar.cli.GitRepo").return_value
+    mock_repo.status_porcelain.return_value = ["M file.txt"]
+    mocker.patch(
+        "git_pulsar.cli._get_ref", return_value="refs/heads/wip/pulsar/mac/main"
+    )
+
+    # Simulate time drift
+    current_time = 100000
+    mocker.patch("time.time", return_value=current_time)
+
+    # Return a backup timestamp that is exactly `time_since_backup` seconds ago
+    mock_repo._run.return_value = str(current_time - time_since_backup)
+
+    result = cli._check_repo_health(tmp_path, conf)
+
+    if expected_warning:
+        assert result is not None
+        assert "Stalled: Changes pending" in result
+    else:
+        assert result is None
+
+
+@pytest.mark.parametrize(
+    ("battery_pct", "is_plugged", "expected_text"),
+    [
+        (100, True, "AC (Unrestricted)"),
+        (5, False, "Critical 5% (All Backups Suspended)"),
+        (15, False, "Eco-Mode 15% (Pushes Suspended)"),
+        (50, False, "Battery 50% (Normal)"),
+    ],
+)
+def test_show_status_power_telemetry(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture,
+    mocker: MagicMock,
+    battery_pct: int,
+    is_plugged: bool,
+    expected_text: str,
+) -> None:
+    """Verifies that the correct telemetry state is rendered based on battery levels."""
+    mocker.patch.object(Path, "exists", return_value=False)  # Skip repo status
+    mocker.patch("git_pulsar.cli.PID_FILE", mocker.MagicMock(exists=lambda: False))
+    mocker.patch("git_pulsar.service.is_service_enabled", return_value=False)
+
+    conf = Config()
+    conf.daemon.min_battery_percent = 10
+    conf.daemon.eco_mode_percent = 20
+    mocker.patch("git_pulsar.config.Config.load", return_value=conf)
+
+    mock_strat = mocker.patch("git_pulsar.cli.system.get_system").return_value
+    mock_strat.get_battery.return_value = (battery_pct, is_plugged)
+
+    cli.show_status()
+    captured = capsys.readouterr()
+
+    assert expected_text in captured.out
+
+
+def test_show_status_health_warning_large_file(
+    tmp_path: Path, capsys: pytest.CaptureFixture, mocker: MagicMock
+) -> None:
+    """Verifies that large file pipeline blockers surface in the status dashboard."""
+    (tmp_path / ".git").mkdir()
+    mocker.patch.object(Path, "cwd", return_value=tmp_path)
+
+    # Pretend it is registered
+    mocker.patch("git_pulsar.system.get_registered_repos", return_value=[tmp_path])
+
+    # Trigger large file warning
+    mocker.patch("git_pulsar.cli.ops.has_large_files", return_value=True)
+    mocker.patch("git_pulsar.cli.ops.get_drift_state", return_value=(0.0, 0))
+
+    mock_repo = mocker.patch("git_pulsar.cli.GitRepo").return_value
+    mock_repo.status_porcelain.return_value = ["M big_file.bin"]
+    mock_repo._run.return_value = "1600000000"
+
+    cli.show_status()
+    captured = capsys.readouterr()
+
+    assert "⚠ WARNING:" in captured.out
+    assert "Daemon stalled" in captured.out
+    assert "File >100MB detected" in captured.out
+
+
+def test_show_status_drift_warning(
+    tmp_path: Path, capsys: pytest.CaptureFixture, mocker: MagicMock
+) -> None:
+    """Verifies that roaming radar divergence surfaces in the status dashboard."""
+    (tmp_path / ".git").mkdir()
+    mocker.patch.object(Path, "cwd", return_value=tmp_path)
+    mocker.patch("git_pulsar.system.get_registered_repos", return_value=[tmp_path])
+    mocker.patch("git_pulsar.cli.ops.has_large_files", return_value=False)
+
+    mock_repo = mocker.patch("git_pulsar.cli.GitRepo").return_value
+    mock_repo.status_porcelain.return_value = []
+
+    current_time = time.time()
+
+    # Local commit was 1 hour ago
+    local_ts = str(int(current_time - 3600))
+    mock_repo._run.side_effect = [local_ts, local_ts]
+
+    # Warned timestamp was 10 mins ago (Newer than local commit)
+    warned_ts = int(current_time - 600)
+    mocker.patch(
+        "git_pulsar.cli.ops.get_drift_state", return_value=(current_time, warned_ts)
+    )
+
+    cli.show_status()
+    captured = capsys.readouterr()
+
+    assert "Session Drift" in captured.out
+    assert "⚠ A remote machine pushed a newer session" in captured.out
+    assert "Run 'git pulsar sync'" in captured.out
 
 
 def test_config_command_opens_editor(mocker: MagicMock) -> None:
