@@ -5,10 +5,13 @@ import os
 import subprocess
 import sys
 import time
+from collections.abc import Callable
+from dataclasses import dataclass
 from pathlib import Path
 
 from rich.console import Console
 from rich.panel import Panel
+from rich.prompt import Confirm
 from rich.table import Table
 from rich.text import Text
 
@@ -26,6 +29,22 @@ from .git_wrapper import GitRepo
 
 logger = logging.getLogger(APP_NAME)
 console = Console()
+
+
+@dataclass
+class DoctorAction:
+    """Represents an actionable resolution for an issue detected by the doctor.
+
+    Attributes:
+        description (str): A brief summary of the issue to be resolved.
+        prompt (str): The yes/no question presented to the user.
+        action_callable (Callable[[], bool]): The function to execute if the user
+            confirms. Must return True if successful, False otherwise.
+    """
+
+    description: str
+    prompt: str
+    action_callable: Callable[[], bool]
 
 
 def _get_ref(repo: GitRepo) -> str:
@@ -481,8 +500,11 @@ def _check_git_hooks(repo_path: Path) -> list[str]:
 def run_doctor() -> None:
     """
     Diagnoses system health, cleans the registry, and checks connectivity and logs.
+    Includes an interactive resolution queue for safe auto-fixes.
     """
     console.print("[bold]Pulsar Doctor[/bold]\n")
+
+    actions: list[DoctorAction] = []
 
     # Verify and clean the registry.
     with console.status("[bold blue]Checking Registry...", spinner="dots"):
@@ -590,6 +612,54 @@ def run_doctor() -> None:
                     "   [green]✔ All repositories are healthy "
                     "(clean or backed up).[/green]"
                 )
+
+    # 2. Check logs for recent errors using dynamic window (Event Check).
+    conf = Config.load()
+    lookback_secs = conf.daemon.push_interval * 3
+    recent_errors = _analyze_logs(seconds=lookback_secs)
+
+    # 3. Correlate State and Events
+    if recent_errors:
+        lookback_hours = lookback_secs // 3600
+        time_str = f"{lookback_hours}h" if lookback_hours > 0 else f"{lookback_secs}s"
+
+        if is_healthy:
+            console.print(
+                f"   [dim]ℹ {len(recent_errors)} transient error(s) logged in the last "
+                f"{time_str}, but system automatically recovered.[/dim]"
+            )
+        else:
+            console.print(
+                f"   [red]✘ Found {len(recent_errors)} active error(s) in the last "
+                f"{time_str}:[/red]"
+            )
+            for err in recent_errors[-3:]:  # Show last 3
+                console.print(f"     [dim]{err}[/dim]")
+            if len(recent_errors) > 3:
+                console.print("     ... (run 'git pulsar log' to see full history)")
+    else:
+        console.print("   [green]✔ Recent logs are clean.[/green]")
+
+    # --- Interactive Resolution Phase ---
+    if actions:
+        console.print("\n[bold]Interactive Resolutions[/bold]")
+        for action in actions:
+            if Confirm.ask(f"   {action.prompt}"):
+                try:
+                    if action.action_callable():
+                        console.print(
+                            f"   [green]✔ Resolved:[/green] {action.description}"
+                        )
+                    else:
+                        console.print(
+                            f"   [red]✘ Failed to resolve:[/red] {action.description}"
+                        )
+                except Exception as e:
+                    console.print(
+                        f"   [red]✘ Error resolving {action.description}:[/red] {e}"
+                    )
+            else:
+                console.print("   [dim]Skipped.[/dim]")
 
     # 2. Check logs for recent errors using dynamic window (Event Check).
     conf = Config.load()
