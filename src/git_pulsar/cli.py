@@ -488,8 +488,9 @@ def _check_git_hooks(repo_path: Path) -> list[str]:
                 content = hook_path.read_text(errors="ignore")
                 if "pulsar" not in content.lower():
                     warnings.append(
-                        f"Strict '{hook}' hook detected. If it runs tests/linters, "
-                        f"ensure it explicitly bypasses '{BACKUP_NAMESPACE}'."
+                        f"Strict '{hook}' hook detected.\n"
+                        f"     [dim]Action required: Append this line near the top of your hook to bypass it for backups:\n"
+                        f'     if [[ $GIT_REFLOG_ACTION == *"{BACKUP_NAMESPACE}"* ]]; then exit 0; fi[/dim]'
                     )
             except Exception as e:
                 logger.debug(f"Failed to read {hook} hook for {repo_path.name}: {e}")
@@ -604,11 +605,15 @@ def run_doctor() -> None:
             else:
                 console.print(
                     "   [yellow]⚠ GitHub SSH check returned "
-                    "unexpected response.[/yellow]"
+                    "unexpected response.[/yellow]\n"
+                    "     [dim]Action required: Verify SSH key configuration or remote permissions.[/dim]"
                 )
 
         except Exception as e:
             console.print(f"   [red]✘ SSH Check failed: {e}[/red]")
+            console.print(
+                "     [dim]Action required: Check your network connection or run 'ssh-add' to load your keys.[/dim]"
+            )
 
     # Check for remote session drift (if currently in a registered repository).
     cwd = Path.cwd()
@@ -710,7 +715,17 @@ def run_doctor() -> None:
                         except OSError:
                             pass  # Lock file vanished during read (race resolved)
 
-                    # 1c. Standard health check
+                    # 1c. Large file check (Manual Intervention)
+                    if ops.has_large_files(p, repo_config):
+                        limit_mb = int(
+                            repo_config.limits.large_file_threshold / (1024 * 1024)
+                        )
+                        issues.append(
+                            f"{p.name}: File >{limit_mb}MB detected, blocking backups.\n"
+                            f"     [dim]Action required: Untrack the file or run 'git pulsar ignore <filename>'[/dim]"
+                        )
+
+                    # 1d. Standard health check
                     if problem := _check_repo_health(p, repo_config):
                         issues.append(f"{p.name}: {problem}")
 
@@ -725,8 +740,7 @@ def run_doctor() -> None:
                 for issue in issues:
                     console.print(f"     - {issue}")
                 console.print(
-                    "     [dim](Check if daemon is running or "
-                    "if files are too large)[/dim]"
+                    "     [dim](Ensure daemon is running and review required actions above)[/dim]"
                 )
             else:
                 console.print(
