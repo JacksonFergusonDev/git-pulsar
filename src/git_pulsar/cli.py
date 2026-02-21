@@ -5,10 +5,13 @@ import os
 import subprocess
 import sys
 import time
+from collections.abc import Callable
+from dataclasses import dataclass
 from pathlib import Path
 
 from rich.console import Console
 from rich.panel import Panel
+from rich.prompt import Confirm
 from rich.table import Table
 from rich.text import Text
 
@@ -26,6 +29,22 @@ from .git_wrapper import GitRepo
 
 logger = logging.getLogger(APP_NAME)
 console = Console()
+
+
+@dataclass
+class DoctorAction:
+    """Represents an actionable resolution for an issue detected by the doctor.
+
+    Attributes:
+        description (str): A brief summary of the issue to be resolved.
+        prompt (str): The yes/no question presented to the user.
+        action_callable (Callable[[], bool]): The function to execute if the user
+            confirms. Must return True if successful, False otherwise.
+    """
+
+    description: str
+    prompt: str
+    action_callable: Callable[[], bool]
 
 
 def _get_ref(repo: GitRepo) -> str:
@@ -469,8 +488,9 @@ def _check_git_hooks(repo_path: Path) -> list[str]:
                 content = hook_path.read_text(errors="ignore")
                 if "pulsar" not in content.lower():
                     warnings.append(
-                        f"Strict '{hook}' hook detected. If it runs tests/linters, "
-                        f"ensure it explicitly bypasses '{BACKUP_NAMESPACE}'."
+                        f"Strict '{hook}' hook detected.\n"
+                        f"     [dim]Action required: Append this line near the top of your hook to bypass it for backups:\n"
+                        f'     if [[ $GIT_REFLOG_ACTION == *"{BACKUP_NAMESPACE}"* ]]; then exit 0; fi[/dim]'
                     )
             except Exception as e:
                 logger.debug(f"Failed to read {hook} hook for {repo_path.name}: {e}")
@@ -481,8 +501,11 @@ def _check_git_hooks(repo_path: Path) -> list[str]:
 def run_doctor() -> None:
     """
     Diagnoses system health, cleans the registry, and checks connectivity and logs.
+    Includes an interactive resolution queue for safe auto-fixes.
     """
     console.print("[bold]Pulsar Doctor[/bold]\n")
+
+    actions: list[DoctorAction] = []
 
     # Verify and clean the registry.
     with console.status("[bold blue]Checking Registry...", spinner="dots"):
@@ -491,18 +514,33 @@ def run_doctor() -> None:
             console.print("   [green]✔ Registry empty/clean.[/green]")
         else:
             valid_lines = []
-            fixed = False
+            missing_paths = []
             for p in repos:
                 if p.exists():
                     valid_lines.append(str(p))
                 else:
-                    fixed = True
+                    missing_paths.append(str(p))
 
-            if fixed:
-                with open(REGISTRY_FILE, "w") as f:
-                    f.write("\n".join(valid_lines) + "\n")
+            if missing_paths:
                 console.print(
-                    "   [green]✔ Registry cleaned (ghost entries removed).[/green]"
+                    f"   [yellow]⚠ Found {len(missing_paths)} missing registry entries.[/yellow]"
+                )
+
+                def clean_registry() -> bool:
+                    try:
+                        with open(REGISTRY_FILE, "w") as f:
+                            f.write("\n".join(valid_lines) + "\n")
+                        return True
+                    except Exception as e:
+                        logger.error(f"Registry cleanup failed: {e}")
+                        return False
+
+                actions.append(
+                    DoctorAction(
+                        description=f"Remove {len(missing_paths)} ghost entries from registry",
+                        prompt=f"Found {len(missing_paths)} missing paths. Remove from registry?",
+                        action_callable=clean_registry,
+                    )
                 )
             else:
                 console.print("   [green]✔ Registry healthy.[/green]")
@@ -515,9 +553,42 @@ def run_doctor() -> None:
             # Sub-check: Systemd Linger on Linux
             if linger_warning := _check_systemd_linger():
                 console.print(f"   [yellow]⚠ {linger_warning}[/yellow]")
+
+                def enable_linger() -> bool:
+                    try:
+                        user = os.environ.get("USER")
+                        if not user:
+                            return False
+                        subprocess.run(["loginctl", "enable-linger", user], check=True)
+                        return True
+                    except Exception as e:
+                        logger.error(f"Failed to enable linger: {e}")
+                        return False
+
+                actions.append(
+                    DoctorAction(
+                        description="Enable systemd user linger",
+                        prompt="Enable background lingering? (Runs: loginctl enable-linger $USER)",
+                        action_callable=enable_linger,
+                    )
+                )
         else:
-            console.print(
-                "   [red]✘ Daemon is STOPPED.[/red] Run 'git pulsar install-service'."
+            console.print("   [red]✘ Daemon is STOPPED.[/red]")
+
+            def install_daemon() -> bool:
+                try:
+                    service.install(interval=900)
+                    return True
+                except Exception as e:
+                    logger.error(f"Failed to install daemon: {e}")
+                    return False
+
+            actions.append(
+                DoctorAction(
+                    description="Install and start the background daemon",
+                    prompt="Daemon is stopped. Install the background service?",
+                    action_callable=install_daemon,
+                )
             )
 
     # Check network/SSH connectivity.
@@ -534,11 +605,15 @@ def run_doctor() -> None:
             else:
                 console.print(
                     "   [yellow]⚠ GitHub SSH check returned "
-                    "unexpected response.[/yellow]"
+                    "unexpected response.[/yellow]\n"
+                    "     [dim]Action required: Verify SSH key configuration or remote permissions.[/dim]"
                 )
 
         except Exception as e:
             console.print(f"   [red]✘ SSH Check failed: {e}[/red]")
+            console.print(
+                "     [dim]Action required: Check your network connection or run 'ssh-add' to load your keys.[/dim]"
+            )
 
     # Check for remote session drift (if currently in a registered repository).
     cwd = Path.cwd()
@@ -549,6 +624,25 @@ def run_doctor() -> None:
             drift_detected, _, _, drift_warning = ops.get_remote_drift_state(cwd)
             if drift_detected:
                 console.print(f"   [yellow]⚠ {drift_warning}[/yellow]")
+
+                def sync_drift() -> bool:
+                    try:
+                        # ops.sync_session handles its own UI and uses sys.exit
+                        ops.sync_session()
+                        return True
+                    except SystemExit as e:
+                        return e.code == 0
+                    except Exception as e:
+                        logger.error(f"Failed to sync session: {e}")
+                        return False
+
+                actions.append(
+                    DoctorAction(
+                        description="Sync local session with remote",
+                        prompt="Run 'git pulsar sync' to reconcile remote session?",
+                        action_callable=sync_drift,
+                    )
+                )
             else:
                 console.print(
                     "   [green]✔ Local session is up-to-date with remote.[/green]"
@@ -568,6 +662,70 @@ def run_doctor() -> None:
             for p in paths:
                 if p.exists():
                     repo_config = Config.load(p)
+
+                    # 1a. Check for paused state
+                    pause_file = p / ".git" / "pulsar_paused"
+                    if pause_file.exists():
+                        issues.append(f"{p.name}: Repository is explicitly paused.")
+
+                        def resume_repo(path_to_unpause: Path = pause_file) -> bool:
+                            try:
+                                path_to_unpause.unlink(missing_ok=True)
+                                return True
+                            except OSError as e:
+                                logger.error(f"Failed to resume {path_to_unpause}: {e}")
+                                return False
+
+                        actions.append(
+                            DoctorAction(
+                                description=f"Resume backups for {p.name}",
+                                prompt=f"Resume backups for {p.name}?",
+                                action_callable=resume_repo,
+                            )
+                        )
+
+                    # 1b. Check for stale index lock
+                    lock_file = p / ".git" / "index.lock"
+                    if lock_file.exists():
+                        try:
+                            mtime = lock_file.stat().st_mtime
+                            age_hours = (time.time() - mtime) / 3600
+                            if age_hours > 2:
+                                issues.append(
+                                    f"{p.name}: Stale index lock found ({age_hours:.1f}h old)."
+                                )
+
+                                def remove_lock(path_to_lock: Path = lock_file) -> bool:
+                                    try:
+                                        path_to_lock.unlink(missing_ok=True)
+                                        return True
+                                    except OSError as e:
+                                        logger.error(
+                                            f"Failed to remove lock at {path_to_lock}: {e}"
+                                        )
+                                        return False
+
+                                actions.append(
+                                    DoctorAction(
+                                        description=f"Remove stale index lock in {p.name}",
+                                        prompt=f"Stale index lock found in {p.name} ({age_hours:.1f}h old). Remove it?",
+                                        action_callable=remove_lock,
+                                    )
+                                )
+                        except OSError:
+                            pass  # Lock file vanished during read (race resolved)
+
+                    # 1c. Large file check (Manual Intervention)
+                    if ops.has_large_files(p, repo_config):
+                        limit_mb = int(
+                            repo_config.limits.large_file_threshold / (1024 * 1024)
+                        )
+                        issues.append(
+                            f"{p.name}: File >{limit_mb}MB detected, blocking backups.\n"
+                            f"     [dim]Action required: Untrack the file or run 'git pulsar ignore <filename>'[/dim]"
+                        )
+
+                    # 1d. Standard health check
                     if problem := _check_repo_health(p, repo_config):
                         issues.append(f"{p.name}: {problem}")
 
@@ -582,14 +740,61 @@ def run_doctor() -> None:
                 for issue in issues:
                     console.print(f"     - {issue}")
                 console.print(
-                    "     [dim](Check if daemon is running or "
-                    "if files are too large)[/dim]"
+                    "     [dim](Ensure daemon is running and review required actions above)[/dim]"
                 )
             else:
                 console.print(
                     "   [green]✔ All repositories are healthy "
                     "(clean or backed up).[/green]"
                 )
+
+    # 2. Check logs for recent errors using dynamic window (Event Check).
+    conf = Config.load()
+    lookback_secs = conf.daemon.push_interval * 3
+    recent_errors = _analyze_logs(seconds=lookback_secs)
+
+    # 3. Correlate State and Events
+    if recent_errors:
+        lookback_hours = lookback_secs // 3600
+        time_str = f"{lookback_hours}h" if lookback_hours > 0 else f"{lookback_secs}s"
+
+        if is_healthy:
+            console.print(
+                f"   [dim]ℹ {len(recent_errors)} transient error(s) logged in the last "
+                f"{time_str}, but system automatically recovered.[/dim]"
+            )
+        else:
+            console.print(
+                f"   [red]✘ Found {len(recent_errors)} active error(s) in the last "
+                f"{time_str}:[/red]"
+            )
+            for err in recent_errors[-3:]:  # Show last 3
+                console.print(f"     [dim]{err}[/dim]")
+            if len(recent_errors) > 3:
+                console.print("     ... (run 'git pulsar log' to see full history)")
+    else:
+        console.print("   [green]✔ Recent logs are clean.[/green]")
+
+    # --- Interactive Resolution Phase ---
+    if actions:
+        console.print("\n[bold]Interactive Resolutions[/bold]")
+        for action in actions:
+            if Confirm.ask(f"   {action.prompt}"):
+                try:
+                    if action.action_callable():
+                        console.print(
+                            f"   [green]✔ Resolved:[/green] {action.description}"
+                        )
+                    else:
+                        console.print(
+                            f"   [red]✘ Failed to resolve:[/red] {action.description}"
+                        )
+                except Exception as e:
+                    console.print(
+                        f"   [red]✘ Error resolving {action.description}:[/red] {e}"
+                    )
+            else:
+                console.print("   [dim]Skipped.[/dim]")
 
     # 2. Check logs for recent errors using dynamic window (Event Check).
     conf = Config.load()
