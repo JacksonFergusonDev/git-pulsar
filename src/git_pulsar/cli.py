@@ -513,18 +513,33 @@ def run_doctor() -> None:
             console.print("   [green]✔ Registry empty/clean.[/green]")
         else:
             valid_lines = []
-            fixed = False
+            missing_paths = []
             for p in repos:
                 if p.exists():
                     valid_lines.append(str(p))
                 else:
-                    fixed = True
+                    missing_paths.append(str(p))
 
-            if fixed:
-                with open(REGISTRY_FILE, "w") as f:
-                    f.write("\n".join(valid_lines) + "\n")
+            if missing_paths:
                 console.print(
-                    "   [green]✔ Registry cleaned (ghost entries removed).[/green]"
+                    f"   [yellow]⚠ Found {len(missing_paths)} missing registry entries.[/yellow]"
+                )
+
+                def clean_registry() -> bool:
+                    try:
+                        with open(REGISTRY_FILE, "w") as f:
+                            f.write("\n".join(valid_lines) + "\n")
+                        return True
+                    except Exception as e:
+                        logger.error(f"Registry cleanup failed: {e}")
+                        return False
+
+                actions.append(
+                    DoctorAction(
+                        description=f"Remove {len(missing_paths)} ghost entries from registry",
+                        prompt=f"Found {len(missing_paths)} missing paths. Remove from registry?",
+                        action_callable=clean_registry,
+                    )
                 )
             else:
                 console.print("   [green]✔ Registry healthy.[/green]")
@@ -537,9 +552,42 @@ def run_doctor() -> None:
             # Sub-check: Systemd Linger on Linux
             if linger_warning := _check_systemd_linger():
                 console.print(f"   [yellow]⚠ {linger_warning}[/yellow]")
+
+                def enable_linger() -> bool:
+                    try:
+                        user = os.environ.get("USER")
+                        if not user:
+                            return False
+                        subprocess.run(["loginctl", "enable-linger", user], check=True)
+                        return True
+                    except Exception as e:
+                        logger.error(f"Failed to enable linger: {e}")
+                        return False
+
+                actions.append(
+                    DoctorAction(
+                        description="Enable systemd user linger",
+                        prompt="Enable background lingering? (Runs: loginctl enable-linger $USER)",
+                        action_callable=enable_linger,
+                    )
+                )
         else:
-            console.print(
-                "   [red]✘ Daemon is STOPPED.[/red] Run 'git pulsar install-service'."
+            console.print("   [red]✘ Daemon is STOPPED.[/red]")
+
+            def install_daemon() -> bool:
+                try:
+                    service.install(interval=900)
+                    return True
+                except Exception as e:
+                    logger.error(f"Failed to install daemon: {e}")
+                    return False
+
+            actions.append(
+                DoctorAction(
+                    description="Install and start the background daemon",
+                    prompt="Daemon is stopped. Install the background service?",
+                    action_callable=install_daemon,
+                )
             )
 
     # Check network/SSH connectivity.
