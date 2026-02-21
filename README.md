@@ -61,7 +61,7 @@ In a distributed environment (Laptop ↔ Desktop), state drift is inevitable.
 - **Roaming Radar:** The background daemon actively polls for topological drift, firing a cross-platform OS notification if another machine leapfrogs your local session so you can `sync` before conflicts arise.
 - **Out-of-Band Indexing:** Backups are stored in a configured namespace (default: `refs/heads/wip/pulsar/...`). Your `git status`, `git branch`, and `git log` remain completely clean.
 - **Distributed Sessions:** Hop between machines. Pulsar tracks sessions per device and lets you `sync` to pick up exactly where you left off.
-- **State-Aware Diagnostics:** The `doctor` command correlates transient log events with active system health to prevent alert fatigue, and proactively scans for pipeline blockers like strict git hooks or broken `systemd` configurations.
+- **State-Aware Diagnostics:** The `doctor` command correlates transient log events with active system health to prevent alert fatigue, proactively scans for pipeline blockers, and offers an interactive queue to safely auto-fix common issues.
 - **Active Observability:** The `status` dashboard provides zero-latency power telemetry (e.g., Eco-Mode throttling) and immediately surfaces cached warnings for remote session drift and oversized files.
 - **Zero-Interference:**
   - Uses a temporary index so it never messes up your partial `git add`.
@@ -199,7 +199,7 @@ This bootstraps the current directory with:
 
 | Command | Description |
 | :--- | :--- |
-| `git pulsar doctor` | Run state-aware diagnostics (logs, repo health, drift detection, hook interference) and clean up the registry. |
+| `git pulsar doctor` | Run state-aware diagnostics and interactively auto-fix issues (logs, repo health, drift detection, hook interference). |
 | `git pulsar prune` | Delete old backup history (>30 days). Runs automatically weekly. |
 | `git pulsar log` | View recent log history (last 1000 lines) and tail new entries. |
 
@@ -246,7 +246,7 @@ ignore = ["*.tmp", "node_modules/"]
 
 - [ ] **Smart Restore:** Replace hard failures on "dirty" files with a negotiation menu (Overwrite / View Diff / Cancel).
 - [ ] **Pre-Flight Checklists:** Display a summary table of incoming changes (machines, timestamps, file counts) before running destructive commands like `finalize`.
-- [ ] **Active Doctor:** Upgrade `git pulsar doctor` to not just diagnose issues (like stopped daemons), but offer to auto-fix them interactively.
+- [x] **Active Doctor:** Upgrade `git pulsar doctor` to not just diagnose issues (like stopped daemons), but offer to auto-fix them interactively.
 
 ### Phase 2: "Deep Thought" (Context & Intelligence)
 
