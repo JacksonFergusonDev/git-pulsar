@@ -189,46 +189,6 @@ def is_repo_busy(repo_path: Path, interactive: bool = False) -> bool:
     return False
 
 
-def has_large_files(repo_path: Path, config: Config) -> bool:
-    """Scans untracked or modified files for sizes exceeding the limit.
-
-    Args:
-        repo_path (Path): The path to the repository.
-        config (Config): The configuration instance for this repository.
-
-    Returns:
-        bool: True if a large file is found, False otherwise.
-    """
-    limit = config.limits.large_file_threshold
-
-    # Only scan files git knows about or sees as untracked.
-    try:
-        cmd = ["git", "ls-files", "--others", "--modified", "--exclude-standard"]
-        candidates = subprocess.check_output(cmd, cwd=repo_path, text=True).splitlines()
-    except subprocess.CalledProcessError as e:
-        logger.warning(f"Large file scan failed for {repo_path.name}: {e}")
-        return False
-
-    for name in candidates:
-        file_path = repo_path / name
-        try:
-            if file_path.stat().st_size > limit:
-                # Dynamic size formatting (Bytes -> MB)
-                limit_mb = int(limit / (1024 * 1024))
-
-                logger.warning(
-                    f"WARNING {repo_path.name}: Large file detected ({name}). "
-                    "Backup aborted."
-                )
-                SYSTEM.notify("Backup Aborted", f"File >{limit_mb}MB detected: {name}")
-                return True
-        except OSError as e:
-            logger.warning(f"Failed to check size of file {name}: {e}")
-            continue
-
-    return False
-
-
 def prune_registry(original_path_str: str) -> None:
     """Removes a missing repository path from the registry file.
 
@@ -386,7 +346,7 @@ def run_backup(original_path_str: str, interactive: bool = False) -> None:
         return
 
     # Pass config to has_large_files (re-added safety check)
-    if has_large_files(repo_path, config):
+    if ops.has_large_files(repo_path, config):
         return
 
     try:

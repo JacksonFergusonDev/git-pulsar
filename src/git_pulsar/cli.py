@@ -89,11 +89,12 @@ def _analyze_logs(seconds: int = 86400) -> list[str]:
     return errors
 
 
-def _check_repo_health(path: Path) -> str | None:
+def _check_repo_health(path: Path, config: Config) -> str | None:
     """Evaluates the health of a repository, checking for stale backups or stalled states.
 
     Args:
         path (Path): The file system path to the repository.
+        config (Config): The configuration instance for the repository.
 
     Returns:
         str | None: A warning message if an issue is detected,
@@ -119,11 +120,12 @@ def _check_repo_health(path: Path) -> str | None:
             logger.debug(f"Failed to retrieve backup timestamp for {path.name}: {e}")
             return f"Has changes, but NO backup found. (Error: {e})"
 
-        # Check against the stale threshold (e.g., 2 hours).
+        # Check against the dynamic stale threshold (2x commit interval).
         # If changes are pending and no backup has occurred recently,
         # the daemon may be stalled.
-        if time.time() - last_backup_ts > 7200:
-            return "Stalled: Changes pending > 2 hours."
+        stale_threshold = config.daemon.commit_interval * 2
+        if time.time() - last_backup_ts > stale_threshold:
+            return f"Stalled: Changes pending > {stale_threshold // 60} mins."
 
     except Exception as e:
         return f"Unable to verify git status: {e}"
@@ -189,7 +191,26 @@ def show_status() -> None:
 
     system_content = Text()
     system_content.append("Daemon: ", style="bold")
-    system_content.append(status_text, style=status_style)
+    system_content.append(status_text + "\n", style=status_style)
+
+    # --- Power Telemetry Integration ---
+    conf = Config.load()
+    sys_strat = system.get_system()
+    pct, plugged = sys_strat.get_battery()
+
+    system_content.append("Power:  ", style="bold")
+    if plugged:
+        system_content.append("AC (Unrestricted)", style="green")
+    elif pct < conf.daemon.min_battery_percent:
+        system_content.append(
+            f"Critical {pct}% (All Backups Suspended)", style="bold red"
+        )
+    elif pct < conf.daemon.eco_mode_percent:
+        system_content.append(
+            f"Eco-Mode {pct}% (Pushes Suspended)", style="bold yellow"
+        )
+    else:
+        system_content.append(f"Battery {pct}% (Normal)", style="green")
 
     console.print(Panel(system_content, title="System Status", expand=False))
 
@@ -254,7 +275,45 @@ def show_status() -> None:
         else:
             repo_content.append("Mode:        Active", style="green")
 
+        # --- 1. Health Integration ---
+        health_warning = None
+        if ops.has_large_files(cwd, conf):
+            limit_mb = int(conf.limits.large_file_threshold / (1024 * 1024))
+            health_warning = (
+                f"Daemon stalled.\n  File >{limit_mb}MB detected. "
+                "Run 'git pulsar doctor' for details."
+            )
+        else:
+            health_warning = _check_repo_health(cwd, conf)
+
+        if health_warning:
+            repo_content.append("\n\n⚠ WARNING: ", style="bold yellow")
+            repo_content.append(health_warning, style="yellow")
+
         console.print(Panel(repo_content, title="Repository Status", expand=False))
+
+        # --- 2. Roaming Radar Integration (Cached) ---
+        _, warned_ts = ops.get_drift_state(cwd)
+
+        # Ensure we only warn if the cached remote timestamp is strictly newer
+        # than our local backup reference.
+        if warned_ts > 0 and commit_str != "Never" and warned_ts > int(commit_ts):
+            minutes_ago = int((time.time() - warned_ts) / 60)
+            drift_content = Text()
+            drift_content.append(
+                "⚠ A remote machine pushed a newer session\n", style="bold yellow"
+            )
+            drift_content.append(
+                f"  ~{minutes_ago} mins ago. Run 'git pulsar sync'", style="yellow"
+            )
+            console.print(
+                Panel(
+                    drift_content,
+                    title="Session Drift",
+                    border_style="yellow",
+                    expand=False,
+                )
+            )
 
     # Display global repository count if not currently in a repository.
     elif REGISTRY_FILE.exists():
@@ -508,7 +567,8 @@ def run_doctor() -> None:
             issues = []
             for p in paths:
                 if p.exists():
-                    if problem := _check_repo_health(p):
+                    repo_config = Config.load(p)
+                    if problem := _check_repo_health(p, repo_config):
                         issues.append(f"{p.name}: {problem}")
 
                     for hook_warning in _check_git_hooks(p):

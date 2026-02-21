@@ -40,7 +40,7 @@ def test_run_backup_shadow_commit_flow(
     mocker.patch("git_pulsar.system.get_identity_slug", return_value="test-unit--1234")
 
     # Mock has_large_files to avoid subprocess/git errors
-    mocker.patch("git_pulsar.daemon.has_large_files", return_value=False)
+    mocker.patch("git_pulsar.ops.has_large_files", return_value=False)
 
     # Mock GitRepo
     mock_cls = mocker.patch("git_pulsar.daemon.GitRepo")
@@ -64,7 +64,7 @@ def test_run_backup_shadow_commit_flow(
     repo.update_ref.assert_called()
     args, _ = repo.update_ref.call_args
 
-    # FIXED: Assert the ref contains the FULL SLUG (test-unit--1234)
+    # Assert the ref contains the FULL SLUG (test-unit--1234)
     assert f"refs/heads/{BACKUP_NAMESPACE}/test-unit--1234/main" == args[0]
 
     # Verify push
@@ -87,7 +87,7 @@ def test_run_backup_decoupled_push(
 
     mocker.patch("git_pulsar.daemon.SYSTEM.get_battery", return_value=(100, True))
     mocker.patch("git_pulsar.system.get_identity_slug", return_value="id--1234")
-    mocker.patch("git_pulsar.daemon.has_large_files", return_value=False)
+    mocker.patch("git_pulsar.ops.has_large_files", return_value=False)
 
     mock_cls = mocker.patch("git_pulsar.daemon.GitRepo")
     repo = mock_cls.return_value
@@ -118,28 +118,6 @@ def test_run_backup_decoupled_push(
         assert "push" not in args, "Push should have been skipped!"
 
 
-def test_has_large_files_uses_config_limit(
-    tmp_path: Path, mocker: MagicMock, mock_config: Config
-) -> None:
-    """Verifies that `has_large_files` uses the configured threshold."""
-    # Set a custom small limit (500 bytes)
-    mock_config.limits.large_file_threshold = 500
-
-    # Mock system notification
-    mock_notify = mocker.patch("git_pulsar.daemon.SYSTEM.notify")
-
-    # Mock git ls-files to return a file.
-    mocker.patch("subprocess.check_output", return_value="big_file.txt")
-
-    # Create the 'large' file
-    (tmp_path / "big_file.txt").write_text("a" * 600)  # 600 bytes > 500 limit
-
-    result = daemon.has_large_files(tmp_path, mock_config)
-
-    assert result is True
-    mock_notify.assert_called_with("Backup Aborted", mocker.ANY)
-
-
 def test_run_backup_drift_detection_throttled(
     tmp_path: Path, mocker: MagicMock, mock_config: Config
 ) -> None:
@@ -147,7 +125,7 @@ def test_run_backup_drift_detection_throttled(
     (tmp_path / ".git").mkdir()
     mocker.patch("git_pulsar.daemon.SYSTEM.is_under_load", return_value=False)
     mocker.patch("git_pulsar.daemon.SYSTEM.get_battery", return_value=(100, True))
-    mocker.patch("git_pulsar.daemon.has_large_files", return_value=False)
+    mocker.patch("git_pulsar.ops.has_large_files", return_value=False)
 
     mock_repo = mocker.patch("git_pulsar.daemon.GitRepo").return_value
     mock_repo.current_branch.return_value = "main"
@@ -172,7 +150,7 @@ def test_run_backup_drift_detection_triggers_notification(
     (tmp_path / ".git").mkdir()
     mocker.patch("git_pulsar.daemon.SYSTEM.is_under_load", return_value=False)
     mocker.patch("git_pulsar.daemon.SYSTEM.get_battery", return_value=(100, True))
-    mocker.patch("git_pulsar.daemon.has_large_files", return_value=False)
+    mocker.patch("git_pulsar.ops.has_large_files", return_value=False)
 
     mock_repo = mocker.patch("git_pulsar.daemon.GitRepo").return_value
     mock_repo.current_branch.return_value = "main"
