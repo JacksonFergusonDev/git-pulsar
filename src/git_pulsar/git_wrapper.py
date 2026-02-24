@@ -266,10 +266,14 @@ class GitRepo:
         output = self._run(["ls-files", "--others", "--exclude-standard"])
         return output.splitlines() if output else []
 
-    def run_diff(self, target: str) -> None:
+    def run_diff(self, target: str, file: str | None = None) -> None:
         """Executes a git diff operation, outputting directly to stdout.
 
         Args:
-            target (str): The target revision or file to diff against.
+            target (str): The target revision or branch to diff against.
+            file (str | None, optional): A specific file path to diff. Defaults to None.
         """
-        self._run(["diff", target], capture=False)
+        cmd = ["diff", target]
+        if file:
+            cmd.extend(["--", file])
+        self._run(cmd, capture=False)
