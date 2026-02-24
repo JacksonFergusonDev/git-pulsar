@@ -40,3 +40,26 @@ def test_run_diff_with_file_targeting(mocker: MagicMock, tmp_path: Path) -> None
     mock_run.assert_called_with(
         ["diff", "refs/backup/main", "--", "src/main.py"], capture=False
     )
+
+
+def test_diff_shortstat_regex_parsing(mocker: MagicMock, tmp_path: Path) -> None:
+    """Verifies that shortstat parses correctly, handling missing clauses."""
+    (tmp_path / ".git").mkdir()
+    repo = GitRepo(tmp_path)
+    mock_run = mocker.patch.object(repo, "_run")
+
+    # Case 1: Standard output with all three metrics
+    mock_run.return_value = " 3 files changed, 25 insertions(+), 4 deletions(-)"
+    assert repo.diff_shortstat("main", "backup_ref") == (3, 25, 4)
+
+    # Case 2: Missing deletions clause
+    mock_run.return_value = " 1 file changed, 10 insertions(+)"
+    assert repo.diff_shortstat("main", "backup_ref") == (1, 10, 0)
+
+    # Case 3: Missing insertions clause
+    mock_run.return_value = " 2 files changed, 12 deletions(-)"
+    assert repo.diff_shortstat("main", "backup_ref") == (2, 0, 12)
+
+    # Case 4: Empty diff (branch is up to date)
+    mock_run.return_value = ""
+    assert repo.diff_shortstat("main", "backup_ref") == (0, 0, 0)
