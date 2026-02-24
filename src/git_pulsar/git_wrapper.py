@@ -1,4 +1,5 @@
 import logging
+import re
 import subprocess
 from pathlib import Path
 
@@ -277,3 +278,36 @@ class GitRepo:
         if file:
             cmd.extend(["--", file])
         self._run(cmd, capture=False)
+
+    def diff_shortstat(self, target: str, source: str) -> tuple[int, int, int]:
+        """Retrieves the shortstat differences between two references.
+
+        Executes `git diff --shortstat target...source` to determine the
+        number of files changed, insertions, and deletions present in the
+        source reference that are not in the target.
+
+        Args:
+            target (str): The base reference (e.g., 'main').
+            source (str): The branch or commit to compare (e.g., a backup ref).
+
+        Returns:
+            tuple[int, int, int]: A tuple containing (files_changed, insertions, deletions).
+                                  Returns (0, 0, 0) if there are no differences or parsing fails.
+        """
+        try:
+            output = self._run(["diff", "--shortstat", f"{target}...{source}"])
+            if not output:
+                return 0, 0, 0
+
+            files_match = re.search(r"(\d+)\s+file", output)
+            insertions_match = re.search(r"(\d+)\s+insertion", output)
+            deletions_match = re.search(r"(\d+)\s+deletion", output)
+
+            files = int(files_match.group(1)) if files_match else 0
+            insertions = int(insertions_match.group(1)) if insertions_match else 0
+            deletions = int(deletions_match.group(1)) if deletions_match else 0
+
+            return files, insertions, deletions
+        except Exception as e:
+            logger.warning(f"Failed to parse shortstat for {target}...{source}: {e}")
+            return 0, 0, 0
