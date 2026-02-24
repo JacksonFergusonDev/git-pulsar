@@ -32,6 +32,7 @@ Pulsar relies on stable machine identity to manage distributed sessions.
 Verifies the "State Reconciliation" engine and primitive operations.
 
 - **Octopus Merges:** Simulates complex multi-head merge scenarios (e.g., merging 3 different machine streams into `main`) to ensure the DAG (Directed Acyclic Graph) is constructed correctly without conflicts.
+- **Pre-Flight Checklist Negotiation:** Verifies the interactive dry-run table before finalizing, ensuring that declined merges cleanly abort without mutating the active working branch.
 - **State Management:** Verifies atomic file I/O operations (`set_drift_state`) to ensure cross-process thread safety between the background daemon and foreground CLI.
 - **Drift Detection:** Tests the core logic for identifying when remote sessions leapfrog local ones, simulating various network failures and detached HEAD states.
 - **Pipeline Blockers:** Validates decoupled checks for oversized files (`has_large_files`), ensuring they safely abort operations and trigger system notifications without polluting the daemon's event loop.
@@ -59,6 +60,7 @@ Validates the state-aware diagnostic engine and user-facing CLI commands.
 Ensures the Python-to-Git subprocess boundary remains secure and predictable.
 
 - **Command Construction:** Verifies that dynamic arguments—such as file-level diff targeting—correctly append necessary boundary markers (`--`) to prevent Git from misinterpreting file paths as revision hashes.
+- **Regex Parsing Determinism:** Validates the extraction of insertions, deletions, and changed files from variable `git diff --shortstat` output, ensuring the data pipeline doesn't break when Git omits empty clauses.
 - **Error Handling:** Ensures low-level subprocess failures are caught and logged rather than causing silent upstream crashes.
 
 ---

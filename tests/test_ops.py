@@ -236,37 +236,61 @@ def test_sync_session_success(mocker: MagicMock) -> None:
 
 
 def test_finalize_octopus_merge(mocker: MagicMock) -> None:
-    """Verifies that `finalize_work` performs an octopus squash merge of backup streams.
-
-    Args:
-        mocker (MagicMock): Pytest fixture for mocking.
-    """
+    """Verifies that `finalize_work` performs an octopus squash merge of backup streams."""
     repo = mocker.patch("git_pulsar.ops.GitRepo").return_value
     repo.status_porcelain.return_value = []
-    repo.current_branch.return_value = "main"
+    repo.current_branch.return_value = "feature-branch"
+    repo.rev_parse.side_effect = ["sha", None]  # main exists, master doesn't
+    repo.diff_shortstat.return_value = (2, 10, 5)
+
+    # Provide a string so rich doesn't panic
+    repo.get_last_commit_time.return_value = "2 hours ago"
 
     mocker.patch("git_pulsar.ops.console")
+
+    # Mock the new pre-flight confirmation to proceed
+    mocker.patch("git_pulsar.ops.Confirm.ask", return_value=True)
 
     # Simulate finding 3 backup streams.
     repo.list_refs.return_value = ["ref_A", "ref_B", "ref_C"]
 
     ops.finalize_work()
 
-    # 1. Verify Fetch.
-    repo._run.assert_any_call(
-        [
-            "fetch",
-            "origin",
-            f"refs/heads/{BACKUP_NAMESPACE}/*:refs/heads/{BACKUP_NAMESPACE}/*",
-        ],
-        capture=True,
-    )
+    # 1. Verify target branch switch happened
+    repo.checkout.assert_called_with("main")
 
     # 2. Verify Octopus Merge of all streams.
     repo.merge_squash.assert_called_with("ref_A", "ref_B", "ref_C")
 
     # 3. Verify Interactive Commit trigger.
     repo.commit_interactive.assert_called_once()
+
+
+def test_finalize_aborts_on_user_decline(mocker: MagicMock) -> None:
+    """Verifies that declining the pre-flight checklist exits cleanly without checking out."""
+    repo = mocker.patch("git_pulsar.ops.GitRepo").return_value
+    repo.status_porcelain.return_value = []
+    repo.current_branch.return_value = "feature-branch"
+    repo.rev_parse.side_effect = ["sha", None]
+    repo.diff_shortstat.return_value = (2, 10, 5)
+
+    # Provide a string so rich doesn't panic
+    repo.get_last_commit_time.return_value = "2 hours ago"
+
+    mocker.patch("git_pulsar.ops.console")
+
+    # Mock the pre-flight confirmation to abort
+    mocker.patch("git_pulsar.ops.Confirm.ask", return_value=False)
+    repo.list_refs.return_value = ["ref_A", "ref_B"]
+
+    with pytest.raises(SystemExit) as excinfo:
+        ops.finalize_work()
+
+    assert excinfo.value.code == 0
+
+    # Crucially, verify we never switched branches or merged
+    repo.checkout.assert_not_called()
+    repo.merge_squash.assert_not_called()
 
 
 # --- Roaming Radar & State Tests ---

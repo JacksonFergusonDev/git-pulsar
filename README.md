@@ -181,7 +181,7 @@ This bootstraps the current directory with:
 | `git pulsar sync` | Pull the latest session from *any* machine to your current directory. |
 | `git pulsar restore <file>` | Restore a specific file from the latest backup. |
 | `git pulsar diff` | See what has changed since the last backup. |
-| `git pulsar finalize` | Squash-merge all backup streams into `main`. |
+| `git pulsar finalize` | Squash-merge all backup streams into `main` (includes pre-flight checklist). |
 
 ### Repository Control
 
@@ -245,7 +245,7 @@ ignore = ["*.tmp", "node_modules/"]
 *Focus: Turning the tool from a blind script into a helpful partner that negotiates with you.*
 
 - [x] **Smart Restore:** Replace hard failures on "dirty" files with a negotiation menu (Overwrite / View Diff / Cancel).
-- [ ] **Pre-Flight Checklists:** Display a summary table of incoming changes (machines, timestamps, file counts) before running destructive commands like `finalize`.
+- [x] **Pre-Flight Checklists:** Display a summary table of incoming changes (machines, timestamps, file counts) before running destructive commands like `finalize`.
 - [x] **Active Doctor:** Upgrade `git pulsar doctor` to not just diagnose issues (like stopped daemons), but offer to auto-fix them interactively.
 
 ### Phase 2: "Deep Thought" (Context & Intelligence)
