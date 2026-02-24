@@ -12,7 +12,7 @@ The `src/` directory contains the package source code. The architecture strictly
   - **Safety:** Implements `GIT_INDEX_FILE` isolation to ensure it never locks or corrupts the user's active git index.
 - **`git_pulsar/ops.py`**: High-level Business Logic.
   - **Role:** The "Controller." It orchestrates complex multi-step operations like `finalize` (Octopus Merges), `restore`, and drift detection.
-  - **Logic:** Calculates the "Zipper Graph" topology to merge shadow commits back into the main branch, manages atomic file I/O for cross-process state tracking, evaluates pipeline blockers (e.g., oversized files), and handles interactive state machines for file restorations.
+  - **Logic:** Calculates the "Zipper Graph" topology to merge shadow commits back into the main branch , manages the interactive pre-flight checklist prior to finalizing, handles atomic file I/O for cross-process state tracking, evaluates pipeline blockers (e.g., oversized files), and handles interactive state machines for file restorations.
 - **`git_pulsar/config.py`**: Configuration Engine.
   - **Role:** The "Source of Truth."
   - **Logic:** Implements a cascading hierarchy (Defaults → Global → Local) to merge settings from `~/.config/git-pulsar/config.toml` and project-level `pulsar.toml` or `pyproject.toml`.
@@ -21,7 +21,7 @@ The `src/` directory contains the package source code. The architecture strictly
 
 - **`git_pulsar/git_wrapper.py`**: The Git Interface.
   - **Role:** A strict wrapper around `subprocess`.
-  - **Philosophy:** **No Porcelain.** This module primarily uses git *plumbing* commands (`write-tree`, `commit-tree`, `update-ref`) rather than user-facing commands (`commit`, `add`) to ensure deterministic behavior. It also handles dynamic command construction, such as safe boundary markers (`--`) for file-level diff targeting.
+  - **Philosophy:** **No Porcelain.** This module primarily uses git *plumbing* commands (`write-tree`, `commit-tree`, `update-ref`) rather than user-facing commands (`commit`, `add`) to ensure deterministic behavior. It also handles dynamic command construction, such as safe boundary markers (`--`) for file-level diff targeting, and robust regex parsing for output like `diff --shortstat`.
 - **`git_pulsar/system.py`**: OS Abstraction.
   - **Role:** Identity & Environment.
   - **Logic:** Handles the chaos of cross-platform identity (mapping `IOPlatformUUID` on macOS vs `/etc/machine-id` on Linux) to ensure stable "Roaming Profiles."
