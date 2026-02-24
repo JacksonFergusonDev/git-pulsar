@@ -244,7 +244,7 @@ ignore = ["*.tmp", "node_modules/"]
 
 *Focus: Turning the tool from a blind script into a helpful partner that negotiates with you.*
 
-- [ ] **Smart Restore:** Replace hard failures on "dirty" files with a negotiation menu (Overwrite / View Diff / Cancel).
+- [x] **Smart Restore:** Replace hard failures on "dirty" files with a negotiation menu (Overwrite / View Diff / Cancel).
 - [ ] **Pre-Flight Checklists:** Display a summary table of incoming changes (machines, timestamps, file counts) before running destructive commands like `finalize`.
 - [x] **Active Doctor:** Upgrade `git pulsar doctor` to not just diagnose issues (like stopped daemons), but offer to auto-fix them interactively.
 
