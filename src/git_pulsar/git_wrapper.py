@@ -52,6 +52,8 @@ class GitRepo:
         Raises:
             RuntimeError: If the git command returns a non-zero exit code.
         """
+        logger.debug(f"Executing: git {' '.join(args)}")
+
         try:
             res = subprocess.run(
                 ["git", *args],
