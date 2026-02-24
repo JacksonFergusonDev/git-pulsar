@@ -12,7 +12,7 @@ The `src/` directory contains the package source code. The architecture strictly
   - **Safety:** Implements `GIT_INDEX_FILE` isolation to ensure it never locks or corrupts the user's active git index.
 - **`git_pulsar/ops.py`**: High-level Business Logic.
   - **Role:** The "Controller." It orchestrates complex multi-step operations like `finalize` (Octopus Merges), `restore`, and drift detection.
-  - **Logic:** Calculates the "Zipper Graph" topology to merge shadow commits back into the main branch, manages atomic file I/O for cross-process state tracking, and evaluates pipeline blockers (e.g., oversized files).
+  - **Logic:** Calculates the "Zipper Graph" topology to merge shadow commits back into the main branch, manages atomic file I/O for cross-process state tracking, evaluates pipeline blockers (e.g., oversized files), and handles interactive state machines for file restorations.
 - **`git_pulsar/config.py`**: Configuration Engine.
   - **Role:** The "Source of Truth."
   - **Logic:** Implements a cascading hierarchy (Defaults → Global → Local) to merge settings from `~/.config/git-pulsar/config.toml` and project-level `pulsar.toml` or `pyproject.toml`.
@@ -21,7 +21,7 @@ The `src/` directory contains the package source code. The architecture strictly
 
 - **`git_pulsar/git_wrapper.py`**: The Git Interface.
   - **Role:** A strict wrapper around `subprocess`.
-  - **Philosophy:** **No Porcelain.** This module primarily uses git *plumbing* commands (`write-tree`, `commit-tree`, `update-ref`) rather than user-facing commands (`commit`, `add`) to ensure deterministic behavior.
+  - **Philosophy:** **No Porcelain.** This module primarily uses git *plumbing* commands (`write-tree`, `commit-tree`, `update-ref`) rather than user-facing commands (`commit`, `add`) to ensure deterministic behavior. It also handles dynamic command construction, such as safe boundary markers (`--`) for file-level diff targeting.
 - **`git_pulsar/system.py`**: OS Abstraction.
   - **Role:** Identity & Environment.
   - **Logic:** Handles the chaos of cross-platform identity (mapping `IOPlatformUUID` on macOS vs `/etc/machine-id` on Linux) to ensure stable "Roaming Profiles."
@@ -47,4 +47,4 @@ The `src/` directory contains the package source code. The architecture strictly
 3. **Identity Stability:** The `system` module guarantees that a Machine ID persists across reboots, preventing "Split Brain" backup histories.
 4. **Configuration Precedence:** Local project configuration MUST always override global user settings to ensure repo-specific constraints (e.g., large file limits) are respected.
 5. **State Over Events (Zero-Latency):** The diagnostic engine (`cli.py`) MUST prioritize current repository state and local caches (e.g., `.git/pulsar_drift_state`) over historical log events or live network calls, ensuring the CLI never blocks the user's terminal while evaluating system health.
-6. **Interactive Safety:** The diagnostic engine's interactive resolution queue MUST explicitly prompt the user for confirmation before executing any state-altering auto-fixes (e.g., deleting locks or modifying the registry).
+6. **Interactive Safety:** Interactive control loops MUST explicitly prompt the user for confirmation before executing any destructive or state-altering operations (e.g., overwriting dirty files during restore, deleting locks, or modifying the registry).
