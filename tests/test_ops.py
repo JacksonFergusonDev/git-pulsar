@@ -97,8 +97,8 @@ def test_restore_clean(mocker: MagicMock) -> None:
     mock_repo.checkout.assert_called_with(expected_ref, file="script.py")
 
 
-def test_restore_dirty_fails(tmp_path: Path, mocker: MagicMock) -> None:
-    """Verifies that `restore_file` aborts if the target file has uncommitted changes.
+def test_restore_dirty_cancels(tmp_path: Path, mocker: MagicMock) -> None:
+    """Verifies that selecting [C]ancel exits cleanly with code 0.
 
     Args:
         tmp_path (Path): Pytest fixture for a temporary directory.
@@ -110,12 +110,67 @@ def test_restore_dirty_fails(tmp_path: Path, mocker: MagicMock) -> None:
     mock_cls = mocker.patch("git_pulsar.ops.GitRepo")
     mock_repo = mock_cls.return_value
     mock_repo.status_porcelain.return_value = ["M script.py"]
-    mock_repo.current_branch.return_value = "main"
-
+    mocker.patch("git_pulsar.ops.get_backup_ref", return_value="refs/backup")
     mocker.patch("git_pulsar.ops.console")
+
+    # Mock the prompt to return 'c' for cancel
+    mocker.patch("git_pulsar.ops.Prompt.ask", return_value="c")
+
+    with pytest.raises(SystemExit) as excinfo:
+        ops.restore_file("script.py")
+
+    assert excinfo.value.code == 0
+    mock_repo.checkout.assert_not_called()
+
+
+def test_restore_dirty_overwrites(tmp_path: Path, mocker: MagicMock) -> None:
+    """Verifies that selecting [O]verwrite breaks the loop and restores the file.
+
+    Args:
+        tmp_path (Path): Pytest fixture for a temporary directory.
+        mocker (MagicMock): Pytest fixture for mocking.
+    """
+    os.chdir(tmp_path)
+    (tmp_path / "script.py").touch()
+
+    mock_cls = mocker.patch("git_pulsar.ops.GitRepo")
+    mock_repo = mock_cls.return_value
+    mock_repo.status_porcelain.return_value = ["M script.py"]
+    mocker.patch("git_pulsar.ops.get_backup_ref", return_value="refs/backup")
+    mocker.patch("git_pulsar.ops.console")
+
+    # Mock the prompt to return 'o' for overwrite
+    mocker.patch("git_pulsar.ops.Prompt.ask", return_value="o")
+
+    ops.restore_file("script.py")
+
+    mock_repo.checkout.assert_called_once_with("refs/backup", file="script.py")
+
+
+def test_restore_dirty_views_diff(tmp_path: Path, mocker: MagicMock) -> None:
+    """Verifies that selecting [V]iew Diff executes run_diff and re-prompts.
+
+    Args:
+        tmp_path (Path): Pytest fixture for a temporary directory.
+        mocker (MagicMock): Pytest fixture for mocking.
+    """
+    os.chdir(tmp_path)
+    (tmp_path / "script.py").touch()
+
+    mock_cls = mocker.patch("git_pulsar.ops.GitRepo")
+    mock_repo = mock_cls.return_value
+    mock_repo.status_porcelain.return_value = ["M script.py"]
+    mocker.patch("git_pulsar.ops.get_backup_ref", return_value="refs/backup")
+    mocker.patch("git_pulsar.ops.console")
+
+    # Mock the prompt to return 'v' (view), then 'c' (cancel) on the second pass
+    mocker.patch("git_pulsar.ops.Prompt.ask", side_effect=["v", "c"])
 
     with pytest.raises(SystemExit):
         ops.restore_file("script.py")
+
+    mock_repo.run_diff.assert_called_once_with("refs/backup", file="script.py")
+    mock_repo.checkout.assert_not_called()
 
 
 def test_sync_session_success(mocker: MagicMock) -> None:
