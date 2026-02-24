@@ -11,7 +11,8 @@ from pathlib import Path
 
 from rich.console import Console
 from rich.panel import Panel
-from rich.prompt import Prompt
+from rich.prompt import Confirm, Prompt
+from rich.table import Table
 
 from . import system
 from .config import Config
@@ -442,7 +443,7 @@ def finalize_work() -> None:
 
     This performs an 'Octopus Squash' merge of all backup streams for the current
     branch into the main/master branch, effectively finalizing the work session
-    and updating the primary project history.
+    and updating the primary project history. Includes a pre-flight dry-run checklist.
     """
     console.print("[bold blue]FINALIZING:[/bold blue] Finalizing work...")
     repo = GitRepo(Path.cwd())
@@ -486,19 +487,45 @@ def finalize_work() -> None:
             )
             sys.exit(1)
 
-        console.print(f"-> Found {len(candidates)} backup stream(s):")
-        for c in candidates:
-            console.print(f"   • {c}")
-
-        # 4. Switch to the target branch (main/master).
+        # 4. Resolve Target Branch.
         target = "main"
         if not repo.rev_parse("main") and repo.rev_parse("master"):
             target = "master"
 
+        # 5. Pre-Flight Checklist.
+        console.print(f"\n[bold]Pre-Flight Checklist (Target: {target})[/bold]")
+        table = Table(
+            show_header=True, header_style="bold magenta", border_style="blue"
+        )
+        table.add_column("Machine", style="cyan")
+        table.add_column("Last Backup", style="dim")
+        table.add_column("Files", justify="right")
+        table.add_column("+", style="green", justify="right")
+        table.add_column("-", style="red", justify="right")
+
+        for c in candidates:
+            machine = c.split("/")[-2] if len(c.split("/")) >= 2 else "unknown"
+            try:
+                rel_time = repo.get_last_commit_time(c)
+            except Exception:
+                rel_time = "Unknown"
+
+            files, ins, dels = repo.diff_shortstat(target, c)
+            table.add_row(machine, rel_time, str(files), str(ins), str(dels))
+
+        console.print(table)
+
+        if not Confirm.ask(
+            f"\nSquash these {len(candidates)} streams into '{target}'?"
+        ):
+            console.print("[bold red]ABORTED.[/bold red] Working directory unchanged.")
+            sys.exit(0)
+
+        # 6. Switch to the target branch (main/master).
         console.print(f"-> Switching to {target}...")
         repo.checkout(target)
 
-        # 5. Perform Octopus Squash Merge.
+        # 7. Perform Octopus Squash Merge.
         with console.status(
             f"[bold blue]Collapsing {len(candidates)} backup streams...[/bold blue]",
             spinner="dots",
@@ -512,7 +539,7 @@ def finalize_work() -> None:
                 )
                 sys.exit(0)
 
-        # 6. Interactive Commit.
+        # 8. Interactive Commit.
         console.print("-> Committing (opens editor)...")
         repo.commit_interactive()
 
