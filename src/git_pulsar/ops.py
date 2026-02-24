@@ -11,6 +11,7 @@ from pathlib import Path
 
 from rich.console import Console
 from rich.panel import Panel
+from rich.prompt import Prompt
 
 from . import system
 from .config import Config
@@ -302,10 +303,24 @@ def restore_file(path_str: str, force: bool = False) -> None:
     # 1. Safety Check: Verify if the file is dirty.
     if not force and path.exists() and repo.status_porcelain(path_str):
         console.print(
-            f"[bold red]ABORTED:[/bold red] '{path_str}' has uncommitted changes."
+            f"[bold yellow]WARNING:[/bold yellow] '{path_str}' has uncommitted changes."
         )
-        console.print("   Use --force to overwrite them.")
-        sys.exit(1)
+
+        while True:
+            choice = Prompt.ask(
+                "   [O]verwrite / [V]iew Diff / [C]ancel",
+                choices=["o", "v", "c"],
+                default="c",
+            )
+
+            if choice == "v":
+                repo.run_diff(backup_ref, file=path_str)
+                continue
+            elif choice == "c":
+                console.print("[bold red]ABORTED.[/bold red]")
+                sys.exit(0)
+            elif choice == "o":
+                break
 
     # 2. Restore file from backup ref.
     console.print(

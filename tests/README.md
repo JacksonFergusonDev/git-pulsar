@@ -35,6 +35,7 @@ Verifies the "State Reconciliation" engine and primitive operations.
 - **State Management:** Verifies atomic file I/O operations (`set_drift_state`) to ensure cross-process thread safety between the background daemon and foreground CLI.
 - **Drift Detection:** Tests the core logic for identifying when remote sessions leapfrog local ones, simulating various network failures and detached HEAD states.
 - **Pipeline Blockers:** Validates decoupled checks for oversized files (`has_large_files`), ensuring they safely abort operations and trigger system notifications without polluting the daemon's event loop.
+- **Interactive State Machines:** Validates the `Prompt.ask` control loop during dirty file restorations, ensuring branching paths (Overwrite, View Diff, Cancel) execute the correct `GitRepo` methods and exit gracefully.
 
 ### 5. Configuration Hierarchy (`test_config.py`)
 
@@ -52,6 +53,13 @@ Validates the state-aware diagnostic engine and user-facing CLI commands.
 - **State vs. Event Correlation:** Tests the `doctor` command by decoupling repository health (state) from daemon logs (events). We mock dynamic lookback windows to verify that naturally resolved transient anomalies are suppressed, while active correlated failures trigger alerts.
 - **Environment Simulation & Guidance:** Uses `tmp_path` and `mocker` to synthesize restrictive `.git/hooks`, offline networks, and Linux `systemd` configurations (`loginctl`) without executing side effects on the host, verifying exact stdout formatting for manual interventions.
 - **UI Determinism:** Ensures commands like `status` and `config` parse timestamps and route to standard system editors (`$EDITOR`, `nano`) correctly.
+
+### 7. Git Abstraction Layer (`test_git_wrapper.py`)
+
+Ensures the Python-to-Git subprocess boundary remains secure and predictable.
+
+- **Command Construction:** Verifies that dynamic arguments—such as file-level diff targeting—correctly append necessary boundary markers (`--`) to prevent Git from misinterpreting file paths as revision hashes.
+- **Error Handling:** Ensures low-level subprocess failures are caught and logged rather than causing silent upstream crashes.
 
 ---
 
