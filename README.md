@@ -71,6 +71,24 @@ In a distributed environment (Laptop ↔ Desktop), state drift is inevitable.
 
 ---
 
+## 🛡️ Verification & Reliability
+
+Because Git Pulsar operates asynchronously on the user's active working directory, a single race condition or unhandled edge case could corrupt a repository. Testing isn't just about coverage; it is about guaranteeing **Data Integrity** and **Zero-Interference**.
+
+The project utilizes a strict, multi-tiered testing architecture orchestrated via CI/CD:
+
+1. **Tier 1: Property Fuzzing & Plumbing (Unit)**
+   - Uses `pytest` and `Hypothesis` to fuzz critical registry paths and file manipulation logic.
+   - Deeply mocks the OS layer and strictly asserts that the daemon only invokes non-destructive Git plumbing commands (`write-tree`, `commit-tree`), verifying it never touches the user's porcelain state.
+2. **Tier 2: Distributed Sandbox (Integration)**
+   - Simulates a multi-node distributed environment entirely locally.
+   - Exploits the `XDG_STATE_HOME` environment variable to spin up multiple isolated daemon instances that push and pull to a local bare remote, validating drift detection, session handoffs, and concurrent conflict resolution.
+3. **Tier 3: Chaos Engineering (OS-Level Field Tests)**
+   - Fully automates the provisioning of ephemeral Ubuntu virtual machines (via Canonical's Multipass) to test OS-level integrations.
+   - Validates `systemd` user timers, `sysfs` battery polling limits, and allows for safe, destructive testing on a live Linux filesystem without risking the host machine's source code.
+
+---
+
 ## 📦 Installation
 
 ### macOS
