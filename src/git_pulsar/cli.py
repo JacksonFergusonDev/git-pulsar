@@ -952,9 +952,73 @@ def setup_repo(registry_path: Path = REGISTRY_FILE) -> None:
         )
 
 
+class PulsarHelpFormatter(argparse.HelpFormatter):
+    """Custom help formatter to streamline the CLI help output.
+
+    This formatter intercepts the subparser action, strips the default
+    metavar block, and groups the subcommands into logical categories
+    with custom headers.
+    """
+
+    def _format_action(self, action: argparse.Action) -> str:
+        if isinstance(action, argparse._SubParsersAction):
+            parts = []
+
+            # Define logical command clusters based on the project structure
+            groups = {
+                "Backup Management": ["now", "sync", "restore", "diff", "finalize"],
+                "Repository Control": [
+                    "status",
+                    "config",
+                    "list",
+                    "pause",
+                    "resume",
+                    "remove",
+                    "ignore",
+                ],
+                "Maintenance": ["doctor", "prune", "log"],
+                "Service": ["install-service", "uninstall-service"],
+                "General": ["help"],
+            }
+
+            subactions = list(self._iter_indented_subactions(action))
+
+            for group_name, commands in groups.items():
+                # Filter the standard argparse subactions into our defined groups
+                group_actions = [a for a in subactions if a.dest in commands]
+                if not group_actions:
+                    continue
+
+                # Inject the group header with standard argparse indentation
+                parts.append(f"\n  {group_name}:\n")
+
+                # Render the commands belonging to this group
+                self._indent()
+                for subaction in group_actions:
+                    parts.append(self._format_action(subaction))
+                self._dedent()
+
+            return self._join_parts(parts)
+
+        return super()._format_action(action)
+
+
 def main() -> None:
     """Main entry point for the Git Pulsar CLI."""
-    parser = argparse.ArgumentParser(description="Git Pulsar CLI")
+    parser = argparse.ArgumentParser(
+        usage=argparse.SUPPRESS,
+        formatter_class=PulsarHelpFormatter,
+        add_help=False,  # Disable the default help injection
+    )
+
+    # Manually re-add the help flags but suppress them from the visual output
+    parser.add_argument(
+        "-h",
+        "--help",
+        action="help",
+        default=argparse.SUPPRESS,
+        help=argparse.SUPPRESS,
+    )
 
     # Global flags
     parser.add_argument(
@@ -965,7 +1029,7 @@ def main() -> None:
     )
 
     subparsers = parser.add_subparsers(
-        dest="command", help="Service management commands"
+        dest="command",
     )
 
     # Subcommands
