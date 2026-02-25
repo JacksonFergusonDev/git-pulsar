@@ -38,5 +38,8 @@ jobs:
     - name: Type check with Mypy
       run: uv run mypy .
 
-    - name: Run Tests
-      run: uv run pytest
+    - name: Run Tier 1 Unit Tests
+      run: make test-unit
+
+    - name: Run Tier 2 Distributed Sandbox
+      run: make test-dist
