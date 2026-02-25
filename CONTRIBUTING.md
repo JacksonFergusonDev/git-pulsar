@@ -14,7 +14,8 @@ First off, thanks for taking the time to contribute! 🎉
 
 This project uses [uv](https://github.com/astral-sh/uv) for dependency management and Python 3.12+.
 
-1. **Fork & Clone**
+#### 1. Fork & Clone
+
    Fork the repo and clone it locally:
 
    ```bash
@@ -22,12 +23,12 @@ This project uses [uv](https://github.com/astral-sh/uv) for dependency managemen
    cd git-pulsar
    ```
 
-2. **Environment Setup**
-   We use `uv` to manage the virtual environment and dependencies.
+#### 2. Environment Setup
+
+   We use a `Makefile` to orchestrate dev workflows. Install the environment and dependencies:
 
    ```bash
-   # Creates .venv and installs dependencies (including dev groups)
-   uv sync
+   make install
    ```
 
    *Optional: If you use `direnv`, allow the automatically generated configuration:*
@@ -36,7 +37,8 @@ This project uses [uv](https://github.com/astral-sh/uv) for dependency managemen
    direnv allow
    ```
 
-3. **Install Hooks**
+#### 3. Install Hooks
+
    Set up pre-commit hooks to handle linting (Ruff) and type checking (Mypy) automatically.
 
    ```bash
@@ -45,33 +47,59 @@ This project uses [uv](https://github.com/astral-sh/uv) for dependency managemen
 
 ### Running Tests
 
-We use `pytest` for the test suite.
+We utilize a multi-tiered testing architecture to validate behavior safely.
+
+#### Tier 1: Unit Tests
+
+Standard unit testing for core logic.
 
 ```bash
-uv run pytest
+make test-unit
 ```
+
+#### Tier 2: Distributed Sandbox
+
+Tests distributed system logic (syncing, drift detection, shadow commits) locally by simulating two isolated machines interacting with a bare remote.
+
+```bash
+make test-dist
+```
+
+*Tip: Run `make test` to execute both Tier 1 and Tier 2 automatically.*
+
+#### Tier 3: Field Testing (Linux VM)
+
+If you are modifying OS-level daemon logic, battery polling, or doing highly destructive testing, spin up a fully isolated Ubuntu VM. Requires [Multipass](https://multipass.run/).
+
+```bash
+make test-cluster
+```
+
+This provisions a VM, mounts your local source code as read-only, and drops you into a safe `~/playground` repository. Your local Mac repository remains 100% untouched. If you edit code on your Mac, simply run `reload-pulsar` inside the VM to instantly fetch your latest changes.
 
 ### Pull Requests
 
-1. **Create a Branch**
+#### 1. Create a Branch
 
    ```bash
    git checkout -b feature/my-amazing-feature
    ```
 
-2. **Make Changes**
+#### 2. Make Changes
+
    Write code and add tests for your changes.
 
-3. **Verify**
-   Ensure your code passes the linter and tests locally.
+#### 3. Verify
+
+   Ensure your code passes the linters and automated test tiers locally.
 
    ```bash
-   uv run pytest
+   make lint
+   make test
    ```
 
-   (Pre-commit will also run `ruff` and `mypy` when you commit).
+#### 4. Commit & Push
 
-4. **Commit & Push**
    Please use clear commit messages.
 
    ```bash
@@ -79,5 +107,6 @@ uv run pytest
    git push origin feature/my-amazing-feature
    ```
 
-5. **Open a Pull Request**
+#### 5. Open a Pull Request
+
    Submit your PR against the `main` branch.
