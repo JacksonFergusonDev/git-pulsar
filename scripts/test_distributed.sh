@@ -11,6 +11,19 @@ NC='\033[0m'
 
 echo -e "${BLUE}ℹ Initializing Ephemeral Distributed Cluster...${NC}"
 
+# --- CI Normalization ---
+# 1. Capture absolute path to the executable to survive directory changes
+PROJECT_ROOT=$(pwd)
+PULSAR_BIN="$PROJECT_ROOT/.venv/bin/git-pulsar"
+
+# 2. Satisfy Git identity requirements for sterile CI containers without
+#    polluting the global ~/.gitconfig of local developers.
+export GIT_AUTHOR_NAME="Pulsar CI"
+export GIT_AUTHOR_EMAIL="ci@pulsar.dev"
+export GIT_COMMITTER_NAME="Pulsar CI"
+export GIT_COMMITTER_EMAIL="ci@pulsar.dev"
+# ------------------------
+
 # Create isolated workspace
 TEST_DIR=$(mktemp -d)
 REMOTE="$TEST_DIR/remote.git"
@@ -47,39 +60,47 @@ trap cleanup EXIT
 trap error_handler ERR
 
 # --- Test Execution ---
+# Suppress the default branch hint by specifying it explicitly during init
 echo -e "  -> Provisioning bare remote..."
-git init --bare "$REMOTE" > /dev/null
+git init --bare --initial-branch=main "$REMOTE" > /dev/null
 
 echo -e "  -> Setting up Node A (Simulated Mac 1)..."
 git clone "$REMOTE" "$MAC1_DIR" 2> /dev/null
 cd "$MAC1_DIR"
+
+# Isolate HOME to prevent local tests from cheating and reading host configs
+export HOME="$TEST_DIR/home_mac1"
 export XDG_STATE_HOME="$TEST_DIR/state_mac1"
+mkdir -p "$HOME"
 
 # 1. Make the initial commit and push FIRST
 echo "print('hello distributed world')" > main.py
 git add main.py
 git commit -m "Initial commit" > /dev/null
-git branch -M main
 git push -u origin main > /dev/null 2>&1
 
-# 2. NOW initialize Pulsar (which does a dry-run push internally)
-uv run git-pulsar > /dev/null
+# 2. NOW initialize Pulsar (Pipe a unique name to satisfy the CI prompt)
+echo "node-a" | "$PULSAR_BIN" > /dev/null
 
 # Force a shadow backup
 echo -e "  -> Generating shadow backup on Node A..."
-uv run git-pulsar now > /dev/null
+"$PULSAR_BIN" now > /dev/null
 
 echo -e "  -> Setting up Node B (Simulated Mac 2)..."
 cd "$TEST_DIR"
 git clone "$REMOTE" "$MAC2_DIR" 2> /dev/null
 cd "$MAC2_DIR"
-export XDG_STATE_HOME="$TEST_DIR/state_mac2"
 
-# Initialize registry
-uv run git-pulsar > /dev/null
+# Isolate HOME
+export HOME="$TEST_DIR/home_mac2"
+export XDG_STATE_HOME="$TEST_DIR/state_mac2"
+mkdir -p "$HOME"
+
+# Initialize registry with a unique machine name
+echo "node-b" | "$PULSAR_BIN" > /dev/null
 
 echo -e "  -> Executing Sync Phase on Node B..."
-echo "y" | uv run git-pulsar sync > /dev/null
+echo "y" | "$PULSAR_BIN" sync > /dev/null
 
 # Assertions
 if [ ! -f "main.py" ]; then
