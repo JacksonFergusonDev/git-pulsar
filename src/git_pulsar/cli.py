@@ -1009,6 +1009,113 @@ class PulsarHelpFormatter(argparse.HelpFormatter):
         return super()._format_action(action)
 
 
+def show_config_reference() -> None:
+    """Displays a formatted table of all available configuration options."""
+    from rich.table import Table
+
+    table = Table(title="Git Pulsar Configuration Schema", show_lines=True)
+    table.add_column("Section", style="cyan", justify="right")
+    table.add_column("Key", style="green")
+    table.add_column("Type", style="dim")
+    table.add_column("Default", style="yellow")
+    table.add_column("Description")
+
+    # Core Settings
+    table.add_row(
+        "core",
+        "backup_branch",
+        "str",
+        '"wip/pulsar"',
+        "The Git namespace used for shadow commits.",
+    )
+    table.add_row(
+        "", "remote_name", "str", '"origin"', "The remote target for pushing backups."
+    )
+
+    # Daemon Settings
+    table.add_row(
+        "daemon",
+        "preset",
+        "str",
+        "None",
+        "Interval preset: 'paranoid', 'aggressive', 'balanced', or 'lazy'.",
+    )
+    table.add_row(
+        "", "commit_interval", "int", "600", "Seconds between local state captures."
+    )
+    table.add_row("", "push_interval", "int", "3600", "Seconds between remote pushes.")
+    table.add_row(
+        "",
+        "min_battery_percent",
+        "int",
+        "10",
+        "Stops all daemon activity if battery drops below this.",
+    )
+    table.add_row(
+        "",
+        "eco_mode_percent",
+        "int",
+        "20",
+        "Suspends remote pushes if battery drops below this.",
+    )
+
+    # Files Settings
+    table.add_row(
+        "files", "ignore", "list", "[]", "Extra glob patterns to append to .gitignore."
+    )
+    table.add_row(
+        "",
+        "manage_gitignore",
+        "bool",
+        "true",
+        "Allow daemon to automatically add rules to .gitignore.",
+    )
+
+    # Limits Settings
+    table.add_row(
+        "limits",
+        "max_log_size",
+        "int",
+        "5242880",
+        "Max bytes for log files before rotation (default: 5MB).",
+    )
+    table.add_row(
+        "",
+        "large_file_threshold",
+        "int",
+        "104857600",
+        "Max file size before aborting a backup (default: 100MB).",
+    )
+
+    # Env Settings (from our previous implementation)
+    table.add_row(
+        "env",
+        "python_version",
+        "str",
+        '"3.12"',
+        "Target Python version for the uv virtual environment.",
+    )
+    table.add_row(
+        "", "venv_dir", "str", '".venv"', "Directory name for the virtual environment."
+    )
+    table.add_row(
+        "",
+        "generate_vscode_settings",
+        "bool",
+        "true",
+        "Generate workspace settings for VS Code.",
+    )
+    table.add_row(
+        "",
+        "generate_direnv",
+        "bool",
+        "true",
+        "Generate .envrc for automatic environment activation.",
+    )
+
+    console.print(table)
+
+
 def main() -> None:
     """Main entry point for the Git Pulsar CLI."""
     parser = argparse.ArgumentParser(
@@ -1075,7 +1182,16 @@ def main() -> None:
     subparsers.add_parser("remove", help="Stop tracking current repo")
     subparsers.add_parser("sync", help="Sync with latest session")
     subparsers.add_parser("doctor", help="Clean registry and check health")
-    subparsers.add_parser("config", help="Open global config file")
+
+    config_parser = subparsers.add_parser(
+        "config", help="Open global config file or view options"
+    )
+    config_parser.add_argument(
+        "--list",
+        "-l",
+        action="store_true",
+        help="List all available configuration options and their descriptions",
+    )
 
     ignore_parser = subparsers.add_parser("ignore", help="Add pattern to .gitignore")
     ignore_parser.add_argument("pattern", help="File pattern (e.g. '*.log')")
@@ -1152,7 +1268,10 @@ def main() -> None:
         tail_log()
         return
     elif args.command == "config":
-        open_config()
+        if getattr(args, "list", False):
+            show_config_reference()
+        else:
+            open_config()
         return
 
     # Default Action (if no subcommand is run, or after --env)
