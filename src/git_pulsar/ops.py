@@ -235,6 +235,9 @@ def bootstrap_env() -> None:
     else:
         console.print("   Existing pyproject.toml found. Skipping init.")
 
+    # 2.5 Safety: Explicitly ignore the configured venv directory
+    add_ignore(f"{config.env.venv_dir}/")
+
     # 3. Direnv Configuration
     if config.env.generate_direnv:
         envrc_path = cwd / ".envrc"
