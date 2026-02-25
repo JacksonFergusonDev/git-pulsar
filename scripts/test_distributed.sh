@@ -55,11 +55,15 @@ git clone "$REMOTE" "$MAC1_DIR" 2> /dev/null
 cd "$MAC1_DIR"
 export XDG_STATE_HOME="$TEST_DIR/state_mac1"
 
-# Initialize registry and generate initial state
-uv run git-pulsar config > /dev/null
+# 1. Make the initial commit and push FIRST
 echo "print('hello distributed world')" > main.py
-git add main.py && git commit -m "Initial commit" > /dev/null
-git push origin main 2> /dev/null
+git add main.py
+git commit -m "Initial commit" > /dev/null
+git branch -M main
+git push -u origin main > /dev/null 2>&1
+
+# 2. NOW initialize Pulsar (which does a dry-run push internally)
+uv run git-pulsar > /dev/null
 
 # Force a shadow backup
 echo -e "  -> Generating shadow backup on Node A..."
@@ -72,10 +76,10 @@ cd "$MAC2_DIR"
 export XDG_STATE_HOME="$TEST_DIR/state_mac2"
 
 # Initialize registry
-uv run git-pulsar config > /dev/null
+uv run git-pulsar > /dev/null
 
 echo -e "  -> Executing Sync Phase on Node B..."
-uv run git-pulsar sync > /dev/null
+echo "y" | uv run git-pulsar sync > /dev/null
 
 # Assertions
 if [ ! -f "main.py" ]; then
