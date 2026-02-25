@@ -952,9 +952,34 @@ def setup_repo(registry_path: Path = REGISTRY_FILE) -> None:
         )
 
 
+class PulsarHelpFormatter(argparse.HelpFormatter):
+    """Custom help formatter to streamline the CLI help output.
+
+    This formatter intercepts the subparser action and strips the default
+    metavar block (the unwieldy comma-separated list of all commands) and
+    its associated trailing newline, leaving only the cleanly indented
+    subcommand list.
+    """
+
+    def _format_action(self, action: argparse.Action) -> str:
+        if isinstance(action, argparse._SubParsersAction):
+            # Skip the container action entirely to avoid the {cmd1,cmd2} block
+            # and its blank line, formatting only the nested subactions.
+            parts = []
+            for subaction in self._iter_indented_subactions(action):
+                parts.append(self._format_action(subaction))
+            return self._join_parts(parts)
+
+        return super()._format_action(action)
+
+
 def main() -> None:
     """Main entry point for the Git Pulsar CLI."""
-    parser = argparse.ArgumentParser(description="Git Pulsar CLI")
+    parser = argparse.ArgumentParser(
+        description="Git Pulsar CLI",
+        usage=argparse.SUPPRESS,
+        formatter_class=PulsarHelpFormatter,
+    )
 
     # Global flags
     parser.add_argument(
@@ -965,7 +990,7 @@ def main() -> None:
     )
 
     subparsers = parser.add_subparsers(
-        dest="command", help="Service management commands"
+        dest="command",
     )
 
     # Subcommands
