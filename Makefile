@@ -1,4 +1,4 @@
-.PHONY: help install format lint typecheck test-unit test-dist test-cluster test clean all
+.PHONY: help install format lint typecheck test-unit test-dist test-cluster test ci clean all
 
 # --- ANSI Color Codes ---
 BLUE=\033[1;34m
@@ -30,7 +30,13 @@ lint: ## Run linters (Ruff and Markdown)
 	$(call PRINT_STAGE, Running Linters)
 	uv run ruff check .
 	uv run ruff format --check .
-	npx --yes markdownlint-cli "**/*.md" --ignore ".venv"
+	@if command -v markdownlint >/dev/null 2>&1; then \
+		markdownlint "**/*.md" --ignore ".venv"; \
+	elif command -v npx >/dev/null 2>&1; then \
+		npx --yes markdownlint-cli "**/*.md" --ignore ".venv"; \
+	else \
+		echo "$(YELLOW)⚠ 'markdownlint' and 'npx' not found. Skipping markdownlint. (Requires Node.js or markdownlint-cli)$(NC)"; \
+	fi
 
 typecheck: ## Run static type checking with Mypy
 	$(call PRINT_STAGE, Running Type Checks)
@@ -50,6 +56,9 @@ test-cluster: ## Spawn Tier 3 Multipass VM cluster for OS field testing
 
 test: test-unit test-dist ## Run all automated testing tiers (1 & 2)
 	@echo "\n$(GREEN)✔ All automated test tiers passed successfully.$(NC)"
+
+ci: install lint typecheck test ## Run the exact pipeline executed by GitHub Actions
+	@echo "\n$(GREEN)✔ Local CI pipeline completed successfully. Clear to push!$(NC)"
 
 clean: ## Remove cache directories and test artifacts
 	$(call PRINT_STAGE, Cleaning Workspace)
