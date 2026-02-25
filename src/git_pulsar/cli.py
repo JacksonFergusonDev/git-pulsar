@@ -882,6 +882,7 @@ def setup_repo(registry_path: Path = REGISTRY_FILE) -> None:
                                         Defaults to REGISTRY_FILE.
     """
     cwd = Path.cwd()
+    config = Config.load(cwd)
 
     # Ensure the directory is a git repository.
     if not (cwd / ".git").exists():
@@ -894,33 +895,38 @@ def setup_repo(registry_path: Path = REGISTRY_FILE) -> None:
     repo = GitRepo(cwd)
 
     # Trigger Identity Configuration (with Sync)
-    # We pass the repo so it can check 'origin' for collisions.
     system.configure_identity(repo)
 
     # Ensure a .gitignore file exists and contains default patterns.
-    gitignore = cwd / ".gitignore"
+    if config.files.manage_gitignore:
+        gitignore = cwd / ".gitignore"
 
-    if not gitignore.exists():
-        console.print("[dim]Creating basic .gitignore...[/dim]")
-        with open(gitignore, "w") as f:
-            f.write("\n".join(DEFAULT_IGNORES) + "\n")
+        if not gitignore.exists():
+            console.print("[dim]Creating basic .gitignore...[/dim]")
+            with open(gitignore, "w") as f:
+                f.write("\n".join(DEFAULT_IGNORES) + "\n")
+        else:
+            console.print(
+                "Existing .gitignore found. Checking for missing defaults...",
+                style="dim",
+            )
+            with open(gitignore) as f:
+                existing_content = f.read()
+
+            missing_defaults = [d for d in DEFAULT_IGNORES if d not in existing_content]
+
+            if missing_defaults:
+                console.print(
+                    f"Appending {len(missing_defaults)} missing ignores...", style="dim"
+                )
+                with open(gitignore, "a") as f:
+                    f.write("\n" + "\n".join(missing_defaults) + "\n")
+            else:
+                console.print("All defaults present.", style="dim")
     else:
         console.print(
-            "Existing .gitignore found. Checking for missing defaults...", style="dim"
+            "Skipping .gitignore management (manage_gitignore=false).", style="dim"
         )
-        with open(gitignore) as f:
-            existing_content = f.read()
-
-        missing_defaults = [d for d in DEFAULT_IGNORES if d not in existing_content]
-
-        if missing_defaults:
-            console.print(
-                f"Appending {len(missing_defaults)} missing ignores...", style="dim"
-            )
-            with open(gitignore, "a") as f:
-                f.write("\n" + "\n".join(missing_defaults) + "\n")
-        else:
-            console.print("All defaults present.", style="dim")
 
     # Register the repository path.
     console.print("Registering path...", style="dim")

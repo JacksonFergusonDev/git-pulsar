@@ -610,27 +610,34 @@ def add_ignore(pattern: str) -> None:
 
     If files matching the pattern are currently tracked, the user is prompted to
     stop tracking them (while keeping the files on disk).
+    Respects the config.files.manage_gitignore flag.
 
     Args:
         pattern (str): The file pattern to ignore (e.g., '*.log').
     """
     cwd = Path.cwd()
+    config = Config.load(cwd)
     gitignore = cwd / ".gitignore"
 
-    # 1. Append to .gitignore if not present.
-    content = ""
-    if gitignore.exists():
-        with open(gitignore) as f:
-            content = f.read()
+    # 1. Append to .gitignore if not present (and allowed by config).
+    if config.files.manage_gitignore:
+        content = ""
+        if gitignore.exists():
+            with open(gitignore) as f:
+                content = f.read()
 
-    if pattern in content:
-        console.print(f"[blue]INFO:[/blue] '{pattern}' is already in .gitignore.")
+        if pattern in content:
+            console.print(f"[blue]INFO:[/blue] '{pattern}' is already in .gitignore.")
+        else:
+            with open(gitignore, "a") as f:
+                prefix = "\n" if content and not content.endswith("\n") else ""
+                f.write(f"{prefix}{pattern}\n")
+            console.print(
+                f"[bold green]SUCCESS:[/bold green] Added '{pattern}' to .gitignore."
+            )
     else:
-        with open(gitignore, "a") as f:
-            prefix = "\n" if content and not content.endswith("\n") else ""
-            f.write(f"{prefix}{pattern}\n")
         console.print(
-            f"[bold green]SUCCESS:[/bold green] Added '{pattern}' to .gitignore."
+            f"[dim]INFO: Skipping .gitignore update for '{pattern}' (manage_gitignore=false).[/dim]"
         )
 
     # 2. Check if currently tracked and offer to remove from index.

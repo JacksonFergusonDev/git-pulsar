@@ -45,9 +45,11 @@ class FilesConfig:
 
     Attributes:
         ignore (list[str]): List of patterns to ignore (appended to defaults).
+        manage_gitignore (bool): Whether the daemon is allowed to modify .gitignore.
     """
 
     ignore: list[str] = field(default_factory=list)
+    manage_gitignore: bool = True
 
 
 @dataclass
