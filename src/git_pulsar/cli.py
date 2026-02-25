@@ -1006,9 +1006,18 @@ class PulsarHelpFormatter(argparse.HelpFormatter):
 def main() -> None:
     """Main entry point for the Git Pulsar CLI."""
     parser = argparse.ArgumentParser(
-        description="Git Pulsar CLI",
         usage=argparse.SUPPRESS,
         formatter_class=PulsarHelpFormatter,
+        add_help=False,  # Disable the default help injection
+    )
+
+    # Manually re-add the help flags but suppress them from the visual output
+    parser.add_argument(
+        "-h",
+        "--help",
+        action="help",
+        default=argparse.SUPPRESS,
+        help=argparse.SUPPRESS,
     )
 
     # Global flags
