@@ -1041,9 +1041,19 @@ def show_config_reference() -> None:
         "Interval preset: 'paranoid', 'aggressive', 'balanced', or 'lazy'.",
     )
     table.add_row(
-        "", "commit_interval", "int", "600", "Seconds between local state captures."
+        "",
+        "commit_interval",
+        "int | str",
+        '"10m"',
+        "Time between local state captures (e.g., '10m', '1hr', 600).",
     )
-    table.add_row("", "push_interval", "int", "3600", "Seconds between remote pushes.")
+    table.add_row(
+        "",
+        "push_interval",
+        "int | str",
+        '"1hr"',
+        "Time between remote pushes (e.g., '1hr', '30m', 3600).",
+    )
     table.add_row(
         "",
         "min_battery_percent",
@@ -1075,19 +1085,19 @@ def show_config_reference() -> None:
     table.add_row(
         "limits",
         "max_log_size",
-        "int",
-        "5242880",
-        "Max bytes for log files before rotation (default: 5MB).",
+        "int | str",
+        '"5mb"',
+        "Max size for log files before rotation (e.g., '5mb', '1gb').",
     )
     table.add_row(
         "",
         "large_file_threshold",
-        "int",
-        "104857600",
-        "Max file size before aborting a backup (default: 100MB).",
+        "int | str",
+        '"100mb"',
+        "Max file size before aborting a backup (e.g., '100mb', '2gb').",
     )
 
-    # Env Settings (from our previous implementation)
+    # Env Settings
     table.add_row(
         "env",
         "python_version",
