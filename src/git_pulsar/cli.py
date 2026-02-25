@@ -882,6 +882,7 @@ def setup_repo(registry_path: Path = REGISTRY_FILE) -> None:
                                         Defaults to REGISTRY_FILE.
     """
     cwd = Path.cwd()
+    config = Config.load(cwd)
 
     # Ensure the directory is a git repository.
     if not (cwd / ".git").exists():
@@ -894,33 +895,38 @@ def setup_repo(registry_path: Path = REGISTRY_FILE) -> None:
     repo = GitRepo(cwd)
 
     # Trigger Identity Configuration (with Sync)
-    # We pass the repo so it can check 'origin' for collisions.
     system.configure_identity(repo)
 
     # Ensure a .gitignore file exists and contains default patterns.
-    gitignore = cwd / ".gitignore"
+    if config.files.manage_gitignore:
+        gitignore = cwd / ".gitignore"
 
-    if not gitignore.exists():
-        console.print("[dim]Creating basic .gitignore...[/dim]")
-        with open(gitignore, "w") as f:
-            f.write("\n".join(DEFAULT_IGNORES) + "\n")
+        if not gitignore.exists():
+            console.print("[dim]Creating basic .gitignore...[/dim]")
+            with open(gitignore, "w") as f:
+                f.write("\n".join(DEFAULT_IGNORES) + "\n")
+        else:
+            console.print(
+                "Existing .gitignore found. Checking for missing defaults...",
+                style="dim",
+            )
+            with open(gitignore) as f:
+                existing_content = f.read()
+
+            missing_defaults = [d for d in DEFAULT_IGNORES if d not in existing_content]
+
+            if missing_defaults:
+                console.print(
+                    f"Appending {len(missing_defaults)} missing ignores...", style="dim"
+                )
+                with open(gitignore, "a") as f:
+                    f.write("\n" + "\n".join(missing_defaults) + "\n")
+            else:
+                console.print("All defaults present.", style="dim")
     else:
         console.print(
-            "Existing .gitignore found. Checking for missing defaults...", style="dim"
+            "Skipping .gitignore management (manage_gitignore=false).", style="dim"
         )
-        with open(gitignore) as f:
-            existing_content = f.read()
-
-        missing_defaults = [d for d in DEFAULT_IGNORES if d not in existing_content]
-
-        if missing_defaults:
-            console.print(
-                f"Appending {len(missing_defaults)} missing ignores...", style="dim"
-            )
-            with open(gitignore, "a") as f:
-                f.write("\n" + "\n".join(missing_defaults) + "\n")
-        else:
-            console.print("All defaults present.", style="dim")
 
     # Register the repository path.
     console.print("Registering path...", style="dim")
@@ -1003,6 +1009,123 @@ class PulsarHelpFormatter(argparse.HelpFormatter):
         return super()._format_action(action)
 
 
+def show_config_reference() -> None:
+    """Displays a formatted table of all available configuration options."""
+    from rich.table import Table
+
+    table = Table(title="Git Pulsar Configuration Schema", show_lines=True)
+    table.add_column("Section", style="cyan", justify="right")
+    table.add_column("Key", style="green")
+    table.add_column("Type", style="dim")
+    table.add_column("Default", style="yellow")
+    table.add_column("Description")
+
+    # Core Settings
+    table.add_row(
+        "core",
+        "backup_branch",
+        "str",
+        '"wip/pulsar"',
+        "The Git namespace used for shadow commits.",
+    )
+    table.add_row(
+        "", "remote_name", "str", '"origin"', "The remote target for pushing backups."
+    )
+
+    # Daemon Settings
+    table.add_row(
+        "daemon",
+        "preset",
+        "str",
+        "None",
+        "Interval preset: 'paranoid', 'aggressive', 'balanced', or 'lazy'.",
+    )
+    table.add_row(
+        "",
+        "commit_interval",
+        "int | str",
+        '"10m"',
+        "Time between local state captures (e.g., '10m', '1hr', 600).",
+    )
+    table.add_row(
+        "",
+        "push_interval",
+        "int | str",
+        '"1hr"',
+        "Time between remote pushes (e.g., '1hr', '30m', 3600).",
+    )
+    table.add_row(
+        "",
+        "min_battery_percent",
+        "int",
+        "10",
+        "Stops all daemon activity if battery drops below this.",
+    )
+    table.add_row(
+        "",
+        "eco_mode_percent",
+        "int",
+        "20",
+        "Suspends remote pushes if battery drops below this.",
+    )
+
+    # Files Settings
+    table.add_row(
+        "files", "ignore", "list", "[]", "Extra glob patterns to append to .gitignore."
+    )
+    table.add_row(
+        "",
+        "manage_gitignore",
+        "bool",
+        "true",
+        "Allow daemon to automatically add rules to .gitignore.",
+    )
+
+    # Limits Settings
+    table.add_row(
+        "limits",
+        "max_log_size",
+        "int | str",
+        '"5mb"',
+        "Max size for log files before rotation (e.g., '5mb', '1gb').",
+    )
+    table.add_row(
+        "",
+        "large_file_threshold",
+        "int | str",
+        '"100mb"',
+        "Max file size before aborting a backup (e.g., '100mb', '2gb').",
+    )
+
+    # Env Settings
+    table.add_row(
+        "env",
+        "python_version",
+        "str",
+        '"3.12"',
+        "Target Python version for the uv virtual environment.",
+    )
+    table.add_row(
+        "", "venv_dir", "str", '".venv"', "Directory name for the virtual environment."
+    )
+    table.add_row(
+        "",
+        "generate_vscode_settings",
+        "bool",
+        "true",
+        "Generate workspace settings for VS Code.",
+    )
+    table.add_row(
+        "",
+        "generate_direnv",
+        "bool",
+        "true",
+        "Generate .envrc for automatic environment activation.",
+    )
+
+    console.print(table)
+
+
 def main() -> None:
     """Main entry point for the Git Pulsar CLI."""
     parser = argparse.ArgumentParser(
@@ -1069,7 +1192,16 @@ def main() -> None:
     subparsers.add_parser("remove", help="Stop tracking current repo")
     subparsers.add_parser("sync", help="Sync with latest session")
     subparsers.add_parser("doctor", help="Clean registry and check health")
-    subparsers.add_parser("config", help="Open global config file")
+
+    config_parser = subparsers.add_parser(
+        "config", help="Open global config file or view options"
+    )
+    config_parser.add_argument(
+        "--list",
+        "-l",
+        action="store_true",
+        help="List all available configuration options and their descriptions",
+    )
 
     ignore_parser = subparsers.add_parser("ignore", help="Add pattern to .gitignore")
     ignore_parser.add_argument("pattern", help="File pattern (e.g. '*.log')")
@@ -1146,7 +1278,10 @@ def main() -> None:
         tail_log()
         return
     elif args.command == "config":
-        open_config()
+        if getattr(args, "list", False):
+            show_config_reference()
+        else:
+            open_config()
         return
 
     # Default Action (if no subcommand is run, or after --env)

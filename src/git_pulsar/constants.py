@@ -58,6 +58,7 @@ DEFAULT_IGNORES = [
     "*.aux",
     "*.log",
     ".DS_Store",
+    ".venv/",
 ]
 """list[str]: Default file patterns added to .gitignore during repository setup."""
 

@@ -90,3 +90,66 @@ def test_config_load_from_pyproject(tmp_path: Path) -> None:
     assert conf.core.remote_name == "backup"
     assert conf.daemon.preset == "paranoid"
     assert conf.daemon.commit_interval == 300
+
+
+def test_parse_size() -> None:
+    """Verifies that human-readable sizes are correctly converted to bytes."""
+    from git_pulsar.config import parse_size
+
+    assert parse_size(100) == 100
+    assert parse_size("100kb") == 102400
+    assert parse_size("10 MB") == 10485760
+    assert parse_size("1.5gb") == int(1.5 * 1024**3)
+
+    with pytest.raises(ValueError, match=r"Invalid size format '100 bits'"):
+        parse_size("100 bits")
+
+
+def test_parse_time() -> None:
+    """Verifies that human-readable times are correctly converted to seconds."""
+    from git_pulsar.config import parse_time
+
+    assert parse_time(50) == 50
+    assert parse_time("30s") == 30
+    assert parse_time("10 min") == 600
+    assert parse_time("2 hrs") == 7200
+    assert parse_time("1.5h") == 5400
+
+    with pytest.raises(ValueError, match=r"Invalid time format '10 lightyears'"):
+        parse_time("10 lightyears")
+
+
+def test_config_invalid_keys_and_values(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Verifies that unknown keys are ignored and invalid values fallback to defaults.
+
+    Args:
+        tmp_path (Path): Pytest fixture for a temporary directory.
+        caplog (pytest.LogCaptureFixture): Pytest fixture for capturing logs.
+    """
+    import logging
+
+    caplog.set_level(logging.WARNING)
+
+    local_toml = tmp_path / "pulsar.toml"
+    local_toml.write_text(
+        "[daemon]\n"
+        'commit_interval = "fast"\n'
+        'fake_setting = "ignored"\n'
+        "[limits]\n"
+        'max_log_size = "10 gallons"\n'
+    )
+
+    conf = Config.load(repo_path=tmp_path)
+
+    # Assert fallbacks to defaults
+    assert conf.daemon.commit_interval == 600
+    assert conf.limits.max_log_size == 5242880
+
+    # Assert warnings were logged
+    assert "Unknown config keys in [daemon]: fake_setting" in caplog.text
+    assert (
+        "Config error in [daemon].commit_interval: Invalid time format" in caplog.text
+    )
+    assert "Config error in [limits].max_log_size: Invalid size format" in caplog.text

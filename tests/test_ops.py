@@ -47,8 +47,9 @@ def test_bootstrap_env_scaffolds_files(tmp_path: Path, mocker: MagicMock) -> Non
     """Verifies that `bootstrap_env` creates the necessary configuration files.
 
     Checks for:
-    1. Execution of `uv init`.
-    2. Creation of `.envrc` with activation logic.
+    1. Execution of `uv init` with configured python version.
+    2. Creation of `.envrc` and VS Code settings using configured venv_dir.
+    3. Injection of venv_dir into .gitignore via add_ignore to prevent index bloat.
 
     Args:
         tmp_path (Path): Pytest fixture for a temporary directory.
@@ -60,15 +61,35 @@ def test_bootstrap_env_scaffolds_files(tmp_path: Path, mocker: MagicMock) -> Non
     mock_run = mocker.patch("subprocess.run")
     mocker.patch("git_pulsar.ops.console")
 
+    # 1. Mock the Config payload to use a custom venv_dir and python version
+    mock_config = mocker.patch("git_pulsar.ops.Config").load.return_value
+    mock_config.env.python_version = "3.12"
+    mock_config.env.venv_dir = ".custom_venv"
+    mock_config.env.generate_direnv = True
+    mock_config.env.generate_vscode_settings = True
+
+    # 2. Mock add_ignore so we can verify it gets called
+    mock_add_ignore = mocker.patch("git_pulsar.ops.add_ignore")
+
     ops.bootstrap_env()
 
+    # Assert `uv init` used the configured python version
     mock_run.assert_any_call(
         ["uv", "init", "--no-workspace", "--python", "3.12"], check=True
     )
 
+    # Assert .envrc was created with the custom venv directory
     envrc = tmp_path / ".envrc"
     assert envrc.exists()
-    assert "source .venv/bin/activate" in envrc.read_text()
+    assert "source .custom_venv/bin/activate" in envrc.read_text()
+
+    # Assert VS Code settings were created with the custom venv directory
+    settings = tmp_path / ".vscode" / "settings.json"
+    assert settings.exists()
+    assert ".custom_venv/bin/python" in settings.read_text()
+
+    # Assert our new safety measure triggered correctly
+    mock_add_ignore.assert_called_once_with(".custom_venv/")
 
 
 # Restore / Sync Tests

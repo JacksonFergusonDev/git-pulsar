@@ -1,4 +1,5 @@
 import logging
+import re
 import tomllib
 from dataclasses import dataclass, field, replace
 from pathlib import Path
@@ -11,6 +12,39 @@ from .constants import (
 )
 
 logger = logging.getLogger(APP_NAME)
+
+
+def parse_size(value: int | str) -> int:
+    """Converts human-readable size strings (e.g., '100MB') to bytes."""
+    if isinstance(value, int):
+        return value
+    match = re.match(r"^(\d+(?:\.\d+)?)\s*([kmg]b?)$", str(value).strip().lower())
+    if not match:
+        raise ValueError(f"Invalid size format '{value}'")
+    num, unit = float(match.group(1)), match.group(2)
+    multiplier = {
+        "k": 1024,
+        "kb": 1024,
+        "m": 1024**2,
+        "mb": 1024**2,
+        "g": 1024**3,
+        "gb": 1024**3,
+    }
+    return int(num * multiplier[unit])
+
+
+def parse_time(value: int | str) -> int:
+    """Converts human-readable time strings (e.g., '1hr', '30m') to seconds."""
+    if isinstance(value, int):
+        return value
+    match = re.match(
+        r"^(\d+(?:\.\d+)?)\s*(s|sec|m|min|h|hr)s?$", str(value).strip().lower()
+    )
+    if not match:
+        raise ValueError(f"Invalid time format '{value}'")
+    num, unit = float(match.group(1)), match.group(2)
+    multiplier = {"s": 1, "sec": 1, "m": 60, "min": 60, "h": 3600, "hr": 3600}
+    return int(num * multiplier[unit])
 
 
 @dataclass
@@ -45,9 +79,11 @@ class FilesConfig:
 
     Attributes:
         ignore (list[str]): List of patterns to ignore (appended to defaults).
+        manage_gitignore (bool): Whether the daemon is allowed to modify .gitignore.
     """
 
     ignore: list[str] = field(default_factory=list)
+    manage_gitignore: bool = True
 
 
 @dataclass
@@ -85,6 +121,23 @@ class DaemonConfig:
 
 
 @dataclass
+class EnvConfig:
+    """Environment scaffolding settings.
+
+    Attributes:
+        python_version (str): Target Python version for the virtual environment.
+        venv_dir (str): Name of the virtual environment directory.
+        generate_vscode_settings (bool): Whether to generate VS Code settings.
+        generate_direnv (bool): Whether to generate a .envrc file.
+    """
+
+    python_version: str = "3.12"
+    venv_dir: str = ".venv"
+    generate_vscode_settings: bool = True
+    generate_direnv: bool = True
+
+
+@dataclass
 class Config:
     """Global configuration aggregator.
 
@@ -93,12 +146,14 @@ class Config:
         limits (LimitsConfig): Resource limits.
         files (FilesConfig): File handling settings.
         daemon (DaemonConfig): Daemon behavior settings.
+        env (EnvConfig): Environment bootstrap settings.
     """
 
     core: CoreConfig = field(default_factory=CoreConfig)
     limits: LimitsConfig = field(default_factory=LimitsConfig)
     files: FilesConfig = field(default_factory=FilesConfig)
     daemon: DaemonConfig = field(default_factory=DaemonConfig)
+    env: EnvConfig = field(default_factory=EnvConfig)
 
     # Cache for the base global configuration
     _global_cache: "Config | None" = None
@@ -146,7 +201,6 @@ class Config:
             with open(path, "rb") as f:
                 data = tomllib.load(f)
 
-            # Navigate to the specific section if requested (for pyproject.toml)
             if section:
                 for key in section.split("."):
                     data = data.get(key, {})
@@ -156,14 +210,22 @@ class Config:
 
             # Merge Logic
             if "core" in data:
-                self.core = self._update_dataclass(self.core, data["core"])
+                self.core = self._update_dataclass("core", self.core, data["core"])
             if "limits" in data:
-                self.limits = self._update_dataclass(self.limits, data["limits"])
+                self.limits = self._update_dataclass(
+                    "limits", self.limits, data["limits"]
+                )
             if "daemon" in data:
-                self.daemon = self._update_dataclass(self.daemon, data["daemon"])
+                self.daemon = self._update_dataclass(
+                    "daemon", self.daemon, data["daemon"]
+                )
                 self.daemon.apply_preset()
+            if "env" in data:
+                self.env = self._update_dataclass("env", self.env, data["env"])
             if "files" in data:
-                new_ignores = data["files"].get("ignore", [])
+                # Extract ignore list to prevent it from being overwritten during dataclass update
+                new_ignores = data["files"].pop("ignore", [])
+                self.files = self._update_dataclass("files", self.files, data["files"])
                 if new_ignores:
                     self.files.ignore.extend(new_ignores)
                     self.files.ignore = list(dict.fromkeys(self.files.ignore))
@@ -174,8 +236,34 @@ class Config:
             logger.warning(f"Failed to load config from {path}: {e}")
 
     @staticmethod
-    def _update_dataclass(instance: Any, updates: dict) -> Any:
-        """Updates a dataclass instance with a dictionary of values."""
+    def _update_dataclass(section_name: str, instance: Any, updates: dict) -> Any:
+        """Updates a dataclass, warning on invalid keys and parsing human-readable formats."""
         valid_keys = instance.__dataclass_fields__.keys()
-        filtered_updates = {k: v for k, v in updates.items() if k in valid_keys}
+        filtered_updates = {}
+
+        # 1. Catch and warn about typos / unknown keys
+        invalid_keys = set(updates.keys()) - set(valid_keys)
+        if invalid_keys:
+            logger.warning(
+                f"Unknown config keys in [{section_name}]: {', '.join(invalid_keys)}. Ignoring."
+            )
+
+        # 2. Process valid keys
+        for k, v in updates.items():
+            if k not in valid_keys:
+                continue
+
+            try:
+                # Route specific keys through our parsers
+                if k in ["max_log_size", "large_file_threshold"]:
+                    filtered_updates[k] = parse_size(v)
+                elif k in ["commit_interval", "push_interval"]:
+                    filtered_updates[k] = parse_time(v)
+                else:
+                    filtered_updates[k] = v
+            except ValueError as e:
+                logger.warning(
+                    f"Config error in [{section_name}].{k}: {e}. Falling back to default."
+                )
+
         return replace(instance, **filtered_updates)
