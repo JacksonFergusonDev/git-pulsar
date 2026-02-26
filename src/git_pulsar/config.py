@@ -121,23 +121,6 @@ class DaemonConfig:
 
 
 @dataclass
-class EnvConfig:
-    """Environment scaffolding settings.
-
-    Attributes:
-        python_version (str): Target Python version for the virtual environment.
-        venv_dir (str): Name of the virtual environment directory.
-        generate_vscode_settings (bool): Whether to generate VS Code settings.
-        generate_direnv (bool): Whether to generate a .envrc file.
-    """
-
-    python_version: str = "3.12"
-    venv_dir: str = ".venv"
-    generate_vscode_settings: bool = True
-    generate_direnv: bool = True
-
-
-@dataclass
 class Config:
     """Global configuration aggregator.
 
@@ -146,14 +129,12 @@ class Config:
         limits (LimitsConfig): Resource limits.
         files (FilesConfig): File handling settings.
         daemon (DaemonConfig): Daemon behavior settings.
-        env (EnvConfig): Environment bootstrap settings.
     """
 
     core: CoreConfig = field(default_factory=CoreConfig)
     limits: LimitsConfig = field(default_factory=LimitsConfig)
     files: FilesConfig = field(default_factory=FilesConfig)
     daemon: DaemonConfig = field(default_factory=DaemonConfig)
-    env: EnvConfig = field(default_factory=EnvConfig)
 
     # Cache for the base global configuration
     _global_cache: "Config | None" = None
@@ -220,8 +201,6 @@ class Config:
                     "daemon", self.daemon, data["daemon"]
                 )
                 self.daemon.apply_preset()
-            if "env" in data:
-                self.env = self._update_dataclass("env", self.env, data["env"])
             if "files" in data:
                 # Extract ignore list to prevent it from being overwritten during dataclass update
                 new_ignores = data["files"].pop("ignore", [])
