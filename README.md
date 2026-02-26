@@ -170,24 +170,6 @@ git pulsar finalize
 
 ---
 
-## 🧬 Environment Bootstrap (macOS)
-
-Pulsar includes a one-click scaffolding tool to set up a modern, robust Python environment.
-
-```bash
-git pulsar --env
-```
-
-This bootstraps the current directory with:
-
-- **uv:** Initializes a project with fast package management and Python 3.12+ pinning.
-
-- **direnv:** Creates an .envrc for auto-activating virtual environments and hooking into the shell.
-
-- **VS Code:** Generates a .vscode/settings.json pre-configured to exclude build artifacts and use the local venv.
-
----
-
 ## 🛠 Command Reference
 
 ### Backup Management
@@ -279,7 +261,6 @@ ignore = ["*.tmp", "node_modules/"]
 *Focus: Making the invisible backup history tangible and explorable.*
 
 - [ ] **Time Machine UI:** A terminal-based visual browser for `git pulsar restore` that lets you scroll through file history and view side-by-side diffs.
-- [ ] **Universal Bootstrap:** Expand `git pulsar --env` to support Linux (apt/dnf) environments alongside macOS.
 
 ### Future Horizons
 
