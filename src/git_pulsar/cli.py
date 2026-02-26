@@ -1097,32 +1097,6 @@ def show_config_reference() -> None:
         "Max file size before aborting a backup (e.g., '100mb', '2gb').",
     )
 
-    # Env Settings
-    table.add_row(
-        "env",
-        "python_version",
-        "str",
-        '"3.12"',
-        "Target Python version for the uv virtual environment.",
-    )
-    table.add_row(
-        "", "venv_dir", "str", '".venv"', "Directory name for the virtual environment."
-    )
-    table.add_row(
-        "",
-        "generate_vscode_settings",
-        "bool",
-        "true",
-        "Generate workspace settings for VS Code.",
-    )
-    table.add_row(
-        "",
-        "generate_direnv",
-        "bool",
-        "true",
-        "Generate .envrc for automatic environment activation.",
-    )
-
     console.print(table)
 
 
@@ -1144,12 +1118,6 @@ def main() -> None:
     )
 
     # Global flags
-    parser.add_argument(
-        "--env",
-        "-e",
-        action="store_true",
-        help="Bootstrap macOS Python environment (uv, direnv, VS Code)",
-    )
 
     subparsers = parser.add_subparsers(
         dest="command",
@@ -1212,10 +1180,6 @@ def main() -> None:
     )
 
     args = parser.parse_args()
-
-    # Handle Environment Setup (Flag)
-    if args.env:
-        ops.bootstrap_env()
 
     # Handle Subcommands
     if args.command == "install-service":
@@ -1284,8 +1248,7 @@ def main() -> None:
             open_config()
         return
 
-    # Default Action (if no subcommand is run, or after --env)
-    # We always run setup_repo unless a service command explicitly exited.
+    # Default Action (if no subcommand is run)
     setup_repo()
 
 
