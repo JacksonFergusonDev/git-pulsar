@@ -42,9 +42,9 @@ typecheck: ## Run static type checking with Mypy
 	$(call PRINT_STAGE, Running Type Checks)
 	uv run mypy .
 
-test-unit: ## Run Tier 1 unit tests
+test-unit: ## Run Tier 1 unit tests with coverage
 	$(call PRINT_STAGE, Running Tier 1: Unit Tests)
-	uv run pytest
+	uv run pytest --cov
 
 test-dist: ## Run Tier 2 distributed sandbox tests
 	$(call PRINT_STAGE, Running Tier 2: Distributed Sandbox)

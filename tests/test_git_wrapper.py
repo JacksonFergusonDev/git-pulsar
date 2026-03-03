@@ -1,3 +1,4 @@
+import subprocess
 from pathlib import Path
 from unittest.mock import MagicMock
 
@@ -63,3 +64,52 @@ def test_diff_shortstat_regex_parsing(mocker: MagicMock, tmp_path: Path) -> None
     # Case 4: Empty diff (branch is up to date)
     mock_run.return_value = ""
     assert repo.diff_shortstat("main", "backup_ref") == (0, 0, 0)
+
+
+def test_git_plumbing_and_porcelain(tmp_path: Path) -> None:
+    """Verifies the execution of high-level and plumbing git commands."""
+    # Initialize a real local repository
+    subprocess.run(["git", "init", "-b", "main"], cwd=tmp_path, check=True)
+
+    # Configure dummy identity for CI environments
+    subprocess.run(
+        ["git", "config", "user.name", "Test Runner"], cwd=tmp_path, check=True
+    )
+    subprocess.run(
+        ["git", "config", "user.email", "test@example.com"], cwd=tmp_path, check=True
+    )
+
+    repo = GitRepo(tmp_path)
+
+    assert repo.current_branch() == "main"
+
+    # Test tracking and porcelain output
+    test_file = tmp_path / "orbit_kinematics.py"
+    test_file.write_text("import numpy as np\n")
+
+    status = repo.status_porcelain()
+    assert len(status) == 1
+    assert "??" in status[0]
+
+    repo.add_all()
+    assert "A " in repo.status_porcelain()[0]
+
+    repo.commit("Add initial orbital kinematic models")
+    assert len(repo.status_porcelain()) == 0
+
+    # Test plumbing functions (Tree and Commit object creation)
+    test_file.write_text("import numpy as np\n# Added perturbed orbit logic\n")
+    repo.add_all()
+
+    tree_sha = repo.write_tree()
+    assert len(tree_sha) == 40  # Standard SHA-1 length
+
+    parent_sha = repo.rev_parse("HEAD")
+    assert parent_sha is not None
+
+    commit_sha = repo.commit_tree(tree_sha, [parent_sha], "Shadow backup commit")
+    assert len(commit_sha) == 40
+
+    # Test checkout mechanics
+    repo.checkout(commit_sha)
+    assert repo.rev_parse("HEAD") == commit_sha
