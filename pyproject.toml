@@ -101,12 +101,18 @@ module = "tests.*"
 disallow_untyped_defs = false
 
 [tool.pytest.ini_options]
-addopts = "--cov=src --cov-report=term-missing"
+addopts = "--strict-markers"
 testpaths = ["tests"]
 pythonpath = ["."]
 
 [tool.coverage.run]
+source = ["src/git_pulsar"]
 omit = ["src/git_pulsar/service.py"]
+branch = true
+
+[tool.coverage.report]
+omit = ["src/git_pulsar/**/__init__.py"]
+show_missing = true
 
 [tool.bumpversion]
 current_version = "0.15.0"

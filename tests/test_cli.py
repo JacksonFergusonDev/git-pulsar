@@ -1,5 +1,6 @@
 """Tests for the Command Line Interface (CLI) module."""
 
+import datetime
 import os
 import time
 from pathlib import Path
@@ -808,3 +809,70 @@ def test_run_doctor_outputs_large_file_action(
     )
     assert "File >100MB detected" in output
     assert "Untrack the file or run 'git pulsar ignore <filename>'" in output
+
+
+def test_analyze_logs_parsing(tmp_path: Path, mocker: MagicMock) -> None:
+    """Verifies that the log analyzer correctly parses timestamps and filters by age."""
+    log_file = tmp_path / "daemon.log"
+    mocker.patch("git_pulsar.cli.LOG_FILE", log_file)
+
+    now = datetime.datetime.now()
+    stale_time = now - datetime.timedelta(days=2)
+
+    # Construct a log file with mixed severity and timestamps
+    lines = [
+        # 1. Stale error: Parsed successfully, dropped because it exceeds the threshold
+        f"[{stale_time.strftime('%Y-%m-%d %H:%M:%S')}] ERROR: Old telemetry dropped\n",
+        # 2. INFO line: Ignored entirely by the keyword filter
+        f"[{now.strftime('%Y-%m-%d %H:%M:%S')}] INFO: Syncing local session\n",
+        # 3. Valid recent error: Parsed and kept
+        f"[{now.strftime('%Y-%m-%d %H:%M:%S')}] ERROR: Sensor alignment failed\n",
+        # 4. Error without a bracket prefix: Bypasses strptime attempt, appended directly
+        "Traceback ERROR: Some unexpected failure occurred\n",
+        # 5. Malformed date format: Triggers the ValueError and is passed/dropped
+        "[Malformed Timestamp] ERROR: This triggers the except block\n",
+        # 6. Valid recent critical: Parsed and kept
+        f"[{now.strftime('%Y-%m-%d %H:%M:%S')}] CRITICAL: Core dump initiated\n",
+    ]
+    log_file.write_text("".join(lines))
+
+    errors = cli._analyze_logs(seconds=86400)
+
+    # Assert it drops the stale error, INFO line, and malformed date, but keeps the rest
+    assert len(errors) == 3
+    assert "Sensor alignment failed" in errors[0]
+    assert "Traceback ERROR" in errors[1]
+    assert "Core dump initiated" in errors[2]
+
+
+@pytest.mark.parametrize(
+    ("command", "mock_target"),
+    [
+        (["restore", "file.py"], "git_pulsar.cli.ops.restore_file"),
+        (["finalize"], "git_pulsar.cli.ops.finalize_work"),
+        (["pause"], "git_pulsar.cli.set_pause_state"),
+        (["resume"], "git_pulsar.cli.set_pause_state"),
+        (["diff"], "git_pulsar.cli.show_diff"),
+        (["list"], "git_pulsar.cli.list_repos"),
+        (["log"], "git_pulsar.cli.tail_log"),
+        (["sync"], "git_pulsar.cli.ops.sync_session"),
+        (["remove"], "git_pulsar.cli.unregister_repo"),
+        (["ignore", "*.log"], "git_pulsar.cli.add_ignore_cli"),
+        (["prune", "--days", "15"], "git_pulsar.cli.ops.prune_backups"),
+        (["uninstall-service"], "git_pulsar.cli.service.uninstall"),
+    ],
+)
+def test_cli_router_dispatches(
+    mocker: MagicMock, command: list[str], mock_target: str
+) -> None:
+    """Verifies that the main CLI loop routes subcommands to the correct operations."""
+    mocker.patch("sys.argv", ["git-pulsar"] + command)
+
+    # Intercept the target function so we don't trigger actual I/O or state mutations
+    mocked_func = mocker.patch(mock_target)
+
+    # Stub the rich console status context manager to prevent stdout noise
+    mocker.patch("git_pulsar.cli.console.status")
+
+    cli.main()
+    mocked_func.assert_called()
