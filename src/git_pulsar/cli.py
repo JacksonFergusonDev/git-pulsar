@@ -1,5 +1,6 @@
 import argparse
 import datetime
+import importlib.metadata
 import logging
 import os
 import subprocess
@@ -1114,6 +1115,14 @@ def main() -> None:
         action="help",
         default=argparse.SUPPRESS,
         help=argparse.SUPPRESS,
+    )
+
+    # Add the version flag here
+    parser.add_argument(
+        "--version",
+        action="version",
+        version=f"%(prog)s {importlib.metadata.version('git-pulsar')}",
+        help="Show the application version and exit.",
     )
 
     # Global flags
