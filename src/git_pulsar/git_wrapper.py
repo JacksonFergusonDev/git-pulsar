@@ -132,10 +132,7 @@ class GitRepo:
         self._run(cmd, capture=False)
 
     def add_all(self) -> None:
-        """
-        Stages all changes (modified, deleted, and untracked files)
-        in the working directory.
-        """
+        """Stages all changes (modified, deleted, and untracked files) in the working directory."""
         self._run(["add", "."], capture=False)
 
     def merge_squash(self, *branches: str) -> None:

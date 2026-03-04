@@ -12,7 +12,7 @@ repos:
 
   # 2. Python-specific toolchain
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.14.11
+    rev: v0.15.4
     hooks:
       - id: ruff-format
       - id: ruff
@@ -25,7 +25,7 @@ repos:
 
   # 3. Markdown linting
   - repo: https://github.com/igorshubovych/markdownlint-cli
-    rev: v0.47.0
+    rev: v0.48.0
     hooks:
       - id: markdownlint
         args: ["--fix"] # Automatically resolves formatting deviations
