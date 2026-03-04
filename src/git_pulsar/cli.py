@@ -60,8 +60,7 @@ def _get_ref(repo: GitRepo) -> str:
 
 
 def _analyze_logs(seconds: int = 86400) -> list[str]:
-    """
-    Scans the daemon log for error messages that occurred within a recent time window.
+    """Scans the daemon log for error messages that occurred within a recent time window.
 
     Args:
         seconds (int, optional): The number of seconds to look back. Defaults to 86400 (24h).
@@ -499,8 +498,8 @@ def _check_git_hooks(repo_path: Path) -> list[str]:
 
 
 def run_doctor() -> None:
-    """
-    Diagnoses system health, cleans the registry, and checks connectivity and logs.
+    """Diagnoses system health, cleans the registry, and checks connectivity and logs.
+
     Includes an interactive resolution queue for safe auto-fixes.
     """
     console.print("[bold]Pulsar Doctor[/bold]\n")

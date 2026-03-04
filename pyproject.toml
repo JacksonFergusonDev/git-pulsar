@@ -69,18 +69,27 @@ exclude = [
 # T20: Print (prevents accidentally leaving print() in CLI tools)
 # PT: Pytest style
 # C4: Comprehensions (better list/dict comp usage)
-select = ["E", "F", "I", "B", "UP", "SIM", "T20", "PT", "C4"]
-ignore = ["E501"] # Line length handled by formatter
+# D: Docstrings
+select = ["E", "F", "I", "B", "UP", "SIM", "T20", "PT", "C4", "D"]
+ignore = [
+    "E501",
+    "D100",   # Missing docstring in public module
+    "D104",   # Missing docstring in public package
+    "D107",   # Missing docstring in __init__
+]
 
 # Allow ignored variables (e.g. for unpacking)
 dummy-variable-rgx = "^(_+|(_+[a-zA-Z0-9_]*[a-zA-Z0-9]+?))$"
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"
 
 [tool.ruff.lint.isort]
 known-first-party = ["git_pulsar"]
 section-order = ["future", "standard-library", "third-party", "first-party", "local-folder"]
 
 [tool.ruff.lint.per-file-ignores]
-"tests/*.py" = ["T201"]
+"tests/*.py" = ["T201", "D"]
 
 [tool.ruff.format]
 quote-style = "double"
@@ -90,6 +99,9 @@ line-ending = "auto"
 
 [tool.mypy]
 python_version = "3.12"
+pretty = true
+show_error_codes = true
+show_error_context = true
 warn_return_any = true
 warn_unused_configs = true
 check_untyped_defs = true

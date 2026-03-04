@@ -22,8 +22,7 @@ logger = logging.getLogger(APP_NAME)
 
 
 def get_backup_ref(branch: str) -> str:
-    """
-    Constructs the fully qualified backup reference for the current machine and branch.
+    """Constructs the fully qualified backup reference for the current machine and branch.
 
     Args:
         branch (str): The name of the branch to back up.
