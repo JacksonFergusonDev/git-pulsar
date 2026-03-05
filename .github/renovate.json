@@ -8,6 +8,7 @@
   "schedule": [
     "before 4am on the first day of the month"
   ],
+  "rebaseWhen": "conflicted",
   "labels": [
     "dependencies",
     "chore"
@@ -19,7 +20,7 @@
   },
   "packageRules": [
     {
-      "description": "Require a package to be 2 weeks old before updating, but exclude vulnerability remediation from this wait.",
+      "description": "Don't open PRs until 2 weeks after release, matching the minimumReleaseAge.",
       "matchUpdateTypes": [
         "major",
         "minor",
@@ -28,10 +29,11 @@
         "digest",
         "lockFileMaintenance"
       ],
-      "minimumReleaseAge": "2 weeks"
+      "minimumReleaseAge": "2 weeks",
+      "prCreationOffset": "2 weeks"
     },
     {
-      "description": "Group all python dev-dependencies (ruff, mypy, pytest) into one PR and automerge them.",
+      "description": "Group all python dev-dependencies into one PR and automerge.",
       "matchFileNames": [
         "pyproject.toml"
       ],
@@ -42,7 +44,7 @@
       "automerge": true
     },
     {
-      "description": "Group GitHub Actions updates and automerge them.",
+      "description": "Group GitHub Actions updates and automerge.",
       "matchManagers": [
         "github-actions"
       ],
