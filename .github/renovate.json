@@ -8,6 +8,9 @@
   "schedule": [
     "before 4am on the first day of the month"
   ],
+  "internalChecksFilter": "strict",
+  "prCreation": "immediate",
+  "rebaseWhen": "conflicted",
   "labels": [
     "dependencies",
     "chore"
