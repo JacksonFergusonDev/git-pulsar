@@ -12,7 +12,7 @@ repos:
 
   # 2. Python-specific toolchain
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.15.4
+    rev: v0.15.5
     hooks:
       - id: ruff-format
       - id: ruff
@@ -31,7 +31,7 @@ repos:
         args: ["--fix"] # Automatically resolves formatting deviations
 
   - repo: https://github.com/renovatebot/pre-commit-hooks
-    rev: 43.55.1
+    rev: 43.59.2
     hooks:
       - id: renovate-config-validator
         files: '.github/renovate.json'
