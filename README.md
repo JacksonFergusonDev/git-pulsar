@@ -1,16 +1,30 @@
-# 🔭 Git Pulsar (v0.16.0)
+<!-- markdownlint-disable-file MD041 -->
+<div align="center">
 
-[![Tests](https://github.com/jacksonfergusondev/git-pulsar/actions/workflows/ci.yml/badge.svg)](https://github.com/jacksonfergusondev/git-pulsar/actions)
-[![Python 3.12+](https://img.shields.io/badge/python-3.12+-blue.svg)](https://www.python.org/downloads/)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![Style: Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
-[![Uses Rich](https://img.shields.io/badge/uses-rich-0A0A0A?logo=<SIMPLEICONS_SLUG>&logoColor=white)](https://github.com/Textualize/rich)
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="assets/readme-dark.svg">
+  <source media="(prefers-color-scheme: light)" srcset="assets/readme-light.svg">
+  <img alt="Git Pulsar Logo"
+       src="assets/readme-light.svg"
+       width="500"
+       style="max-width:100%; height:auto;">
+</picture>
 
 **Fault-tolerant state capture for distributed development.**
 
-> **Standard `git commit` conflates two distinct actions: *saving your work* (frequency: high, noise: high) and *publishing a feature* (frequency: low, signal: high).**
->
-> **Git Pulsar decouples them. It is a background daemon that provides high-frequency, out-of-band state capture, ensuring your work is immutable and recoverable without polluting your project history.**
+[![PyPI Version](https://img.shields.io/pypi/v/git-pulsar?style=flat-square&color=a78bfa&labelColor=0A0A0A&logo=pypi&logoColor=white)](https://pypi.org/project/git-pulsar/)
+[![CI](https://img.shields.io/github/actions/workflow/status/JacksonFergusonDev/git-pulsar/ci.yml?style=flat-square&color=a78bfa&labelColor=0A0A0A&label=CI)](https://github.com/JacksonFergusonDev/git-pulsar/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/actions/workflow/status/JacksonFergusonDev/git-pulsar/release.yml?style=flat-square&color=a78bfa&labelColor=0A0A0A&label=release)](https://github.com/JacksonFergusonDev/git-pulsar/actions/workflows/release.yml)
+[![Python](https://img.shields.io/badge/python-3.12+-a78bfa?style=flat-square&labelColor=0A0A0A&logo=python&logoColor=white)](https://www.python.org/downloads/)
+[![Uses Rich](https://img.shields.io/badge/uses-rich-a78bfa?style=flat-square&labelColor=0A0A0A&logo=rich&logoColor=white)](https://github.com/Textualize/rich)
+[![pre-commit](https://img.shields.io/badge/pre--commit-enabled-a78bfa?style=flat-square&labelColor=0A0A0A&logo=pre-commit&logoColor=white)](https://github.com/pre-commit/pre-commit)
+[![License](https://img.shields.io/badge/license-MIT-a78bfa?style=flat-square&labelColor=0A0A0A)](LICENSE)
+
+</div>
+
+**Standard `git commit` conflates two distinct actions: *saving your work* (frequency: high, noise: high) and *publishing a feature* (frequency: low, signal: high).**
+
+**Git Pulsar decouples them. It is a background daemon that provides high-frequency, out-of-band state capture, ensuring your work is immutable and recoverable without polluting your project history.**
 
 ## 📡 The Mission: Decoupling Signal from Noise
 

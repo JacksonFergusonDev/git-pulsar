@@ -146,8 +146,3 @@ commit_args = ""
 filename = "pyproject.toml"
 search = 'version = "{current_version}"'
 replace = 'version = "{new_version}"'
-
-[[tool.bumpversion.files]]
-filename = "README.md"
-search = "# 🔭 Git Pulsar (v{current_version})"
-replace = "# 🔭 Git Pulsar (v{new_version})"
