@@ -5,6 +5,12 @@ operational logic for creating high-frequency, non-intrusive "shadow backups"
 of local git repositories.
 """
 
+import contextlib
+import importlib.metadata
+
+with contextlib.suppress(importlib.metadata.PackageNotFoundError):
+    __version__ = importlib.metadata.version("git-pulsar")
+
 from . import (
     cli,
     config,

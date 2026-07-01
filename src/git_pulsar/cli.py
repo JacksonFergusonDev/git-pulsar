@@ -1,6 +1,5 @@
 import argparse
 import datetime
-import importlib.metadata
 import logging
 import os
 import subprocess
@@ -16,7 +15,7 @@ from rich.prompt import Confirm
 from rich.table import Table
 from rich.text import Text
 
-from . import daemon, ops, service, system
+from . import __version__, daemon, ops, service, system
 from .config import CONFIG_FILE, Config
 from .constants import (
     APP_NAME,
@@ -1121,7 +1120,7 @@ def main() -> None:
     parser.add_argument(
         "--version",
         action="version",
-        version=f"%(prog)s {importlib.metadata.version('git-pulsar')}",
+        version=f"%(prog)s {__version__}",
         help="Show the application version and exit.",
     )
 
