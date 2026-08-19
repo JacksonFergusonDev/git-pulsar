@@ -33,7 +33,9 @@ jobs:
         uv run ruff format --check .
 
     - name: Lint Markdown
-      run: npx --yes markdownlint-cli "**/*.md" --ignore ".venv"
+      uses: DavidAnson/markdownlint-cli2-action@8de2aa07cae85fd17c0b35642db70cf5495f1d25 # v24
+      with:
+        globs: '**/*.md'
 
     - name: Type check with Mypy
       run: uv run mypy .

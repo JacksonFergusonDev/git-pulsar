@@ -43,8 +43,8 @@ The `src/` directory contains the package source code. The architecture strictly
 ## Key Invariants
 
 1. **Index Isolation:** The `daemon` module MUST ALWAYS set `os.environ["GIT_INDEX_FILE"]` to a temporary path before performing write operations.
-2. **Zero-Destruction:** The `prune` logic in `ops.py` relies on strictly namespaced refspecs (`refs/heads/wip/pulsar/...`) and never touches standard heads.
-3. **Identity Stability:** The `system` module guarantees that a Machine ID persists across reboots, preventing "Split Brain" backup histories.
-4. **Configuration Precedence:** Local project configuration MUST always override global user settings to ensure repo-specific constraints (e.g., large file limits) are respected.
-5. **State Over Events (Zero-Latency):** The diagnostic engine (`cli.py`) MUST prioritize current repository state and local caches (e.g., `.git/pulsar_drift_state`) over historical log events or live network calls, ensuring the CLI never blocks the user's terminal while evaluating system health.
-6. **Interactive Safety:** Interactive control loops MUST explicitly prompt the user for confirmation before executing any destructive or state-altering operations (e.g., overwriting dirty files during restore, deleting locks, or modifying the registry).
+1. **Zero-Destruction:** The `prune` logic in `ops.py` relies on strictly namespaced refspecs (`refs/heads/wip/pulsar/...`) and never touches standard heads.
+1. **Identity Stability:** The `system` module guarantees that a Machine ID persists across reboots, preventing "Split Brain" backup histories.
+1. **Configuration Precedence:** Local project configuration MUST always override global user settings to ensure repo-specific constraints (e.g., large file limits) are respected.
+1. **State Over Events (Zero-Latency):** The diagnostic engine (`cli.py`) MUST prioritize current repository state and local caches (e.g., `.git/pulsar_drift_state`) over historical log events or live network calls, ensuring the CLI never blocks the user's terminal while evaluating system health.
+1. **Interactive Safety:** Interactive control loops MUST explicitly prompt the user for confirmation before executing any destructive or state-altering operations (e.g., overwriting dirty files during restore, deleting locks, or modifying the registry).

@@ -39,8 +39,6 @@ lint: sync
     uv run ruff format --check .
     if command -v markdownlint-cli2 >/dev/null 2>&1; then \
         markdownlint-cli2 "**/*.md" "#.venv" "#.pytest_cache" "#.mypy_cache" "#.ruff_cache" "#htmlcov"; \
-    elif command -v markdownlint >/dev/null 2>&1; then \
-        markdownlint "**/*.md" --ignore ".venv" --ignore ".pytest_cache" --ignore ".mypy_cache" --ignore ".ruff_cache" --ignore "htmlcov"; \
     elif command -v npx >/dev/null 2>&1; then \
         npx --yes markdownlint-cli2 "**/*.md" "#.venv" "#.pytest_cache" "#.mypy_cache" "#.ruff_cache" "#htmlcov"; \
     else \
