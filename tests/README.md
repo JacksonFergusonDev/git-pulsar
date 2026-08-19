@@ -87,34 +87,34 @@ Ensures the Python-to-Git subprocess boundary remains secure and predictable.
 
 ## Running Tests
 
-The test suite is centrally orchestrated via the `Makefile`.
+The test suite is centrally orchestrated via the `justfile`.
 
 **Run Tier 1 (Unit & Integration):**
 
 ```bash
-make test-unit
+just test-unit
 ```
 
 **Run Tier 2 (Distributed Sandbox):**
 
 ```bash
-make test-dist
+just test-dist
 ```
 
 **Run Tier 1 & Tier 2 sequentially (Default):**
 
 ```bash
-make test
+just test
 ```
 
 **Run the full CI Pipeline locally (Lint, Typecheck, Test):**
 
 ```bash
-make ci
+just ci
 ```
 
 **Provision the Tier 3 VM Cluster:**
 
 ```bash
-make test-cluster
+just test-cluster
 ```
