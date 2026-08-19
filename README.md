@@ -17,7 +17,7 @@
 [![Release](https://img.shields.io/github/actions/workflow/status/JacksonFergusonDev/git-pulsar/release.yml?style=flat-square&color=a78bfa&labelColor=0A0A0A&label=release)](https://github.com/JacksonFergusonDev/git-pulsar/actions/workflows/release.yml)
 [![Python](https://img.shields.io/badge/python-3.12+-a78bfa?style=flat-square&labelColor=0A0A0A&logo=python&logoColor=white)](https://www.python.org/downloads/)
 [![Uses Rich](https://img.shields.io/badge/uses-rich-a78bfa?style=flat-square&labelColor=0A0A0A&logo=rich&logoColor=white)](https://github.com/Textualize/rich)
-[![pre-commit](https://img.shields.io/badge/pre--commit-enabled-a78bfa?style=flat-square&labelColor=0A0A0A&logo=pre-commit&logoColor=white)](https://github.com/pre-commit/pre-commit)
+[![prek](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/j178/prek/master/docs/assets/badge-v0.json&style=flat-square&labelColor=0A0A0A&color=a78bfa)](https://github.com/j178/prek)
 [![License](https://img.shields.io/badge/license-MIT-a78bfa?style=flat-square&labelColor=0A0A0A)](LICENSE)
 
 </div>
@@ -94,10 +94,10 @@ The project utilizes a strict, multi-tiered testing architecture orchestrated vi
 1. **Tier 1: Property Fuzzing & Plumbing (Unit)**
    - Uses `pytest` and `Hypothesis` to fuzz critical registry paths and file manipulation logic.
    - Deeply mocks the OS layer and strictly asserts that the daemon only invokes non-destructive Git plumbing commands (`write-tree`, `commit-tree`), verifying it never touches the user's porcelain state.
-2. **Tier 2: Distributed Sandbox (Integration)**
+1. **Tier 2: Distributed Sandbox (Integration)**
    - Simulates a multi-node distributed environment entirely locally.
    - Exploits the `XDG_STATE_HOME` environment variable to spin up multiple isolated daemon instances that push and pull to a local bare remote, validating drift detection, session handoffs, and concurrent conflict resolution.
-3. **Tier 3: Chaos Engineering (OS-Level Field Tests)**
+1. **Tier 3: Chaos Engineering (OS-Level Field Tests)**
    - Fully automates the provisioning of ephemeral Ubuntu virtual machines (via Canonical's Multipass) to test OS-level integrations.
    - Validates `systemd` user timers, `sysfs` battery polling limits, and allows for safe, destructive testing on a live Linux filesystem without risking the host machine's source code.
 

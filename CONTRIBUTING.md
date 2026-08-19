@@ -3,8 +3,8 @@
 ## Reporting Bugs
 
 1. Check if the issue has already been reported.
-2. Open a new issue with a clear title and description.
-3. Include relevant logs (`git-pulsar log`) or reproduction steps.
+1. Open a new issue with a clear title and description.
+1. Include relevant logs (`git-pulsar log`) or reproduction steps.
 
 ## Development Setup
 
@@ -29,10 +29,10 @@ This project uses [uv](https://github.com/astral-sh/uv) for dependency managemen
 
 ### 3. Install Hooks
 
-   Set up pre-commit hooks to handle linting (Ruff) and type checking (Mypy) automatically.
+   Set up prek hooks to handle linting (Ruff) and type checking (Mypy) automatically.
 
    ```bash
-   pre-commit install
+   prek install
    ```
 
 ## Running Tests
