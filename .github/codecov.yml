@@ -8,16 +8,17 @@ coverage:
       default:
         target: auto
         threshold: 2%
-        if_not_found: success
+        if_not_found: error
         if_ci_failed: error
     patch:
       default:
         target: 60%
         threshold: 5%
         if_not_found: success
-        if_ci_failed: error
+        informational: true
 
-comment:
-  layout: "reach,diff,flags,files"
-  behavior: default
-  require_changes: false
+comment: false
+
+ignore:
+  - "tests/**"
+  - "**/__init__.py"
