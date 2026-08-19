@@ -21,10 +21,10 @@ This project uses [uv](https://github.com/astral-sh/uv) for dependency managemen
 
 ### 2. Environment Setup
 
-   We use a `Makefile` to orchestrate dev workflows. Install the environment and dependencies:
+   We use a `justfile` to orchestrate dev workflows. Install the environment and dependencies:
 
    ```bash
-   make install
+   just install
    ```
 
 ### 3. Install Hooks
@@ -44,7 +44,7 @@ We utilize a multi-tiered testing architecture to validate behavior safely.
 Standard unit testing for core logic.
 
 ```bash
-make test-unit
+just test-unit
 ```
 
 ### Tier 2: Distributed Sandbox
@@ -52,17 +52,17 @@ make test-unit
 Tests distributed system logic (syncing, drift detection, shadow commits) locally by simulating two isolated machines interacting with a bare remote.
 
 ```bash
-make test-dist
+just test-dist
 ```
 
-*Tip: Run `make test` to execute both Tier 1 and Tier 2 automatically.*
+*Tip: Run `just test` to execute both Tier 1 and Tier 2 automatically.*
 
 ### Tier 3: Field Testing (Linux VM)
 
 If you are modifying OS-level daemon logic, battery polling, or doing highly destructive testing, spin up a fully isolated Ubuntu VM. Requires [Multipass](https://multipass.run/).
 
 ```bash
-make test-cluster
+just test-cluster
 ```
 
 This provisions a VM, mounts your local source code as read-only, and drops you into a safe `~/playground` repository. Your local Mac repository remains 100% untouched. If you edit code on your Mac, simply run `reload-pulsar` inside the VM to instantly fetch your latest changes.
@@ -84,8 +84,8 @@ This provisions a VM, mounts your local source code as read-only, and drops you 
    Ensure your code passes the linters and automated test tiers locally.
 
    ```bash
-   make lint
-   make test
+   just lint
+   just test
    ```
 
 ### 4. Commit & Push

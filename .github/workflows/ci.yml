@@ -56,4 +56,4 @@ jobs:
         token: ${{ secrets.CODECOV_TOKEN }}
 
     - name: Run Tier 2 Distributed Sandbox
-      run: make test-dist
+      run: bash scripts/test_distributed.sh
