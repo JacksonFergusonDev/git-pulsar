@@ -14,7 +14,7 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest]
-        python-version: ["3.12", "3.14"]
+        python-version: ["3.12", "3.13", "3.14"]
 
     steps:
     - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
@@ -25,12 +25,15 @@ jobs:
         python-version: ${{ matrix.python-version }}
 
     - name: Install dependencies
-      run: uv sync --all-extras --dev
-
-    - name: Lint with Ruff
       run: |
-        uv run ruff check .
-        uv run ruff format --check .
+        uv sync
+        uv pip install pytest-github-actions-annotate-failures
+
+    - name: Run Ruff Linter
+      run: uv run ruff check --output-format=github .
+
+    - name: Run Ruff Formatter
+      run: uv run ruff format --check --output-format=github .
 
     - name: Lint Markdown
       uses: DavidAnson/markdownlint-cli2-action@8de2aa07cae85fd17c0b35642db70cf5495f1d25 # v24
@@ -40,22 +43,33 @@ jobs:
     - name: Type check with Mypy
       run: uv run mypy .
 
-    - name: Run Tier 1 Unit Tests With Coverage
+    - name: Run tests with coverage # (for Codecov)
+      if: ${{ matrix.os == 'ubuntu-latest' && matrix.python-version == '3.14' }}
       run: uv run pytest --cov --cov-report=xml --junitxml=junit.xml -o junit_family=legacy
+
+    - name: Run tests # (without coverage to avoid overhead on non-Codecov runs)
+      if: ${{ !(matrix.os == 'ubuntu-latest' && matrix.python-version == '3.14') }}
+      run: uv run pytest
 
     - name: Upload coverage to Codecov
       if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.14'
       uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v7
       with:
         token: ${{ secrets.CODECOV_TOKEN }}
+        files: coverage.xml
+        disable_search: true
+        name: coverage-ubuntu-py314
         fail_ci_if_error: true
 
     - name: Upload test analytics to Codecov
       if: ${{ matrix.os == 'ubuntu-latest' && matrix.python-version == '3.14' && !cancelled() }}
       uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v7
       with:
-        report_type: test_results
         token: ${{ secrets.CODECOV_TOKEN }}
+        files: junit.xml
+        disable_search: true
+        report_type: test_results
+        name: test-results-ubuntu-py314
 
     - name: Run Tier 2 Distributed Sandbox
       run: bash scripts/test_distributed.sh
