@@ -12,7 +12,7 @@ from pathlib import Path
 import argcomplete
 from rich.console import Console
 from rich.panel import Panel
-from rich.prompt import Confirm
+from rich.prompt import Confirm, Prompt
 from rich.table import Table
 from rich.text import Text
 
@@ -988,6 +988,102 @@ def setup_repo(registry_path: Path = REGISTRY_FILE) -> None:
             f"[dim]Diagnostic info: {e}[/dim]",
             style="bold yellow",
         )
+
+
+def init_wizard(advanced: bool, global_config: bool) -> None:
+    """Interactive wizard to configure Git Pulsar."""
+    console.print(
+        Panel.fit("[bold blue]Git Pulsar Initializer[/bold blue]", border_style="blue")
+    )
+
+    # 1. Ask Tier 1 Questions
+    sync_enabled = Confirm.ask(
+        "Do you want to enable multi-machine sync?", default=False
+    )
+
+    preset = Prompt.ask(
+        "Select a backup intensity preset",
+        choices=["paranoid", "aggressive", "balanced", "lazy", "custom"],
+        default="balanced",
+    )
+
+    # 2. Ask Tier 2 Questions (if advanced or custom)
+    commit_interval = ""
+    push_interval = ""
+    eco_mode_percent = ""
+    min_battery_percent = ""
+    large_file_threshold = ""
+
+    if advanced or preset == "custom":
+        console.print("\n[bold cyan]--- Advanced Configuration ---[/bold cyan]")
+        commit_interval = Prompt.ask(
+            "Local commit interval (e.g., 600s, 10m)", default="10m"
+        )
+        if sync_enabled:
+            push_interval = Prompt.ask(
+                "Remote push interval (e.g., 3600s, 1h)", default="1h"
+            )
+            eco_mode_percent = Prompt.ask(
+                "Eco mode battery threshold % (pauses pushes below this)", default="25"
+            )
+
+        min_battery_percent = Prompt.ask(
+            "Min battery threshold % (pauses local commits below this)", default="10"
+        )
+        large_file_threshold = Prompt.ask(
+            "Large file threshold (e.g., 100MB)", default="100MB"
+        )
+
+    # 3. Generate TOML
+    toml_lines = ["[daemon]"]
+    toml_lines.append(f"sync_enabled = {'true' if sync_enabled else 'false'}")
+
+    if preset != "custom":
+        toml_lines.append(f'preset = "{preset}"')
+
+    if commit_interval:
+        toml_lines.append(f'commit_interval = "{commit_interval}"')
+    if push_interval:
+        toml_lines.append(f'push_interval = "{push_interval}"')
+    if eco_mode_percent:
+        toml_lines.append(f"eco_mode_percent = {eco_mode_percent}")
+    if min_battery_percent:
+        toml_lines.append(f"min_battery_percent = {min_battery_percent}")
+
+    if large_file_threshold:
+        toml_lines.append("")
+        toml_lines.append("[limits]")
+        toml_lines.append(f'large_file_threshold = "{large_file_threshold}"')
+
+    toml_str = "\n".join(toml_lines) + "\n"
+
+    # 4. Write Configuration
+    target_file = CONFIG_FILE if global_config else Path.cwd() / "pulsar.toml"
+
+    if target_file.exists():
+        console.print(
+            f"\n[yellow]Configuration file {target_file.name} already exists.[/yellow]"
+        )
+        if not Confirm.ask("Overwrite it?"):
+            console.print("[red]Aborted configuration writing.[/red]")
+            return
+
+    try:
+        if global_config:
+            target_file.parent.mkdir(parents=True, exist_ok=True)
+
+        with open(target_file, "w") as f:
+            f.write(toml_str)
+        console.print(
+            f"\n[bold green]✔ Configuration written to {target_file}[/bold green]"
+        )
+    except Exception as e:
+        console.print(f"[bold red]Failed to write configuration: {e}[/bold red]")
+        return
+
+    # 5. Bootstrap the repository
+    console.print("\n[bold]Initializing repository...[/bold]")
+    setup_repo()
 
 
 class PulsarHelpFormatter(argparse.HelpFormatter):
