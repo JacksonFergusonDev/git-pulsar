@@ -246,6 +246,8 @@ git pulsar finalize
 
 Settings cascade from Global → Local. Local list options (like `ignore`) append to global ones.
 
+A comprehensive, self-documenting global configuration file (`~/.config/git-pulsar/config.toml`) is automatically generated the first time you initialize a repository with `git pulsar`, install the daemon, or run `git pulsar config`.
+
 ### Options
 
 | Section | Key | Default | Description |
@@ -258,12 +260,15 @@ Settings cascade from Global → Local. Local list options (like `ignore`) appen
 ### Example `~/.config/git-pulsar/config.toml`
 
 ```toml
+# Git Pulsar Global Configuration
+# Uncomment settings below to override their defaults.
+
 [daemon]
-preset = "balanced"
-eco_mode_percent = 25  # Throttles pushes if battery is low
+# preset = "balanced"
+# eco_mode_percent = 20
 
 [files]
-ignore = ["*.tmp", "node_modules/"]
+# ignore = ["*.tmp", "node_modules/"]
 ```
 
 ---
