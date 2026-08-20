@@ -43,7 +43,7 @@ def test_show_status_displays_timestamps(
     mock_strat.get_battery.return_value = (100, True)
 
     # Mock GitRepo
-    mock_cls = mocker.patch("git_pulsar.GitRepo")
+    mock_cls = mocker.patch("git_pulsar.cli.GitRepo")
     repo = mock_cls.return_value
     repo.status_porcelain.return_value = []
 
@@ -82,7 +82,7 @@ def test_check_repo_health_dynamic_threshold(
     conf = Config()
     conf.daemon.commit_interval = commit_interval
 
-    mock_repo = mocker.patch("git_pulsar.GitRepo").return_value
+    mock_repo = mocker.patch("git_pulsar.cli.GitRepo").return_value
     mock_repo.status_porcelain.return_value = ["M file.txt"]
     mocker.patch(
         "git_pulsar.cli._get_ref", return_value="refs/heads/wip/pulsar/mac/main"
@@ -154,7 +154,7 @@ def test_show_status_health_warning_large_file(
     mocker.patch("git_pulsar.cli.ops.has_large_files", return_value=True)
     mocker.patch("git_pulsar.cli.ops.get_drift_state", return_value=(0.0, 0))
 
-    mock_repo = mocker.patch("git_pulsar.GitRepo").return_value
+    mock_repo = mocker.patch("git_pulsar.cli.GitRepo").return_value
     mock_repo.status_porcelain.return_value = ["M big_file.bin"]
     mock_repo._run.return_value = "1600000000"
 
@@ -175,7 +175,7 @@ def test_show_status_drift_warning(
     mocker.patch("git_pulsar.system.get_registered_repos", return_value=[tmp_path])
     mocker.patch("git_pulsar.cli.ops.has_large_files", return_value=False)
 
-    mock_repo = mocker.patch("git_pulsar.GitRepo").return_value
+    mock_repo = mocker.patch("git_pulsar.cli.GitRepo").return_value
     mock_repo.status_porcelain.return_value = []
 
     current_time = time.time()
