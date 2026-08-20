@@ -149,18 +149,18 @@ Pulsar is designed to feel like a native git command.
 
 ### 1. Initialize & Identify
 
-Navigate to your project. The first time you run Pulsar, it will register the repo, **check for naming collisions**, and start the background protection loop.
+Navigate to your project. Run the interactive initialization wizard to register the repo, **check for naming collisions**, and start the background protection loop.
 
 ```bash
 cd ~/University/Astro401
-git pulsar
+git pulsar init
 ```
 
-*The daemon will now silently snapshot your work based on your configured intervals.*
+*The wizard will ask if you want to sync backups across machines and let you choose a backup frequency. Use `git pulsar init --advanced` for granular control.*
 
-### 2. Configure Your Intensity
+### 2. Fine-tune Your Configuration (Optional)
 
-Need high-frequency protection for a critical project? Set a preset or fine-tune the intervals in your project root.
+Need high-frequency protection for a critical project? You can manually edit the generated configuration file in your project root at any time.
 
 #### pulsar.toml
 

@@ -861,6 +861,7 @@ def test_analyze_logs_parsing(tmp_path: Path, mocker: MagicMock) -> None:
         (["ignore", "*.log"], "git_pulsar.cli.add_ignore_cli"),
         (["prune", "--days", "15"], "git_pulsar.cli.ops.prune_backups"),
         (["uninstall-service"], "git_pulsar.cli.service.uninstall"),
+        (["init"], "git_pulsar.cli.init_wizard"),
     ],
 )
 def test_cli_router_dispatches(
@@ -877,3 +878,73 @@ def test_cli_router_dispatches(
 
     cli.main()
     mocked_func.assert_called()
+
+
+def test_init_wizard_default(mocker: MagicMock, tmp_path: Path) -> None:
+    """Verifies that the init wizard correctly writes the default pulsar.toml configuration."""
+    mocker.patch.object(Path, "cwd", return_value=tmp_path)
+
+    mock_confirm = mocker.patch(
+        "git_pulsar.cli.Confirm.ask", side_effect=[True, False]
+    )  # Sync enabled, don't overwrite (though we check exists)
+    mock_prompt = mocker.patch("git_pulsar.cli.Prompt.ask", side_effect=["balanced"])
+    mock_setup = mocker.patch("git_pulsar.cli.setup_repo")
+
+    cli.init_wizard(advanced=False, global_config=False)
+
+    # Assert questions were asked
+    mock_confirm.assert_any_call(
+        "Do you want to enable multi-machine sync?", default=False
+    )
+    mock_prompt.assert_any_call(
+        "Select a backup intensity preset",
+        choices=["paranoid", "aggressive", "balanced", "lazy", "custom"],
+        default="balanced",
+    )
+
+    # Assert setup_repo called
+    mock_setup.assert_called_once()
+
+    # Verify file output
+    target_file = tmp_path / "pulsar.toml"
+    assert target_file.exists()
+    content = target_file.read_text()
+    assert "[daemon]" in content
+    assert "sync_enabled = true" in content
+    assert 'preset = "balanced"' in content
+
+
+def test_init_wizard_advanced(mocker: MagicMock, tmp_path: Path) -> None:
+    """Verifies that the init wizard prompts for advanced configurations and writes them."""
+    mocker.patch.object(Path, "cwd", return_value=tmp_path)
+
+    # Sync enabled
+    mock_confirm = mocker.patch("git_pulsar.cli.Confirm.ask", return_value=True)
+
+    # preset, commit_interval, push_interval, eco_mode_percent, min_battery_percent, large_file_threshold
+    mock_prompt = mocker.patch(
+        "git_pulsar.cli.Prompt.ask",
+        side_effect=["custom", "600s", "3600s", "30", "15", "500MB"],
+    )
+    mock_setup = mocker.patch("git_pulsar.cli.setup_repo")
+
+    cli.init_wizard(advanced=True, global_config=False)
+
+    # Assert
+    assert mock_confirm.called
+    assert mock_prompt.call_count == 6
+    mock_setup.assert_called_once()
+
+    # Verify file output
+    target_file = tmp_path / "pulsar.toml"
+    assert target_file.exists()
+    content = target_file.read_text()
+    assert "[daemon]" in content
+    assert "sync_enabled = true" in content
+    assert "preset = " not in content  # custom preset doesn't write 'preset'
+    assert 'commit_interval = "600s"' in content
+    assert 'push_interval = "3600s"' in content
+    assert "eco_mode_percent = 30" in content
+    assert "min_battery_percent = 15" in content
+    assert "[limits]" in content
+    assert 'large_file_threshold = "500MB"' in content
