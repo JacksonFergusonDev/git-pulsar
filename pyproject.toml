@@ -23,10 +23,19 @@ classifiers = [
 [project.urls]
 Repository = "https://github.com/jacksonfergusondev/git-pulsar"
 Issues = "https://github.com/jacksonfergusondev/git-pulsar/issues"
+PyPi = "https://pypi.org/project/git-pulsar/"
 
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.sdist]
+exclude = [
+    "/.github",
+    "/demo",
+    "/branding",
+    "/scripts",
+]
 
 [project.scripts]
 git-pulsar = "git_pulsar.cli:main"
@@ -44,72 +53,70 @@ dev = [
     "ruff>=0.14.13",
 ]
 
+# ==================================================
+# Tool Configuration
+# ==================================================
+
+# ---- ruff ---- #
+
 [tool.ruff]
 target-version = "py312"
-line-length = 88
-indent-width = 4
-
-exclude = [
-    ".git",
-    ".mypy_cache",
-    ".ruff_cache",
-    ".venv",
-    "build",
-    "dist",
-]
 
 [tool.ruff.lint]
-# E, W: Standard linting
-# F: Pyflakes (errors)
-# I: Isort (imports)
-# B: Bugbear (catches subtle bugs like mutable default args)
-# UP: Pyupgrade (modernizes syntax, e.g. types)
-# SIM: Simplify (refactors logic)
-# T20: Print (prevents accidentally leaving print() in CLI tools)
-# PT: Pytest style
-# C4: Comprehensions (better list/dict comp usage)
-# D: Docstrings
-select = ["E", "F", "I", "B", "UP", "SIM", "T20", "PT", "C4", "D"]
-ignore = [
-    "E501",
-    "D100",   # Missing docstring in public module
-    "D104",   # Missing docstring in public package
-    "D107",   # Missing docstring in __init__
+select = [
+    "A",   # flake8-builtins
+    "B",   # flake8-bugbear
+    "C4",  # flake8-comprehensions
+    "D",   # pydocstyle
+    "E",   # pycodestyle errors
+    "F",   # Pyflakes
+    "I",   # isort
+    "N",   # pep8-naming
+    "PT",  # flake8-pytest
+    "RET", # flake8-return
+    "RUF", # Ruff-specific
+    "SIM", # flake8-simplify
+    "T20", # flake8-print
+    "UP",  # pyupgrade
 ]
-
-# Allow ignored variables (e.g. for unpacking)
-dummy-variable-rgx = "^(_+|(_+[a-zA-Z0-9_]*[a-zA-Z0-9]+?))$"
+ignore = ["D100", "D104", "D107", "E501"]
 
 [tool.ruff.lint.pydocstyle]
 convention = "google"
 
 [tool.ruff.lint.isort]
 known-first-party = ["git_pulsar"]
-section-order = ["future", "standard-library", "third-party", "first-party", "local-folder"]
+section-order = [
+    "future",
+    "standard-library",
+    "third-party",
+    "first-party",
+    "local-folder",
+]
 
 [tool.ruff.lint.per-file-ignores]
 "tests/*.py" = ["T201", "D"]
+"scripts/*.py" = ["T201"]
 
-[tool.ruff.format]
-quote-style = "double"
-indent-style = "space"
-skip-magic-trailing-comma = false
-line-ending = "auto"
+# ---- mypy ---- #
 
 [tool.mypy]
+mypy_path = "src"
 python_version = "3.12"
+strict=true
 pretty = true
 show_error_codes = true
 show_error_context = true
-warn_return_any = true
-warn_unused_configs = true
-check_untyped_defs = true
-disallow_untyped_defs = true
-ignore_missing_imports = false
+explicit_package_bases = true
 
 [[tool.mypy.overrides]]
-module = "tests.*"
+module = ["tests.*"]
 disallow_untyped_defs = false
+disallow_incomplete_defs = false
+disallow_untyped_calls = false
+warn_return_any = false
+
+# ---- pytest ---- #
 
 [tool.pytest.ini_options]
 addopts = "--strict-markers"
@@ -124,25 +131,5 @@ branch = true
 [tool.coverage.report]
 omit = ["src/git_pulsar/**/__init__.py"]
 show_missing = true
-
-[tool.bumpversion]
-current_version = "0.16.0"
-parse = "(?P<major>\\d+)\\.(?P<minor>\\d+)\\.(?P<patch>\\d+)"
-serialize = ["{major}.{minor}.{patch}"]
-search = "{current_version}"
-replace = "{new_version}"
-regex = false
-ignore_missing_version = false
-tag = false
-sign_tags = false
-tag_name = "v{new_version}"
-tag_message = "Bump version: {current_version} → {new_version}"
-allow_dirty = false
-commit = true
-message = "chore: bump version {current_version} → {new_version}"
-commit_args = ""
-
-[[tool.bumpversion.files]]
-filename = "pyproject.toml"
-search = 'version = "{current_version}"'
-replace = 'version = "{new_version}"'
+skip_covered = true
+fail_under = 75
