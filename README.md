@@ -125,6 +125,22 @@ uv tool install git-pulsar
 git pulsar install-service --interval 300
 ```
 
+### Shell Completion
+
+Git Pulsar supports tab completion for Bash, Zsh, and Tcsh via `argcomplete`.
+To enable it globally, run:
+
+```bash
+uv tool install argcomplete
+register-python-argcomplete git-pulsar >> ~/.bashrc  # Or ~/.zshrc
+```
+
+Alternatively, you can evaluate it dynamically in your shell session:
+
+```bash
+eval "$(register-python-argcomplete git-pulsar)"
+```
+
 ---
 
 ## 🚀 The Pulsar Workflow

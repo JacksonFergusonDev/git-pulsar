@@ -9,6 +9,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
+import argcomplete
 from rich.console import Console
 from rich.panel import Panel
 from rich.prompt import Confirm
@@ -1187,6 +1188,7 @@ def main() -> None:
         "--days", type=int, default=30, help="Age in days (default: 30)"
     )
 
+    argcomplete.autocomplete(parser)
     args = parser.parse_args()
 
     # Handle Subcommands
