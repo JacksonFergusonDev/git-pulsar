@@ -16,10 +16,11 @@ from rich.table import Table
 from rich.text import Text
 
 from . import __version__, daemon, ops, service, system
-from .config import CONFIG_FILE, Config
+from .config import Config
 from .constants import (
     APP_NAME,
     BACKUP_NAMESPACE,
+    CONFIG_FILE,
     DEFAULT_IGNORES,
     LOG_FILE,
     PID_FILE,
@@ -759,7 +760,7 @@ def run_doctor() -> None:
 
         if is_healthy:
             console.print(
-                f"   [dim]ℹ {len(recent_errors)} transient error(s) logged in the last "
+                f"   [dim]i {len(recent_errors)} transient error(s) logged in the last "
                 f"{time_str}, but system automatically recovered.[/dim]"
             )
         else:
@@ -807,7 +808,7 @@ def run_doctor() -> None:
 
         if is_healthy:
             console.print(
-                f"   [dim]ℹ {len(recent_errors)} transient error(s) logged in the last "
+                f"   [dim]i {len(recent_errors)} transient error(s) logged in the last "
                 f"{time_str}, but system automatically recovered.[/dim]"
             )
         else:
@@ -1194,61 +1195,61 @@ def main() -> None:
             service.install(interval=args.interval)
         console.print("[bold green]✔ Service installed.[/bold green]")
         return
-    elif args.command == "help":
+    if args.command == "help":
         parser.print_help()
         return
-    elif args.command == "remove":
+    if args.command == "remove":
         unregister_repo()
         return
-    elif args.command == "sync":
+    if args.command == "sync":
         with console.status("Syncing with latest session...", spinner="dots"):
             ops.sync_session()
         console.print("[bold green]✔ Sync complete.[/bold green]")
         return
-    elif args.command == "doctor":
+    if args.command == "doctor":
         run_doctor()
         return
-    elif args.command == "ignore":
+    if args.command == "ignore":
         add_ignore_cli(args.pattern)
         return
-    elif args.command == "prune":
+    if args.command == "prune":
         with console.status("Pruning old backup refs...", spinner="dots"):
             ops.prune_backups(args.days)
         return
-    elif args.command == "uninstall-service":
+    if args.command == "uninstall-service":
         with console.status("Uninstalling service...", spinner="dots"):
             service.uninstall()
         console.print("[bold green]✔ Service uninstalled.[/bold green]")
         return
-    elif args.command == "now":
+    if args.command == "now":
         daemon.main(interactive=True)
         return
-    elif args.command == "restore":
+    if args.command == "restore":
         ops.restore_file(args.path, args.force)
         return
-    elif args.command == "finalize":
+    if args.command == "finalize":
         with console.status("Finalizing work (squashing backups)...", spinner="dots"):
             ops.finalize_work()
         return
-    elif args.command == "pause":
+    if args.command == "pause":
         set_pause_state(True)
         return
-    elif args.command == "resume":
+    if args.command == "resume":
         set_pause_state(False)
         return
-    elif args.command == "status":
+    if args.command == "status":
         show_status()
         return
-    elif args.command == "diff":
+    if args.command == "diff":
         show_diff()
         return
-    elif args.command == "list":
+    if args.command == "list":
         list_repos()
         return
-    elif args.command == "log":
+    if args.command == "log":
         tail_log()
         return
-    elif args.command == "config":
+    if args.command == "config":
         if getattr(args, "list", False):
             show_config_reference()
         else:

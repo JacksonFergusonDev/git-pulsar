@@ -19,7 +19,7 @@ def is_service_enabled() -> bool:
     if sys.platform == "darwin":
         res = subprocess.run(["launchctl", "list"], capture_output=True, text=True)
         return HOMEBREW_LABEL in res.stdout
-    elif sys.platform.startswith("linux"):
+    if sys.platform.startswith("linux"):
         res = subprocess.run(
             ["systemctl", "--user", "is-active", f"{APP_LABEL}.timer"],
             capture_output=True,
@@ -163,7 +163,7 @@ def uninstall() -> None:
         console.print("   [green]brew services stop git-pulsar[/green]\n")
         return
 
-    elif sys.platform.startswith("linux"):
+    if sys.platform.startswith("linux"):
         timer_name = f"{APP_LABEL}.timer"
         subprocess.run(
             ["systemctl", "--user", "disable", "--now", timer_name],

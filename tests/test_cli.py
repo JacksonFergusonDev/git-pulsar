@@ -10,10 +10,11 @@ import pytest
 
 from git_pulsar import cli
 from git_pulsar.config import Config
+from git_pulsar.git_wrapper import GitRepo
 
 
 def test_show_status_displays_timestamps(
-    tmp_path: Path, capsys: pytest.CaptureFixture, mocker: MagicMock
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], mocker: MagicMock
 ) -> None:
     """Verifies that `show_status` displays both commit and push timestamps.
 
@@ -114,7 +115,7 @@ def test_check_repo_health_dynamic_threshold(
 )
 def test_show_status_power_telemetry(
     tmp_path: Path,
-    capsys: pytest.CaptureFixture,
+    capsys: pytest.CaptureFixture[str],
     mocker: MagicMock,
     battery_pct: int,
     is_plugged: bool,
@@ -140,7 +141,7 @@ def test_show_status_power_telemetry(
 
 
 def test_show_status_health_warning_large_file(
-    tmp_path: Path, capsys: pytest.CaptureFixture, mocker: MagicMock
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], mocker: MagicMock
 ) -> None:
     """Verifies that large file pipeline blockers surface in the status dashboard."""
     (tmp_path / ".git").mkdir()
@@ -166,7 +167,7 @@ def test_show_status_health_warning_large_file(
 
 
 def test_show_status_drift_warning(
-    tmp_path: Path, capsys: pytest.CaptureFixture, mocker: MagicMock
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], mocker: MagicMock
 ) -> None:
     """Verifies that roaming radar divergence surfaces in the status dashboard."""
     (tmp_path / ".git").mkdir()
@@ -257,7 +258,7 @@ def test_setup_repo_triggers_identity_config(tmp_path: Path, mocker: MagicMock) 
     # Assert it was called with a GitRepo instance
     mock_config_id.assert_called_once()
     args = mock_config_id.call_args[0]
-    assert isinstance(args[0], cli.GitRepo)
+    assert isinstance(args[0], GitRepo)
 
 
 def test_check_systemd_linger_non_linux(mocker: MagicMock) -> None:
@@ -866,7 +867,7 @@ def test_cli_router_dispatches(
     mocker: MagicMock, command: list[str], mock_target: str
 ) -> None:
     """Verifies that the main CLI loop routes subcommands to the correct operations."""
-    mocker.patch("sys.argv", ["git-pulsar"] + command)
+    mocker.patch("sys.argv", ["git-pulsar", *command])
 
     # Intercept the target function so we don't trigger actual I/O or state mutations
     mocked_func = mocker.patch(mock_target)

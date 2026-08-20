@@ -215,7 +215,9 @@ class Config:
             logger.warning(f"Failed to load config from {path}: {e}")
 
     @staticmethod
-    def _update_dataclass(section_name: str, instance: Any, updates: dict) -> Any:
+    def _update_dataclass(
+        section_name: str, instance: Any, updates: dict[str, Any]
+    ) -> Any:
         """Updates a dataclass, warning on invalid keys and parsing human-readable formats."""
         valid_keys = instance.__dataclass_fields__.keys()
         filtered_updates = {}
