@@ -153,17 +153,47 @@ def _check_repo_health(path: Path, config: Config) -> str | None:
     return None
 
 
-def open_config() -> None:
-    """Opens the global configuration file in the system default editor."""
+def _ensure_global_config_exists() -> None:
+    """Creates the global config file with a comprehensive template if it does not exist."""
     if not CONFIG_FILE.exists():
         CONFIG_FILE.parent.mkdir(parents=True, exist_ok=True)
+        template = (
+            "# Git Pulsar Global Configuration\n"
+            "# Uncomment settings below to override their defaults.\n\n"
+            "[core]\n"
+            "# The namespace used for backup references.\n"
+            '# backup_branch = "wip/pulsar"\n'
+            "# The git remote to push backups to.\n"
+            '# remote_name = "origin"\n\n'
+            "[daemon]\n"
+            "# Configuration preset. Options: paranoid, aggressive, balanced, lazy\n"
+            '# preset = "balanced"\n'
+            "# Time between local backup commits\n"
+            '# commit_interval = "10m"\n'
+            "# Time between pushing to remote\n"
+            '# push_interval = "1h"\n'
+            "# Battery percentage floor for commits (pauses backups if battery is lower)\n"
+            "# min_battery_percent = 10\n"
+            "# Battery percentage floor for pushing to remotes (pauses pushes if battery is lower)\n"
+            "# eco_mode_percent = 20\n\n"
+            "[limits]\n"
+            "# Max bytes for log files before rotation\n"
+            '# max_log_size = "5MB"\n'
+            "# Max bytes for a file before triggering a warning (and ignoring it)\n"
+            '# large_file_threshold = "100MB"\n\n'
+            "[files]\n"
+            "# List of glob patterns to ignore for backups (appended to defaults)\n"
+            "# ignore = []\n"
+            "# Whether the daemon is allowed to modify .gitignore automatically\n"
+            "# manage_gitignore = true\n"
+        )
         with open(CONFIG_FILE, "w") as f:
-            f.write(
-                "# Git Pulsar Configuration\n\n"
-                "[daemon]\n"
-                "# Options: paranoid, aggressive, balanced, lazy\n"
-                '# preset = "balanced"\n'
-            )
+            f.write(template)
+
+
+def open_config() -> None:
+    """Opens the global configuration file in the system default editor."""
+    _ensure_global_config_exists()
 
     editor = os.environ.get("EDITOR")
     if not editor:
