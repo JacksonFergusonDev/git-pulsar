@@ -72,9 +72,9 @@ In a distributed environment (Laptop ↔ Desktop), state drift is inevitable.
 
 - **Decoupled Cycles:** Independent intervals for local commits and remote pushes. Save your battery while staying protected.
 - **Smart Identity:** Automatically detects naming collisions with other devices on the remote, ensuring unique backup streams for every machine.
-- **Roaming Radar:** The background daemon actively polls for topological drift, firing a cross-platform OS notification if another machine leapfrogs your local session so you can `sync` before conflicts arise.
+- **Roaming Radar:** *(Requires `sync_enabled = true`)* The background daemon actively polls for topological drift, firing a cross-platform OS notification if another machine leapfrogs your local session so you can `sync` before conflicts arise.
 - **Out-of-Band Indexing:** Backups are stored in a configured namespace (default: `refs/heads/wip/pulsar/...`). Your `git status`, `git branch`, and `git log` remain completely clean.
-- **Distributed Sessions:** Hop between machines. Pulsar tracks sessions per device and lets you `sync` to pick up exactly where you left off.
+- **Distributed Sessions:** *(Requires `sync_enabled = true`)* Hop between machines. Pulsar tracks sessions per device and lets you `sync` to pick up exactly where you left off.
 - **State-Aware Diagnostics:** The `doctor` command correlates transient log events with active system health to prevent alert fatigue, proactively scans for pipeline blockers, and offers an interactive queue to safely auto-fix common issues.
 - **Active Observability:** The `status` dashboard provides zero-latency power telemetry (e.g., Eco-Mode throttling) and immediately surfaces cached warnings for remote session drift and oversized files.
 - **Zero-Interference:**
@@ -255,6 +255,7 @@ A comprehensive, self-documenting global configuration file (`~/.config/git-puls
 | `daemon` | `preset` | `None` | Use `paranoid`, `aggressive`, `balanced`, or `lazy`. |
 | `daemon` | `commit_interval` | `600` | Seconds between local state captures. |
 | `daemon` | `push_interval` | `3600` | Seconds between remote pushes. |
+| `daemon` | `sync_enabled` | `false` | Enable to sync backups across machines. |
 | `limits` | `large_file_threshold` | `100MB` | Max file size before aborting a backup. |
 
 ### Example `~/.config/git-pulsar/config.toml`
@@ -264,11 +265,12 @@ A comprehensive, self-documenting global configuration file (`~/.config/git-puls
 # Uncomment settings below to override their defaults.
 
 [daemon]
-# preset = "balanced"
-# eco_mode_percent = 20
+preset = "balanced"
+sync_enabled = true      # Set to true to push backups and sync across machines
+eco_mode_percent = 25  # Throttles pushes if battery is low
 
 [files]
-# ignore = ["*.tmp", "node_modules/"]
+ignore = ["*.tmp", "node_modules/"]
 ```
 
 ---

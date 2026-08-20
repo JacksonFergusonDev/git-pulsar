@@ -72,6 +72,8 @@ cd "$MAC1_DIR"
 export HOME="$TEST_DIR/home_mac1"
 export XDG_STATE_HOME="$TEST_DIR/state_mac1"
 mkdir -p "$HOME"
+mkdir -p "$HOME/.config/git-pulsar"
+echo -e "[daemon]\nsync_enabled = true" > "$HOME/.config/git-pulsar/config.toml"
 
 # 1. Make the initial commit and push FIRST
 echo "print('hello distributed world')" > main.py
@@ -95,6 +97,8 @@ cd "$MAC2_DIR"
 export HOME="$TEST_DIR/home_mac2"
 export XDG_STATE_HOME="$TEST_DIR/state_mac2"
 mkdir -p "$HOME"
+mkdir -p "$HOME/.config/git-pulsar"
+echo -e "[daemon]\nsync_enabled = true" > "$HOME/.config/git-pulsar/config.toml"
 
 # Initialize registry with a unique machine name
 echo "node-b" | "$PULSAR_BIN" > /dev/null

@@ -118,6 +118,7 @@ def test_sync_session_success(mocker: MagicMock) -> None:
     Args:
         mocker (MagicMock): Pytest fixture for mocking.
     """
+    mocker.patch("git_pulsar.ops.Config.load").return_value.daemon.sync_enabled = True
     mocker.patch("git_pulsar.ops.GitRepo")
     repo = mocker.patch("git_pulsar.ops.GitRepo").return_value
     repo.current_branch.return_value = "main"

@@ -103,6 +103,7 @@ class DaemonConfig:
     min_battery_percent: int = 10
     eco_mode_percent: int = 20
     preset: str | None = None
+    sync_enabled: bool = False
 
     def apply_preset(self) -> None:
         """Overwrites intervals based on the selected preset."""

@@ -356,7 +356,7 @@ def run_backup(original_path_str: str, interactive: bool = False) -> None:
             return
 
         # --- ROAMING RADAR (DRIFT DETECTION) ---
-        if not interactive:
+        if not interactive and config.daemon.sync_enabled:
             last_check_ts, warned_ts = ops.get_drift_state(repo_path)
             current_time = time.time()
 
@@ -441,18 +441,19 @@ def run_backup(original_path_str: str, interactive: bool = False) -> None:
                         console.print(f"[green]Committed {repo_path.name}[/green]")
 
         # --- PUSH PHASE ---
-        current_local_ts = _get_ref_timestamp(repo, local_backup_ref)
-        last_push_ts = _get_ref_timestamp(repo, remote_backup_ref)
+        if config.daemon.sync_enabled:
+            current_local_ts = _get_ref_timestamp(repo, local_backup_ref)
+            last_push_ts = _get_ref_timestamp(repo, remote_backup_ref)
 
-        time_since_push = time.time() - last_push_ts
-        has_new_data = current_local_ts > last_push_ts
+            time_since_push = time.time() - last_push_ts
+            has_new_data = current_local_ts > last_push_ts
 
-        if has_new_data and (
-            time_since_push >= config.daemon.push_interval or interactive
-        ):
-            refspec = f"{local_backup_ref}:{local_backup_ref}"
-            # Pass config to _attempt_push
-            _attempt_push(repo, refspec, config, interactive)
+            if has_new_data and (
+                time_since_push >= config.daemon.push_interval or interactive
+            ):
+                refspec = f"{local_backup_ref}:{local_backup_ref}"
+                # Pass config to _attempt_push
+                _attempt_push(repo, refspec, config, interactive)
 
     except Exception:
         logger.exception(f"CRITICAL {repo_path.name}: Backup iteration failed")
