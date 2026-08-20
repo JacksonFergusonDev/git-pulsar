@@ -1260,6 +1260,19 @@ def main() -> None:
     )
 
     # Subcommands
+    init_parser = subparsers.add_parser(
+        "init", help="Interactive setup for the current repository"
+    )
+    init_parser.add_argument(
+        "--advanced", action="store_true", help="Show advanced configuration options"
+    )
+    init_parser.add_argument(
+        "--global",
+        dest="global_config",
+        action="store_true",
+        help="Write configuration to the global config file instead of pulsar.toml",
+    )
+
     install_parser = subparsers.add_parser(
         "install-service", help="Install the background daemon"
     )
@@ -1319,6 +1332,9 @@ def main() -> None:
     args = parser.parse_args()
 
     # Handle Subcommands
+    if args.command == "init":
+        init_wizard(advanced=args.advanced, global_config=args.global_config)
+        return
     if args.command == "install-service":
         _ensure_global_config_exists()
         with console.status("Installing background service...", spinner="dots"):
