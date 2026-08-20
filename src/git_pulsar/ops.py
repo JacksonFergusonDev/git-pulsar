@@ -234,6 +234,13 @@ def sync_session() -> None:
     the most recent one, and (after confirmation) resets the local working directory
     to match it. This facilitates "Smart Handoff" between devices.
     """
+    config = Config.load(Path.cwd())
+    if not config.daemon.sync_enabled:
+        console.print(
+            "[bold red]ERROR:[/bold red] Sync is disabled. Enable `sync_enabled = true` in your configuration."
+        )
+        sys.exit(1)
+
     repo = GitRepo(Path.cwd())
     current_branch = repo.current_branch()
 
@@ -351,23 +358,25 @@ def finalize_work() -> None:
 
     try:
         # 2. Sync with Remote.
-        with console.status(
-            "[bold blue]Syncing with origin...[/bold blue]", spinner="dots"
-        ):
-            try:
-                repo._run(["fetch", "origin", "main"], capture=True)
-                repo._run(
-                    [
-                        "fetch",
-                        "origin",
-                        f"refs/heads/{BACKUP_NAMESPACE}/*:refs/heads/{BACKUP_NAMESPACE}/*",
-                    ],
-                    capture=True,
-                )
-            except Exception as e:
-                console.print(
-                    f"[yellow][bold]WARNING:[/bold] Fetch warning: {e}[/yellow]"
-                )
+        config = Config.load(Path.cwd())
+        if config.daemon.sync_enabled:
+            with console.status(
+                "[bold blue]Syncing with origin...[/bold blue]", spinner="dots"
+            ):
+                try:
+                    repo._run(["fetch", "origin", "main"], capture=True)
+                    repo._run(
+                        [
+                            "fetch",
+                            "origin",
+                            f"refs/heads/{BACKUP_NAMESPACE}/*:refs/heads/{BACKUP_NAMESPACE}/*",
+                        ],
+                        capture=True,
+                    )
+                except Exception as e:
+                    console.print(
+                        f"[yellow][bold]WARNING:[/bold] Fetch warning: {e}[/yellow]"
+                    )
 
         # 3. Identify Backup Candidates for the current branch.
         candidates = repo.list_refs(f"refs/heads/{BACKUP_NAMESPACE}/*/{working_branch}")
