@@ -208,7 +208,7 @@ def restore_file(path_str: str, force: bool = False) -> None:
             if choice == "v":
                 repo.run_diff(backup_ref, file=path_str)
                 continue
-            elif choice == "c":
+            if choice == "c":
                 console.print("[bold red]ABORTED.[/bold red]")
                 sys.exit(0)
             elif choice == "o":

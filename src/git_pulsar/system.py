@@ -137,10 +137,9 @@ def get_system() -> SystemStrategy:
     """
     if sys.platform == "darwin":
         return MacOSStrategy()
-    elif sys.platform.startswith("linux"):
+    if sys.platform.startswith("linux"):
         return LinuxStrategy()
-    else:
-        return SystemStrategy()
+    return SystemStrategy()
 
 
 def get_machine_id_file() -> Path:

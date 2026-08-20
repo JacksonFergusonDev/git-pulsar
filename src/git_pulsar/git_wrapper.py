@@ -33,7 +33,7 @@ class GitRepo:
             raise ValueError(f"Not a git repository: {self.path}")
 
     def _run(
-        self, args: list[str], capture: bool = True, env: dict | None = None
+        self, args: list[str], capture: bool = True, env: dict[str, str] | None = None
     ) -> str:
         """Executes a Git command within the repository context.
 
@@ -202,7 +202,7 @@ class GitRepo:
             logger.debug(f"rev-parse failed for '{rev}': {e}")
             return None
 
-    def write_tree(self, env: dict | None = None) -> str:
+    def write_tree(self, env: dict[str, str] | None = None) -> str:
         """Creates a tree object from the current index.
 
         Args:
@@ -215,7 +215,11 @@ class GitRepo:
         return self._run(["write-tree"], env=env)
 
     def commit_tree(
-        self, tree: str, parents: list[str], message: str, env: dict | None = None
+        self,
+        tree: str,
+        parents: list[str],
+        message: str,
+        env: dict[str, str] | None = None,
     ) -> str:
         """Creates a commit object from a tree object.
 

@@ -239,7 +239,7 @@ def test_get_remote_drift_state_no_branch(tmp_path: Path, mocker: MagicMock) -> 
     repo = mock_cls.return_value
     repo.current_branch.return_value = ""
 
-    drift, ts, machine, warning = ops.get_remote_drift_state(tmp_path)
+    drift, ts, _machine, _warning = ops.get_remote_drift_state(tmp_path)
     assert not drift
     assert ts == 0
 
@@ -250,7 +250,7 @@ def test_get_remote_drift_state_fetch_fails(tmp_path: Path, mocker: MagicMock) -
     repo.current_branch.return_value = "main"
     repo._run.side_effect = Exception("Network offline")
 
-    drift, ts, machine, warning = ops.get_remote_drift_state(tmp_path)
+    drift, _ts, _machine, _warning = ops.get_remote_drift_state(tmp_path)
     assert not drift
 
 
@@ -284,7 +284,7 @@ def test_get_remote_drift_state_local_is_newer(
 
     repo._run.side_effect = mock_run_side_effect
 
-    drift, ts, machine, warning = ops.get_remote_drift_state(tmp_path)
+    drift, ts, _machine, _warning = ops.get_remote_drift_state(tmp_path)
     assert not drift
     assert ts == 0
 

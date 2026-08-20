@@ -10,10 +10,11 @@ import pytest
 
 from git_pulsar import cli
 from git_pulsar.config import Config
+from git_pulsar.git_wrapper import GitRepo
 
 
 def test_show_status_displays_timestamps(
-    tmp_path: Path, capsys: pytest.CaptureFixture, mocker: MagicMock
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], mocker: MagicMock
 ) -> None:
     """Verifies that `show_status` displays both commit and push timestamps.
 
@@ -42,7 +43,7 @@ def test_show_status_displays_timestamps(
     mock_strat.get_battery.return_value = (100, True)
 
     # Mock GitRepo
-    mock_cls = mocker.patch("git_pulsar.cli.GitRepo")
+    mock_cls = mocker.patch("git_pulsar.GitRepo")
     repo = mock_cls.return_value
     repo.status_porcelain.return_value = []
 
@@ -81,7 +82,7 @@ def test_check_repo_health_dynamic_threshold(
     conf = Config()
     conf.daemon.commit_interval = commit_interval
 
-    mock_repo = mocker.patch("git_pulsar.cli.GitRepo").return_value
+    mock_repo = mocker.patch("git_pulsar.GitRepo").return_value
     mock_repo.status_porcelain.return_value = ["M file.txt"]
     mocker.patch(
         "git_pulsar.cli._get_ref", return_value="refs/heads/wip/pulsar/mac/main"
@@ -114,7 +115,7 @@ def test_check_repo_health_dynamic_threshold(
 )
 def test_show_status_power_telemetry(
     tmp_path: Path,
-    capsys: pytest.CaptureFixture,
+    capsys: pytest.CaptureFixture[str],
     mocker: MagicMock,
     battery_pct: int,
     is_plugged: bool,
@@ -140,7 +141,7 @@ def test_show_status_power_telemetry(
 
 
 def test_show_status_health_warning_large_file(
-    tmp_path: Path, capsys: pytest.CaptureFixture, mocker: MagicMock
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], mocker: MagicMock
 ) -> None:
     """Verifies that large file pipeline blockers surface in the status dashboard."""
     (tmp_path / ".git").mkdir()
@@ -153,7 +154,7 @@ def test_show_status_health_warning_large_file(
     mocker.patch("git_pulsar.cli.ops.has_large_files", return_value=True)
     mocker.patch("git_pulsar.cli.ops.get_drift_state", return_value=(0.0, 0))
 
-    mock_repo = mocker.patch("git_pulsar.cli.GitRepo").return_value
+    mock_repo = mocker.patch("git_pulsar.GitRepo").return_value
     mock_repo.status_porcelain.return_value = ["M big_file.bin"]
     mock_repo._run.return_value = "1600000000"
 
@@ -166,7 +167,7 @@ def test_show_status_health_warning_large_file(
 
 
 def test_show_status_drift_warning(
-    tmp_path: Path, capsys: pytest.CaptureFixture, mocker: MagicMock
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], mocker: MagicMock
 ) -> None:
     """Verifies that roaming radar divergence surfaces in the status dashboard."""
     (tmp_path / ".git").mkdir()
@@ -174,7 +175,7 @@ def test_show_status_drift_warning(
     mocker.patch("git_pulsar.system.get_registered_repos", return_value=[tmp_path])
     mocker.patch("git_pulsar.cli.ops.has_large_files", return_value=False)
 
-    mock_repo = mocker.patch("git_pulsar.cli.GitRepo").return_value
+    mock_repo = mocker.patch("git_pulsar.GitRepo").return_value
     mock_repo.status_porcelain.return_value = []
 
     current_time = time.time()
@@ -257,7 +258,7 @@ def test_setup_repo_triggers_identity_config(tmp_path: Path, mocker: MagicMock) 
     # Assert it was called with a GitRepo instance
     mock_config_id.assert_called_once()
     args = mock_config_id.call_args[0]
-    assert isinstance(args[0], cli.GitRepo)
+    assert isinstance(args[0], GitRepo)
 
 
 def test_check_systemd_linger_non_linux(mocker: MagicMock) -> None:
@@ -866,7 +867,7 @@ def test_cli_router_dispatches(
     mocker: MagicMock, command: list[str], mock_target: str
 ) -> None:
     """Verifies that the main CLI loop routes subcommands to the correct operations."""
-    mocker.patch("sys.argv", ["git-pulsar"] + command)
+    mocker.patch("sys.argv", ["git-pulsar", *command])
 
     # Intercept the target function so we don't trigger actual I/O or state mutations
     mocked_func = mocker.patch(mock_target)
