@@ -16,6 +16,7 @@ def mock_config(mocker: MagicMock) -> Config:
     conf = Config()
     conf.daemon.commit_interval = 0
     conf.daemon.push_interval = 0
+    conf.daemon.sync_enabled = True
     mocker.patch("git_pulsar.daemon.Config.load", return_value=conf)
     return conf
 
