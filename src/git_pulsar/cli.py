@@ -912,6 +912,7 @@ def setup_repo(registry_path: Path = REGISTRY_FILE) -> None:
         registry_path (Path, optional): Path to the registry file.
                                         Defaults to REGISTRY_FILE.
     """
+    _ensure_global_config_exists()
     cwd = Path.cwd()
     config = Config.load(cwd)
 
@@ -1223,6 +1224,7 @@ def main() -> None:
 
     # Handle Subcommands
     if args.command == "install-service":
+        _ensure_global_config_exists()
         with console.status("Installing background service...", spinner="dots"):
             service.install(interval=args.interval)
         console.print("[bold green]✔ Service installed.[/bold green]")
