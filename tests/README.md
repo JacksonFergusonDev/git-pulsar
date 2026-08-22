@@ -22,6 +22,9 @@ This suite verifies the **Zero-Interference** architecture and **Decoupled Cycle
 - **Mocking the Environment:** We strictly enforce that the daemon cannot run unless `GIT_INDEX_FILE` is set to a temporary path.
 - **Plumbing Assertions:** We spy on the `subprocess` calls to ensure that *only* low-level plumbing commands (`git write-tree`, `git commit-tree`) are used. This proves that the user's high-level state (`git status`) remains untouched.
 - **Cycle Independence:** Verifies that local commits and remote pushes occur on independent intervals, ensuring high-frequency snapshots without battery-draining network calls.
+- **Skip & Push Guards:** Verifies daemon behavior under critical battery levels, eco-mode thresholds, system load, offline remotes, detached HEAD states, and paused repositories.
+- **Lock & Reachability Detection:** Validates detection of active operational locks (`MERGE_HEAD`), stale `index.lock` detection (>24h), and non-blocking TCP socket checks against SSH/HTTPS remote endpoints.
+- **Maintenance Lifecycle:** Verifies that weekly backup pruning runs on a strict 7-day cadence and avoids redundant maintenance passes.
 - **Roaming Radar:** Tests the background event loop's network polling throttle (15-minute intervals) and verifies that cross-platform OS interrupts (`SYSTEM.notify`) fire correctly when unacknowledged remote drift is detected.
 
 #### 3. Platform Identity Matrix (`test_system.py`)
@@ -30,6 +33,7 @@ Pulsar relies on stable machine identity to manage distributed sessions.
 
 - **The Problem:** macOS uses `IOPlatformUUID`, Linux uses `/etc/machine-id`, and fallback behavior is flaky.
 - **The Solution:** We mock low-level system calls (`ioreg`, file reads) to simulate specific OS environments, ensuring that a "Session Handoff" works correctly regardless of the OS topology.
+- **Telemetry & Load Monitoring:** Tests CPU load average boundary detection and cross-platform battery level parsing (`pmset` on macOS, sysfs `BAT0`/`BAT1` on Linux).
 
 #### 4. Topology Logic (`test_ops.py`)
 
@@ -40,7 +44,8 @@ Verifies the "State Reconciliation" engine and primitive operations.
 - **State Management:** Verifies atomic file I/O operations (`set_drift_state`) to ensure cross-process thread safety between the background daemon and foreground CLI.
 - **Drift Detection:** Tests the core logic for identifying when remote sessions leapfrog local ones, simulating various network failures and detached HEAD states.
 - **Pipeline Blockers:** Validates decoupled checks for oversized files (`has_large_files`), ensuring they safely abort operations and trigger system notifications without polluting the daemon's event loop.
-- **Interactive State Machines:** Validates the `Prompt.ask` control loop during dirty file restorations, ensuring branching paths (Overwrite, View Diff, Cancel) execute the correct `GitRepo` methods and exit gracefully.
+- **Interactive State Machines:** Validates the `Prompt.ask` control loop during dirty file restorations, ensuring branching paths (Overwrite, View Diff, Cancel, Force) execute the correct `GitRepo` methods and exit gracefully.
+- **Maintenance & Ignore Management:** Verifies retention-based backup pruning (`prune_backups`), garbage collection (`git gc --auto`), and exact-line `.gitignore` management.
 
 #### 5. Configuration Hierarchy (`test_config.py`)
 
@@ -57,7 +62,7 @@ Validates the state-aware diagnostic engine and user-facing CLI commands.
 - **Interactive Resolution Queue:** Tests the `doctor` command's two-stage pipeline, ensuring execution loops correctly apply confirmed auto-fixes (e.g., stale index lock removal, ghost registry cleanup) and safely bypass declined ones.
 - **State vs. Event Correlation:** Tests the `doctor` command by decoupling repository health (state) from daemon logs (events). We mock dynamic lookback windows to verify that naturally resolved transient anomalies are suppressed, while active correlated failures trigger alerts.
 - **Environment Simulation & Guidance:** Uses `tmp_path` and `mocker` to synthesize restrictive `.git/hooks`, offline networks, and Linux `systemd` configurations (`loginctl`) without executing side effects on the host, verifying exact stdout formatting for manual interventions.
-- **UI Determinism:** Ensures commands like `status` and `config` parse timestamps and route to standard system editors (`$EDITOR`, `nano`) correctly.
+- **UI Determinism & Management:** Ensures commands like `status`, `diff`, `list`, `unregister`, `pause`/`resume`, and `config` parse timestamps, manage registry files, and route to standard system editors (`$EDITOR`, `nano`) correctly.
 
 #### 7. Git Abstraction Layer (`test_git_wrapper.py`)
 
@@ -65,7 +70,7 @@ Ensures the Python-to-Git subprocess boundary remains secure and predictable.
 
 - **Command Construction:** Verifies that dynamic arguments—such as file-level diff targeting—correctly append necessary boundary markers (`--`) to prevent Git from misinterpreting file paths as revision hashes.
 - **Regex Parsing Determinism:** Validates the extraction of insertions, deletions, and changed files from variable `git diff --shortstat` output, ensuring the data pipeline doesn't break when Git omits empty clauses.
-- **Error Handling:** Ensures low-level subprocess failures are caught and logged rather than causing silent upstream crashes.
+- **Error Handling & Plumbing Safety:** Ensures low-level subprocess failures raise contextual `RuntimeError`s rather than causing silent upstream corruption, verifies atomic ref updates with `old_oid` guards, and tests tree commit failure handling.
 
 ---
 
