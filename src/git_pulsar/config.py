@@ -1,3 +1,4 @@
+import copy
 import logging
 import re
 import tomllib
@@ -157,8 +158,8 @@ class Config:
                 instance._merge_from_file(CONFIG_FILE)
             cls._global_cache = instance
 
-        # Start with a copy of the cached global config
-        instance = replace(cls._global_cache)
+        # Start with a deep copy of the cached global config
+        instance = copy.deepcopy(cls._global_cache)
 
         # 2. Load Local Config (if applicable)
         if repo_path:

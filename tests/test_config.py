@@ -153,3 +153,29 @@ def test_config_invalid_keys_and_values(
         "Config error in [daemon].commit_interval: Invalid time format" in caplog.text
     )
     assert "Config error in [limits].max_log_size: Invalid size format" in caplog.text
+
+
+def test_config_load_does_not_mutate_global_cache(
+    tmp_path: Path, mocker: MagicMock
+) -> None:
+    """Verifies that loading repo-specific overrides does not mutate the in-memory global cache."""
+    global_config_path = tmp_path / "global_config.toml"
+    global_config_path.write_text('[files]\nignore = ["*.global"]\n')
+    mocker.patch("git_pulsar.config.CONFIG_FILE", global_config_path)
+
+    # 1. Load global config
+    global_conf = Config.load()
+    assert global_conf.files.ignore == ["*.global"]
+
+    # 2. Load repo config with additional ignores
+    repo_path = tmp_path / "repo1"
+    repo_path.mkdir()
+    local_toml = repo_path / "pulsar.toml"
+    local_toml.write_text('[files]\nignore = ["*.local"]\n')
+    repo_conf = Config.load(repo_path=repo_path)
+    assert "*.global" in repo_conf.files.ignore
+    assert "*.local" in repo_conf.files.ignore
+
+    # 3. Verify global cache was not mutated
+    fresh_global = Config.load()
+    assert fresh_global.files.ignore == ["*.global"]
