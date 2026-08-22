@@ -179,3 +179,50 @@ def test_config_load_does_not_mutate_global_cache(
     # 3. Verify global cache was not mutated
     fresh_global = Config.load()
     assert fresh_global.files.ignore == ["*.global"]
+
+
+def test_generate_default_config_template() -> None:
+    """Verifies that generate_default_config_template produces a comprehensive and valid TOML template."""
+    import tomllib
+
+    from git_pulsar.config import (
+        CONFIG_SECTIONS_METADATA,
+        generate_default_config_template,
+    )
+
+    template = generate_default_config_template()
+
+    # Check all sections and keys are present
+    for section, fields in CONFIG_SECTIONS_METADATA.items():
+        assert f"[{section}]" in template
+        for f in fields:
+            assert f.key in template
+            assert f.description in template
+
+    # When uncommented, the template should be valid TOML
+    uncommented_lines = []
+    for line in template.splitlines():
+        if (line.startswith("# [") and line.endswith("]")) or (
+            line.startswith("# ") and "=" in line
+        ):
+            uncommented_lines.append(line[2:])
+        elif not line.startswith("#"):
+            uncommented_lines.append(line)
+
+    uncommented_toml = "\n".join(uncommented_lines)
+    parsed = tomllib.loads(uncommented_toml)
+    for section in CONFIG_SECTIONS_METADATA:
+        assert section in parsed
+
+
+def test_config_presets_unknown() -> None:
+    """Verifies that an unknown preset does not alter intervals and is handled safely."""
+    conf = Config()
+    original_commit = conf.daemon.commit_interval
+    original_push = conf.daemon.push_interval
+
+    conf.daemon.preset = "nonexistent_preset"
+    conf.daemon.apply_preset()
+
+    assert conf.daemon.commit_interval == original_commit
+    assert conf.daemon.push_interval == original_push
