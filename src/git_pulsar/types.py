@@ -5,9 +5,16 @@ NewType definitions for distinct identifiers and validated units, and structured
 dataclasses/NamedTuples) to replace raw primitive usage across the codebase.
 """
 
+from __future__ import annotations
+
+from collections.abc import Sequence
 from dataclasses import dataclass
 from enum import StrEnum
-from typing import NamedTuple, NewType
+from pathlib import Path
+from typing import TYPE_CHECKING, NamedTuple, NewType
+
+if TYPE_CHECKING:
+    from .config import Config
 
 # --- Enums (Fixed Sets of Values) ---
 
@@ -139,3 +146,53 @@ class BackupRefInfo:
     slug: MachineSlug
     machine_name: MachineName
     branch: BranchName
+
+
+# --- Parameter Objects (Introduce Parameter Object Pattern) ---
+
+
+@dataclass(frozen=True)
+class ServiceUnitConfig:
+    """Configuration parameters for installing a Linux systemd service unit.
+
+    Attributes:
+        unit_path (Path): Target path for the .service unit file.
+        executable (str): Path to the daemon executable.
+        interval (Seconds | int): Interval between backup runs in seconds. Defaults to 900.
+        log_path (Path | None): Path to the log file. Defaults to None.
+    """
+
+    unit_path: Path
+    executable: str
+    interval: Seconds | int = Seconds(900)
+    log_path: Path | None = None
+
+
+@dataclass(frozen=True)
+class BackupOptions:
+    """Execution options and configuration for a backup iteration.
+
+    Attributes:
+        config (Config): Merged configuration object for this repository.
+        interactive (bool): Whether running in interactive CLI mode vs. background daemon.
+    """
+
+    config: Config
+    interactive: bool = False
+
+
+@dataclass(frozen=True)
+class CommitTreeParams:
+    """Parameters for creating a commit object directly from a tree.
+
+    Attributes:
+        tree (TreeSHA | GitOID | str): SHA-1 hash of the tree object to commit.
+        parents (Sequence[GitOID | CommitSHA | str]): Parent commit SHA-1 hashes.
+        message (str): Commit message string.
+        env (dict[str, str] | None): Optional environment variables (e.g. custom GIT_INDEX_FILE).
+    """
+
+    tree: TreeSHA | GitOID | str
+    parents: Sequence[GitOID | CommitSHA | str]
+    message: str
+    env: dict[str, str] | None = None
