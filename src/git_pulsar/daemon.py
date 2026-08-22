@@ -97,6 +97,7 @@ def run_maintenance(repos: list[str]) -> None:
 
     # Update the timestamp for the next cycle.
     try:
+        state_file.parent.mkdir(parents=True, exist_ok=True)
         state_file.touch()
     except OSError as e:
         logger.error(f"MAINTENANCE ERROR: Could not update state file: {e}")
@@ -487,6 +488,7 @@ def setup_logging(interactive: bool) -> None:
         # Load fresh global config to get log limits
         conf = Config.load()
 
+        LOG_FILE.parent.mkdir(parents=True, exist_ok=True)
         file_handler = RotatingFileHandler(
             LOG_FILE,
             maxBytes=conf.limits.max_log_size,
@@ -526,6 +528,7 @@ def main(interactive: bool = False) -> None:
     # PID File Management.
     if not interactive:
         try:
+            PID_FILE.parent.mkdir(parents=True, exist_ok=True)
             with open(PID_FILE, "w") as f:
                 f.write(str(os.getpid()))
 

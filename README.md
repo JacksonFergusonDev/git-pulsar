@@ -82,7 +82,7 @@ In a distributed environment (Laptop ↔ Desktop), state drift is inevitable.
   - Detects if you are rebasing or merging and waits for you to finish.
   - Prevents accidental upload of large binaries (configurable threshold).
   - Fully compatible with Git linked worktrees and submodules.
-- **Cascading Config:** Settings are merged from global defaults, `~/.config/git-pulsar/config.toml`, and local `pulsar.toml` or `pyproject.toml` files.
+- **Cascading Config:** Settings are merged from global defaults, `$XDG_CONFIG_HOME/git-pulsar/config.toml` (or `~/.config/git-pulsar/config.toml`), and local `pulsar.toml` or `pyproject.toml` files.
 
 ---
 

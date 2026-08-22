@@ -1,6 +1,8 @@
 from pathlib import Path
 from unittest.mock import MagicMock
 
+import pytest
+
 from git_pulsar import system
 
 
@@ -196,3 +198,50 @@ def test_get_registered_repos_parses_cleanly(tmp_path: Path, mocker: MagicMock) 
     assert len(repos) == 2
     assert Path("/path/one") in repos
     assert Path("/path/two") in repos
+
+
+def test_macos_notify_passes_args_via_argv(mocker: MagicMock) -> None:
+    """Verifies that MacOSStrategy passes title and message via argv to prevent script injection."""
+    mock_run = mocker.patch("subprocess.run")
+
+    strategy = system.MacOSStrategy()
+    strategy.notify('Pulsar "Drift"', 'Message with "quotes" and $symbols')
+
+    mock_run.assert_called_once()
+    args, _ = mock_run.call_args
+    cmd = args[0]
+
+    assert cmd[0] == "osascript"
+    assert cmd[1] == "-e"
+    assert "on run argv" in cmd[2]
+    assert cmd[3] == 'Pulsar "Drift"'
+    assert cmd[4] == 'Message with "quotes" and $symbols'
+
+
+def test_linux_notify_executes_notify_send(mocker: MagicMock) -> None:
+    """Verifies that LinuxStrategy calls notify-send."""
+    mock_run = mocker.patch("subprocess.run")
+
+    strategy = system.LinuxStrategy()
+    strategy.notify("Test Title", "Test Message")
+
+    mock_run.assert_called_once_with(
+        ["notify-send", "Test Title", "Test Message"],
+        stderr=mocker.ANY,
+    )
+
+
+def test_xdg_config_home_respected(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Verifies that CONFIG_DIR respects the XDG_CONFIG_HOME environment variable."""
+    import importlib
+
+    import git_pulsar.constants
+
+    custom_xdg = tmp_path / "custom_config"
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(custom_xdg))
+
+    importlib.reload(git_pulsar.constants)
+
+    assert custom_xdg / "git-pulsar" == git_pulsar.constants.CONFIG_DIR

@@ -89,12 +89,17 @@ class MacOSStrategy(SystemStrategy):
             return 100, True
 
     def notify(self, title: str, message: str) -> None:
-        """Sends a notification using AppleScript."""
-        # Sanitize quotes to prevent AppleScript syntax errors.
-        clean_msg = message.replace('"', "'")
-        script = f'display notification "{clean_msg}" with title "{title}"'
+        """Sends a desktop notification using AppleScript."""
+        script = (
+            "on run argv\n"
+            "  display notification (item 2 of argv) with title (item 1 of argv)\n"
+            "end run"
+        )
         try:
-            subprocess.run(["osascript", "-e", script], stderr=subprocess.DEVNULL)
+            subprocess.run(
+                ["osascript", "-e", script, title, message],
+                stderr=subprocess.DEVNULL,
+            )
         except Exception as e:
             logger.warning(f"Notification failed: {e}")
 
