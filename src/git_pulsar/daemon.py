@@ -36,6 +36,19 @@ console = Console()
 err_console = Console(stderr=True)
 
 
+def _get_git_dir(repo_path: Path) -> Path:
+    """Resolves the git directory (.git or worktree gitdir)."""
+    dot_git = repo_path / ".git"
+    if dot_git.is_dir():
+        return dot_git
+    if dot_git.is_file():
+        try:
+            return GitRepo(repo_path).git_dir
+        except Exception:
+            pass
+    return dot_git
+
+
 @contextmanager
 def temporary_index(repo_path: Path) -> Iterator[dict[str, str]]:
     """Context manager for creating an isolated git index environment.
@@ -49,7 +62,7 @@ def temporary_index(repo_path: Path) -> Iterator[dict[str, str]]:
     Yields:
         dict[str, str]: A dictionary containing the modified environment variables.
     """
-    temp_index = repo_path / ".git" / "pulsar_index"
+    temp_index = _get_git_dir(repo_path) / "pulsar_index"
     env = os.environ.copy()
     env["GIT_INDEX_FILE"] = str(temp_index)
     try:
@@ -154,7 +167,7 @@ def is_repo_busy(repo_path: Path, interactive: bool = False) -> bool:
     Returns:
         bool: True if the repository is busy/locked, False otherwise.
     """
-    git_dir = repo_path / ".git"
+    git_dir = _get_git_dir(repo_path)
 
     # 1. Check for operational locks (e.g., MERGE_HEAD).
     for f in GIT_LOCK_FILES:
@@ -242,7 +255,7 @@ def _should_skip(repo_path: Path, config: Config, interactive: bool) -> str | No
     if not repo_path.exists():
         return "Path missing"
 
-    if (repo_path / ".git" / "pulsar_paused").exists():
+    if (_get_git_dir(repo_path) / "pulsar_paused").exists():
         return "Paused by user"
 
     if not interactive:
@@ -409,7 +422,9 @@ def run_backup(original_path_str: str, interactive: bool = False) -> None:
                 parents = []
                 if parent_backup := repo.rev_parse(local_backup_ref):
                     parents.append(parent_backup)
-                if parent_head := repo.rev_parse("HEAD"):
+                if (
+                    parent_head := repo.rev_parse("HEAD")
+                ) and parent_head not in parents:
                     parents.append(parent_head)
 
                 # Check for actual changes
@@ -438,11 +453,12 @@ def run_backup(original_path_str: str, interactive: bool = False) -> None:
 
         # --- PUSH PHASE ---
         if config.daemon.sync_enabled:
-            current_local_ts = _get_ref_timestamp(repo, local_backup_ref)
+            local_oid = repo.rev_parse(local_backup_ref)
+            remote_oid = repo.rev_parse(remote_backup_ref)
             last_push_ts = _get_ref_timestamp(repo, remote_backup_ref)
 
             time_since_push = time.time() - last_push_ts
-            has_new_data = current_local_ts > last_push_ts
+            has_new_data = bool(local_oid and local_oid != remote_oid)
 
             if has_new_data and (
                 time_since_push >= config.daemon.push_interval or interactive

@@ -67,6 +67,19 @@ class GitRepo:
         except subprocess.CalledProcessError as e:
             raise RuntimeError(f"Git error: {e.stderr or e}") from e
 
+    @property
+    def git_dir(self) -> Path:
+        """Resolves the absolute path to the git directory (.git or worktree gitdir)."""
+        dot_git = self.path / ".git"
+        if dot_git.is_dir():
+            return dot_git
+        try:
+            res = self._run(["rev-parse", "--git-dir"])
+            p = Path(res)
+            return p if p.is_absolute() else (self.path / p).resolve()
+        except Exception:
+            return dot_git
+
     def current_branch(self) -> str:
         """Retrieves the name of the currently checked-out branch.
 
@@ -87,7 +100,7 @@ class GitRepo:
         """
         cmd = ["status", "--porcelain"]
         if path:
-            cmd.append(path)
+            cmd.extend(["--", path])
         output = self._run(cmd)
         return output.splitlines() if output else []
 

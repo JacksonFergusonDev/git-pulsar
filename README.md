@@ -81,6 +81,7 @@ In a distributed environment (Laptop ↔ Desktop), state drift is inevitable.
   - Uses a temporary index so it never messes up your partial `git add`.
   - Detects if you are rebasing or merging and waits for you to finish.
   - Prevents accidental upload of large binaries (configurable threshold).
+  - Fully compatible with Git linked worktrees and submodules.
 - **Cascading Config:** Settings are merged from global defaults, `~/.config/git-pulsar/config.toml`, and local `pulsar.toml` or `pyproject.toml` files.
 
 ---

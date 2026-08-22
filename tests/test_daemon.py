@@ -51,8 +51,8 @@ def test_run_backup_shadow_commit_flow(
     # Simulate ref timestamps to ensure Push triggers:
     mocker.patch("git_pulsar.daemon._get_ref_timestamp", side_effect=[0, 100, 0])
 
-    # Simulate parent resolution (Head exists, Backup doesn't)
-    repo.rev_parse.side_effect = [None, "head_sha"]
+    # Simulate parent resolution (Head exists, Backup doesn't) and push resolution
+    repo.rev_parse.side_effect = [None, "head_sha", "new_backup_sha", None]
 
     daemon.run_backup(str(tmp_path))
 
@@ -207,3 +207,98 @@ def test_main_signal_alarm_reset_on_exception(
         mocker.call(5),
         mocker.call(0),
     ]
+
+
+def test_run_backup_deduplicates_identical_parents(
+    tmp_path: Path, mocker: MagicMock, mock_config: Config
+) -> None:
+    """Verifies that parents passed to commit_tree contains no duplicates when HEAD == backup."""
+    (tmp_path / ".git").mkdir()
+    mocker.patch("git_pulsar.daemon.SYSTEM.is_under_load", return_value=False)
+    mocker.patch("git_pulsar.daemon.SYSTEM.get_battery", return_value=(100, True))
+    mocker.patch("git_pulsar.system.get_identity_slug", return_value="test-slug--1234")
+    mocker.patch("git_pulsar.ops.has_large_files", return_value=False)
+
+    mock_cls = mocker.patch("git_pulsar.daemon.GitRepo")
+    repo = mock_cls.return_value
+    repo.current_branch.return_value = "main"
+
+    # Both backup and HEAD point to "same_sha"
+    repo.rev_parse.side_effect = ["same_sha", "same_sha", "old_tree"]
+    repo.write_tree.return_value = "new_tree"
+    mocker.patch("git_pulsar.daemon._get_ref_timestamp", return_value=0)
+
+    daemon.run_backup(str(tmp_path))
+
+    # Assert commit_tree was called with parents=["same_sha"] (no duplicate)
+    repo.commit_tree.assert_called_once()
+    _, kwargs = repo.commit_tree.call_args
+    assert kwargs["parents"] == ["same_sha"]
+
+
+def test_run_backup_push_uses_oid_comparison(
+    tmp_path: Path, mocker: MagicMock, mock_config: Config
+) -> None:
+    """Verifies that pushes trigger when local_oid != remote_oid regardless of timestamps."""
+    (tmp_path / ".git").mkdir()
+    mocker.patch("git_pulsar.daemon.SYSTEM.is_under_load", return_value=False)
+    mocker.patch("git_pulsar.daemon.SYSTEM.get_battery", return_value=(100, True))
+    mocker.patch("git_pulsar.system.get_identity_slug", return_value="test-slug--1234")
+    mocker.patch("git_pulsar.ops.has_large_files", return_value=False)
+
+    mock_cls = mocker.patch("git_pulsar.daemon.GitRepo")
+    repo = mock_cls.return_value
+    repo.current_branch.return_value = "main"
+
+    # Backup already exists and matches current tree -> skip commit
+    repo.rev_parse.side_effect = [
+        "local_sha_123",  # local backup ref parse in commit phase
+        "local_sha_123",  # head parse in commit phase
+        "tree_1",  # prev_tree
+        "local_sha_123",  # local backup ref parse in push phase
+        "remote_sha_456",  # remote backup ref parse in push phase
+    ]
+    repo.write_tree.return_value = "tree_1"
+
+    # Both timestamps are 0 (identical)
+    mocker.patch("git_pulsar.daemon._get_ref_timestamp", return_value=0)
+
+    daemon.run_backup(str(tmp_path))
+
+    # Verify push was attempted because local_sha_123 != remote_sha_456
+    repo._run.assert_any_call(
+        ["push", "origin", mocker.ANY], capture=True, env=mocker.ANY
+    )
+
+
+def test_temporary_index_and_is_repo_busy_in_worktree(tmp_path: Path) -> None:
+    """Verifies that temporary_index and is_repo_busy function correctly in a git worktree."""
+    import subprocess
+
+    main_repo = tmp_path / "main_repo"
+    main_repo.mkdir()
+    subprocess.run(["git", "init", "-b", "main"], cwd=main_repo, check=True)
+    subprocess.run(
+        ["git", "config", "user.name", "Test Runner"], cwd=main_repo, check=True
+    )
+    subprocess.run(
+        ["git", "config", "user.email", "test@example.com"], cwd=main_repo, check=True
+    )
+    (main_repo / "file.txt").write_text("Hello\n")
+    subprocess.run(["git", "add", "file.txt"], cwd=main_repo, check=True)
+    subprocess.run(["git", "commit", "-m", "Initial"], cwd=main_repo, check=True)
+
+    worktree = tmp_path / "wt"
+    subprocess.run(
+        ["git", "worktree", "add", "-b", "wt-branch", str(worktree)],
+        cwd=main_repo,
+        check=True,
+    )
+
+    # temporary_index in worktree
+    with daemon.temporary_index(worktree) as env:
+        assert "GIT_INDEX_FILE" in env
+        assert Path(env["GIT_INDEX_FILE"]).parent.exists()
+
+    # is_repo_busy in worktree
+    assert not daemon.is_repo_busy(worktree)

@@ -113,3 +113,46 @@ def test_git_plumbing_and_porcelain(tmp_path: Path) -> None:
     # Test checkout mechanics
     repo.checkout(commit_sha)
     assert repo.rev_parse("HEAD") == commit_sha
+
+
+def test_git_dir_resolution_worktree(tmp_path: Path) -> None:
+    """Verifies that GitRepo.git_dir resolves correctly in standard repos and worktrees."""
+    main_repo = tmp_path / "main_repo"
+    main_repo.mkdir()
+    subprocess.run(["git", "init", "-b", "main"], cwd=main_repo, check=True)
+    subprocess.run(
+        ["git", "config", "user.name", "Test Runner"], cwd=main_repo, check=True
+    )
+    subprocess.run(
+        ["git", "config", "user.email", "test@example.com"], cwd=main_repo, check=True
+    )
+    (main_repo / "README.md").write_text("# Main\n")
+    subprocess.run(["git", "add", "README.md"], cwd=main_repo, check=True)
+    subprocess.run(["git", "commit", "-m", "Initial commit"], cwd=main_repo, check=True)
+
+    repo = GitRepo(main_repo)
+    assert repo.git_dir == (main_repo / ".git").resolve()
+
+    # Create a git worktree
+    worktree_path = tmp_path / "wt"
+    subprocess.run(
+        ["git", "worktree", "add", "-b", "wt-branch", str(worktree_path)],
+        cwd=main_repo,
+        check=True,
+    )
+
+    wt_repo = GitRepo(worktree_path)
+    assert wt_repo.git_dir.exists()
+    assert "worktrees" in str(wt_repo.git_dir)
+
+
+def test_status_porcelain_pathspec_double_dash(
+    mocker: MagicMock, tmp_path: Path
+) -> None:
+    """Verifies that status_porcelain adds the '--' pathspec separator."""
+    (tmp_path / ".git").mkdir()
+    repo = GitRepo(tmp_path)
+    mock_run = mocker.patch.object(repo, "_run", return_value="")
+
+    repo.status_porcelain("file.txt")
+    mock_run.assert_called_once_with(["status", "--porcelain", "--", "file.txt"])
