@@ -20,6 +20,7 @@ from . import (
     ops,
     service,
     system,
+    types,
 )
 
 __all__ = [
@@ -31,4 +32,5 @@ __all__ = [
     "ops",
     "service",
     "system",
+    "types",
 ]

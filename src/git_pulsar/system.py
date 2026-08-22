@@ -19,6 +19,7 @@ from .constants import (
     REGISTRY_FILE,
 )
 from .git_wrapper import GitRepo
+from .types import BatteryStatus, MachineId, MachineName, MachineSlug
 
 console = Console()
 logger = logging.getLogger(APP_NAME)
@@ -182,15 +183,15 @@ def write_registered_repos(
 class SystemStrategy:
     """Base class defining the interface for system-level interactions."""
 
-    def get_battery(self) -> tuple[int, bool]:
+    def get_battery(self) -> BatteryStatus:
         """Retrieves the current battery status.
 
         Returns:
-            tuple[int, bool]: A tuple containing the battery percentage (0-100)
+            BatteryStatus: NamedTuple containing the battery percentage (0-100)
             and a boolean indicating if the device is plugged in (AC power).
-            Defaults to (100, True) if battery status cannot be determined.
+            Defaults to BatteryStatus(100, True) if battery status cannot be determined.
         """
-        return 100, True
+        return BatteryStatus(100, True)
 
     def is_under_load(self) -> bool:
         """Determines if the system is currently under heavy load.
@@ -224,7 +225,7 @@ class SystemStrategy:
 class MacOSStrategy(SystemStrategy):
     """System strategy implementation for macOS."""
 
-    def get_battery(self) -> tuple[int, bool]:
+    def get_battery(self) -> BatteryStatus:
         """Retrieves battery status using `pmset`."""
         try:
             out = subprocess.check_output(["pmset", "-g", "batt"], text=True)
@@ -233,10 +234,10 @@ class MacOSStrategy(SystemStrategy):
 
             match = re.search(r"(\d+)%", out)
             percent = int(match.group(1)) if match else 100
-            return percent, is_plugged
+            return BatteryStatus(percent, is_plugged)
         except Exception as e:
             logger.warning(f"MacOS battery check failed: {e}")
-            return 100, True
+            return BatteryStatus(100, True)
 
     def notify(self, title: str, message: str) -> None:
         """Sends a desktop notification using AppleScript."""
@@ -257,7 +258,7 @@ class MacOSStrategy(SystemStrategy):
 class LinuxStrategy(SystemStrategy):
     """System strategy implementation for Linux."""
 
-    def get_battery(self) -> tuple[int, bool]:
+    def get_battery(self) -> BatteryStatus:
         """Retrieves battery status from sysfs (/sys/class/power_supply)."""
         try:
             bat_path = Path("/sys/class/power_supply/BAT0")
@@ -269,11 +270,11 @@ class LinuxStrategy(SystemStrategy):
                     percent = int(f.read().strip())
                 with open(bat_path / "status") as f:
                     is_plugged = f.read().strip() != "Discharging"
-                return percent, is_plugged
+                return BatteryStatus(percent, is_plugged)
         except Exception as e:
             logger.warning(f"Linux battery check failed: {e}")
             pass
-        return 100, True
+        return BatteryStatus(100, True)
 
     def notify(self, title: str, message: str) -> None:
         """Sends a notification using `notify-send`."""
@@ -307,7 +308,7 @@ def get_machine_name_file() -> Path:
     return Path(MACHINE_NAME_FILE)
 
 
-def get_machine_id() -> str:
+def get_machine_id() -> MachineId:
     """Resolves a unique, persistent identifier for the current machine.
 
     The resolution order is:
@@ -319,11 +320,11 @@ def get_machine_id() -> str:
     6. Hostname (fallback).
 
     Returns:
-        str: A string identifier for the machine.
+        MachineId: A string identifier for the machine.
     """
     id_file = get_machine_id_file()
     if id_file.exists():
-        return id_file.read_text().strip()
+        return MachineId(id_file.read_text().strip())
 
     # Linux: systemd/dbus machine-id
     if sys.platform.startswith("linux"):
@@ -332,7 +333,7 @@ def get_machine_id() -> str:
                 if p.exists():
                     mid = p.read_text().strip()
                     if mid:
-                        return mid
+                        return MachineId(mid)
             except Exception as e:
                 logger.debug(f"Failed to read machine-id from {p}: {e}")
 
@@ -342,7 +343,7 @@ def get_machine_id() -> str:
             if p.exists():
                 v = p.read_text().strip()
                 if v:
-                    return v
+                    return MachineId(v)
         except Exception as e:
             logger.debug(f"Failed to read product_uuid from {p}: {e}")
 
@@ -358,7 +359,7 @@ def get_machine_id() -> str:
             data = plistlib.loads(xml)
             uuid = data[0].get("IOPlatformUUID")
             if isinstance(uuid, str) and uuid.strip():
-                return uuid.strip()
+                return MachineId(uuid.strip())
         except Exception as e:
             logger.warning(f"Failed to extract IOPlatformUUID: {e}")
 
@@ -371,23 +372,23 @@ def get_machine_id() -> str:
                 timeout=1,
             )
             if res.returncode == 0 and res.stdout.strip():
-                return res.stdout.strip()
+                return MachineId(res.stdout.strip())
         except Exception as e:
             logger.warning(f"Failed to extract LocalHostName: {e}")
 
     # Generic fallback (not a true machine ID)
     name = socket.gethostname()
-    return name.split(".")[0]
+    return MachineId(name.split(".")[0])
 
 
-def get_identity_slug() -> str:
+def get_identity_slug() -> MachineSlug:
     """Constructs the composite identity slug for this machine.
 
     Format: {human_name}--{short_id}
     Example: 'macbook-air--9a7b2c'
 
     Returns:
-        str: The composite slug used for git references.
+        MachineSlug: The composite slug used for git references.
     """
     # 1. Get Stable ID (Hardware UUID or generated)
     full_id = get_machine_id()
@@ -401,10 +402,10 @@ def get_identity_slug() -> str:
         # Fallback to hostname if not configured
         human_name = socket.gethostname().split(".")[0]
 
-    return f"{human_name}--{short_id}"
+    return MachineSlug(f"{human_name}--{short_id}")
 
 
-def _fetch_remote_identities(repo: GitRepo) -> set[str]:
+def _fetch_remote_identities(repo: GitRepo) -> set[MachineName]:
     """Scans the remote for existing Pulsar identities using ls-remote.
 
     This allows us to detect naming collisions without fetching object data.
@@ -413,7 +414,7 @@ def _fetch_remote_identities(repo: GitRepo) -> set[str]:
         repo (GitRepo): The repository to scan.
 
     Returns:
-        set[str]: A set of human-readable names currently in use on the remote.
+        set[MachineName]: A set of human-readable names currently in use on the remote.
     """
     try:
         # ls-remote returns: <SHA> refs/heads/wip/pulsar/<slug>/<branch>
@@ -426,7 +427,7 @@ def _fetch_remote_identities(repo: GitRepo) -> set[str]:
 
     from . import ops
 
-    used_names = set()
+    used_names: set[MachineName] = set()
     for line in output.splitlines():
         parts = line.split()
         if len(parts) < 2:

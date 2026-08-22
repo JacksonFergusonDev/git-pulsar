@@ -11,21 +11,22 @@ from .constants import (
     BACKUP_NAMESPACE,
     CONFIG_FILE,
 )
+from .types import ByteSize, ConfigSection, GitRef, Preset, Seconds
 
 logger = logging.getLogger(APP_NAME)
 
-PRESETS: dict[str, dict[str, int]] = {
-    "paranoid": {"commit_interval": 300, "push_interval": 300},
-    "aggressive": {"commit_interval": 600, "push_interval": 600},
-    "balanced": {"commit_interval": 900, "push_interval": 3600},
-    "lazy": {"commit_interval": 3600, "push_interval": 14400},
+PRESETS: dict[Preset | str, dict[str, int]] = {
+    Preset.PARANOID: {"commit_interval": 300, "push_interval": 300},
+    Preset.AGGRESSIVE: {"commit_interval": 600, "push_interval": 600},
+    Preset.BALANCED: {"commit_interval": 900, "push_interval": 3600},
+    Preset.LAZY: {"commit_interval": 3600, "push_interval": 14400},
 }
 
 
-def parse_size(value: int | str) -> int:
+def parse_size(value: int | str) -> ByteSize:
     """Converts human-readable size strings (e.g., '100MB') to bytes."""
     if isinstance(value, int):
-        return value
+        return ByteSize(value)
     match = re.match(r"^(\d+(?:\.\d+)?)\s*([kmg]b?)$", str(value).strip().lower())
     if not match:
         raise ValueError(f"Invalid size format '{value}'")
@@ -38,13 +39,13 @@ def parse_size(value: int | str) -> int:
         "g": 1024**3,
         "gb": 1024**3,
     }
-    return int(num * multiplier[unit])
+    return ByteSize(int(num * multiplier[unit]))
 
 
-def parse_time(value: int | str) -> int:
+def parse_time(value: int | str) -> Seconds:
     """Converts human-readable time strings (e.g., '1hr', '30m') to seconds."""
     if isinstance(value, int):
-        return value
+        return Seconds(value)
     match = re.match(
         r"^(\d+(?:\.\d+)?)\s*(s|sec|m|min|h|hr)s?$", str(value).strip().lower()
     )
@@ -52,7 +53,7 @@ def parse_time(value: int | str) -> int:
         raise ValueError(f"Invalid time format '{value}'")
     num, unit = float(match.group(1)), match.group(2)
     multiplier = {"s": 1, "sec": 1, "m": 60, "min": 60, "h": 3600, "hr": 3600}
-    return int(num * multiplier[unit])
+    return Seconds(int(num * multiplier[unit]))
 
 
 @dataclass(frozen=True)
@@ -73,8 +74,8 @@ class ConfigFieldMeta:
 
 
 # Single source of truth for configuration metadata and template generation
-CONFIG_SECTIONS_METADATA: dict[str, list[ConfigFieldMeta]] = {
-    "core": [
+CONFIG_SECTIONS_METADATA: dict[ConfigSection | str, list[ConfigFieldMeta]] = {
+    ConfigSection.CORE: [
         ConfigFieldMeta(
             key="backup_branch",
             description="The namespace used for backup references.",
@@ -86,7 +87,7 @@ CONFIG_SECTIONS_METADATA: dict[str, list[ConfigFieldMeta]] = {
             example_value='"origin"',
         ),
     ],
-    "daemon": [
+    ConfigSection.DAEMON: [
         ConfigFieldMeta(
             key="preset",
             description=f"Configuration preset. Options: {', '.join(PRESETS.keys())}",
@@ -115,7 +116,7 @@ CONFIG_SECTIONS_METADATA: dict[str, list[ConfigFieldMeta]] = {
             example_value="20",
         ),
     ],
-    "limits": [
+    ConfigSection.LIMITS: [
         ConfigFieldMeta(
             key="max_log_size",
             description="Max bytes for log files before rotation",
@@ -129,7 +130,7 @@ CONFIG_SECTIONS_METADATA: dict[str, list[ConfigFieldMeta]] = {
             parser=parse_size,
         ),
     ],
-    "files": [
+    ConfigSection.FILES: [
         ConfigFieldMeta(
             key="ignore",
             description="List of glob patterns to ignore for backups (appended to defaults)",
@@ -172,11 +173,11 @@ class CoreConfig:
     """Core application settings.
 
     Attributes:
-        backup_branch (str): The namespace used for backup refs.
+        backup_branch (GitRef | str): The namespace used for backup refs.
         remote_name (str): The git remote to push backups to.
     """
 
-    backup_branch: str = BACKUP_NAMESPACE
+    backup_branch: GitRef | str = BACKUP_NAMESPACE
     remote_name: str = "origin"
 
 
@@ -185,12 +186,12 @@ class LimitsConfig:
     """Resource limitation settings.
 
     Attributes:
-        max_log_size (int): Max bytes for log files before rotation.
-        large_file_threshold (int): Max bytes for a file before triggering a warning.
+        max_log_size (ByteSize | int): Max bytes for log files before rotation.
+        large_file_threshold (ByteSize | int): Max bytes for a file before triggering a warning.
     """
 
-    max_log_size: int = 5 * 1024 * 1024
-    large_file_threshold: int = 100 * 1024 * 1024
+    max_log_size: ByteSize | int = 5 * 1024 * 1024
+    large_file_threshold: ByteSize | int = 100 * 1024 * 1024
 
 
 @dataclass
@@ -211,26 +212,27 @@ class DaemonConfig:
     """Daemon operational settings.
 
     Attributes:
-        commit_interval (int): Seconds between local commits.
-        push_interval (int): Seconds between remote pushes.
+        commit_interval (Seconds | int): Seconds between local commits.
+        push_interval (Seconds | int): Seconds between remote pushes.
         min_battery_percent (int): Battery floor for commits.
         eco_mode_percent (int): Battery floor for pushes.
-        preset (str | None): A configuration preset name (e.g. 'paranoid').
+        preset (Preset | str | None): A configuration preset name (e.g. 'paranoid').
+        sync_enabled (bool): Whether multi-machine sync is enabled.
     """
 
-    commit_interval: int = 600
-    push_interval: int = 3600
+    commit_interval: Seconds | int = 600
+    push_interval: Seconds | int = 3600
     min_battery_percent: int = 10
     eco_mode_percent: int = 20
-    preset: str | None = None
+    preset: Preset | str | None = None
     sync_enabled: bool = False
 
     def apply_preset(self) -> None:
         """Overwrites intervals based on the selected preset."""
         if self.preset and self.preset in PRESETS:
             preset_values = PRESETS[self.preset]
-            self.commit_interval = preset_values["commit_interval"]
-            self.push_interval = preset_values["push_interval"]
+            self.commit_interval = Seconds(preset_values["commit_interval"])
+            self.push_interval = Seconds(preset_values["push_interval"])
 
 
 @dataclass
