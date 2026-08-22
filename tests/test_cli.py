@@ -981,3 +981,229 @@ def test_init_wizard_advanced(mocker: MagicMock, tmp_path: Path) -> None:
     assert "min_battery_percent = 15" in content
     assert "[limits]" in content
     assert 'large_file_threshold = "500MB"' in content
+
+
+def test_list_repos_missing_path_shows_missing(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], mocker: MagicMock
+) -> None:
+    """Verifies that list_repos renders 'Missing' for paths that do not exist."""
+    missing_path = tmp_path / "nonexistent"
+    registry_file = tmp_path / "registry"
+    registry_file.write_text(f"{missing_path}\n")
+
+    mocker.patch("git_pulsar.cli.REGISTRY_FILE", registry_file)
+    mocker.patch("git_pulsar.system.get_registered_repos", return_value=[missing_path])
+
+    cli.list_repos()
+    captured = capsys.readouterr()
+    assert "Missing" in captured.out
+
+
+def test_list_repos_paused_shows_paused(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], mocker: MagicMock
+) -> None:
+    """Verifies that list_repos renders 'Paused' when pulsar_paused sentinel exists."""
+    repo_path = tmp_path / "my_repo"
+    git_dir = repo_path / ".git"
+    git_dir.mkdir(parents=True)
+    (git_dir / "pulsar_paused").touch()
+
+    registry_file = tmp_path / "registry"
+    registry_file.write_text(f"{repo_path}\n")
+
+    mocker.patch("git_pulsar.cli.REGISTRY_FILE", registry_file)
+    mocker.patch("git_pulsar.system.get_registered_repos", return_value=[repo_path])
+    mock_git = mocker.patch("git_pulsar.cli.GitRepo")
+    mock_git.return_value.get_last_commit_time.return_value = "10 mins ago"
+
+    cli.list_repos()
+    captured = capsys.readouterr()
+    assert "Paused" in captured.out
+
+
+def test_list_repos_empty_registry(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], mocker: MagicMock
+) -> None:
+    """Verifies that list_repos exits cleanly when no registry file exists."""
+    nonexistent_registry = tmp_path / "registry"
+    mocker.patch("git_pulsar.cli.REGISTRY_FILE", nonexistent_registry)
+
+    cli.list_repos()
+    captured = capsys.readouterr()
+    assert "Registry is empty." in captured.out
+
+
+def test_unregister_repo_removes_cwd(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], mocker: MagicMock
+) -> None:
+    """Verifies that unregister_repo drops the current directory from the registry."""
+    repo1 = tmp_path / "repo1"
+    repo2 = tmp_path / "repo2"
+    repo1.mkdir()
+    repo2.mkdir()
+
+    registry_file = tmp_path / "registry"
+    registry_file.write_text(f"{repo1}\n{repo2}\n")
+
+    mocker.patch.object(Path, "cwd", return_value=repo1)
+    mocker.patch("git_pulsar.cli.REGISTRY_FILE", registry_file)
+    mocker.patch("git_pulsar.system.get_registered_repos", return_value=[repo1, repo2])
+
+    cli.unregister_repo()
+    captured = capsys.readouterr()
+    assert "Unregistered:" in captured.out
+
+    remaining = registry_file.read_text().splitlines()
+    assert str(repo1) not in remaining
+    assert str(repo2) in remaining
+
+
+def test_unregister_repo_not_registered(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], mocker: MagicMock
+) -> None:
+    """Verifies that unregister_repo warns if the current directory is not registered."""
+    repo1 = tmp_path / "repo1"
+    repo2 = tmp_path / "repo2"
+    registry_file = tmp_path / "registry"
+    registry_file.write_text(f"{repo2}\n")
+
+    mocker.patch.object(Path, "cwd", return_value=repo1)
+    mocker.patch("git_pulsar.cli.REGISTRY_FILE", registry_file)
+    mocker.patch("git_pulsar.system.get_registered_repos", return_value=[repo2])
+
+    cli.unregister_repo()
+    captured = capsys.readouterr()
+    assert "Current path not registered:" in captured.out
+
+
+def test_unregister_repo_empty_registry(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], mocker: MagicMock
+) -> None:
+    """Verifies that unregister_repo warns when the registry file does not exist."""
+    mocker.patch.object(Path, "cwd", return_value=tmp_path)
+    mocker.patch("git_pulsar.cli.REGISTRY_FILE", tmp_path / "nonexistent")
+
+    cli.unregister_repo()
+    captured = capsys.readouterr()
+    assert "Registry is empty." in captured.out
+
+
+def test_show_diff_not_git_repo(tmp_path: Path, mocker: MagicMock) -> None:
+    """Verifies that show_diff exits with code 1 when executed outside a git repo."""
+    mocker.patch.object(Path, "exists", return_value=False)
+    mocker.patch.object(Path, "cwd", return_value=tmp_path)
+    mocker.patch("git_pulsar.cli.console")
+
+    with pytest.raises(SystemExit) as excinfo:
+        cli.show_diff()
+
+    assert excinfo.value.code == 1
+
+
+def test_show_diff_with_untracked_files(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], mocker: MagicMock
+) -> None:
+    """Verifies that show_diff displays untracked files alongside diffs."""
+    (tmp_path / ".git").mkdir()
+    mocker.patch.object(Path, "cwd", return_value=tmp_path)
+
+    mock_repo = mocker.patch("git_pulsar.cli.GitRepo").return_value
+    mock_repo.get_untracked_files.return_value = ["new_file.py", "scratch.txt"]
+    mocker.patch("git_pulsar.cli._get_ref", return_value="refs/heads/backup")
+
+    cli.show_diff()
+    captured = capsys.readouterr()
+    assert "Untracked (New) Files:" in captured.out
+    assert "new_file.py" in captured.out
+    assert "scratch.txt" in captured.out
+
+
+def test_check_repo_health_paused_returns_none(
+    tmp_path: Path, mocker: MagicMock
+) -> None:
+    """Verifies that _check_repo_health returns None when repo is paused even with changes."""
+    git_dir = tmp_path / ".git"
+    git_dir.mkdir()
+    (git_dir / "pulsar_paused").touch()
+
+    mock_repo = mocker.patch("git_pulsar.cli.GitRepo").return_value
+    mock_repo.status_porcelain.return_value = ["M dirty.txt"]
+
+    conf = Config()
+    assert cli._check_repo_health(tmp_path, conf) is None
+
+
+def test_check_repo_health_no_backup_found(tmp_path: Path, mocker: MagicMock) -> None:
+    """Verifies that _check_repo_health reports no backup found if git log raises."""
+    (tmp_path / ".git").mkdir()
+    mock_repo = mocker.patch("git_pulsar.cli.GitRepo").return_value
+    mock_repo.status_porcelain.return_value = ["M dirty.txt"]
+    mock_repo._run.side_effect = RuntimeError("Ref not found")
+
+    conf = Config()
+    health = cli._check_repo_health(tmp_path, conf)
+    assert health is not None
+    assert "Has changes, but NO backup found" in health
+
+
+def test_show_status_repo_not_registered(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], mocker: MagicMock
+) -> None:
+    """Verifies that show_status indicates when a git repository is not tracked."""
+    (tmp_path / ".git").mkdir()
+    mocker.patch.object(Path, "cwd", return_value=tmp_path)
+    mocker.patch("git_pulsar.system.get_registered_repos", return_value=[])
+    mocker.patch("git_pulsar.service.is_service_enabled", return_value=True)
+
+    cli.show_status()
+    captured = capsys.readouterr()
+    assert "This repository is not tracked by Git Pulsar" in captured.out
+
+
+def test_analyze_logs_missing_file(tmp_path: Path, mocker: MagicMock) -> None:
+    """Verifies that _analyze_logs returns an empty list when LOG_FILE does not exist."""
+    mocker.patch("git_pulsar.cli.LOG_FILE", tmp_path / "nonexistent.log")
+    assert cli._analyze_logs() == []
+
+
+def test_config_command_fallback_editor_linux(
+    tmp_path: Path, mocker: MagicMock
+) -> None:
+    """Verifies that open_config defaults to nano on Linux when EDITOR is unset."""
+    mocker.patch("sys.platform", "linux")
+    mocker.patch.dict("os.environ", {}, clear=True)
+
+    mock_run = mocker.patch("subprocess.run")
+    mock_config_path = tmp_path / "config.toml"
+    mock_config_path.touch()
+    mocker.patch("git_pulsar.cli.CONFIG_FILE", mock_config_path)
+
+    cli.open_config()
+    mock_run.assert_called_once_with(["nano", str(mock_config_path)])
+
+
+def test_set_pause_state_toggles(tmp_path: Path, mocker: MagicMock) -> None:
+    """Verifies that set_pause_state creates and deletes the pulsar_paused sentinel."""
+    git_dir = tmp_path / ".git"
+    git_dir.mkdir()
+    mocker.patch.object(Path, "cwd", return_value=tmp_path)
+
+    # Pause
+    cli.set_pause_state(paused=True)
+    pause_file = git_dir / "pulsar_paused"
+    assert pause_file.exists()
+
+    # Resume
+    cli.set_pause_state(paused=False)
+    assert not pause_file.exists()
+
+
+def test_set_pause_state_not_git_repo(tmp_path: Path, mocker: MagicMock) -> None:
+    """Verifies that set_pause_state exits with code 1 outside a git repository."""
+    mocker.patch.object(Path, "cwd", return_value=tmp_path)
+    mocker.patch("git_pulsar.cli.console")
+
+    with pytest.raises(SystemExit) as excinfo:
+        cli.set_pause_state(paused=True)
+
+    assert excinfo.value.code == 1
