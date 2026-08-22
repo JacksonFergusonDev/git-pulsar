@@ -7,6 +7,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from git_pulsar import ops
+from git_pulsar.config import Config
 from git_pulsar.constants import BACKUP_NAMESPACE
 
 # Restore / Sync Tests
@@ -409,6 +410,264 @@ def test_has_large_files_uses_config_limit(tmp_path: Path, mocker: MagicMock) ->
     assert result is True
     # Verify the mock strategy intercepted the call
     mock_strat.notify.assert_called_with("Backup Aborted", mocker.ANY)
+
+
+def test_restore_file_failure_exits_1(mocker: MagicMock) -> None:
+    """Verifies that restore_file exits with code 1 when checkout fails."""
+    mock_cls = mocker.patch("git_pulsar.ops.GitRepo")
+    mock_repo = mock_cls.return_value
+    mock_repo.status_porcelain.return_value = []
+    mock_repo.checkout.side_effect = RuntimeError("Checkout failed")
+    mocker.patch("git_pulsar.ops.console")
+
+    with pytest.raises(SystemExit) as excinfo:
+        ops.restore_file("script.py")
+
+    assert excinfo.value.code == 1
+
+
+def test_restore_file_force_overwrites(mocker: MagicMock) -> None:
+    """Verifies that restore_file with force=True bypasses the interactive prompt."""
+    mock_cls = mocker.patch("git_pulsar.ops.GitRepo")
+    mock_repo = mock_cls.return_value
+    mock_repo.status_porcelain.return_value = ["M script.py"]
+    mocker.patch("git_pulsar.ops.console")
+    mock_prompt = mocker.patch("git_pulsar.ops.Prompt.ask")
+
+    ops.restore_file("script.py", force=True)
+
+    mock_prompt.assert_not_called()
+    mock_repo.checkout.assert_called_once()
+
+
+def test_sync_session_disabled_exits_1(mocker: MagicMock) -> None:
+    """Verifies that sync_session exits with code 1 if sync is disabled in config."""
+    mocker.patch("git_pulsar.ops.Config.load").return_value.daemon.sync_enabled = False
+    mocker.patch("git_pulsar.ops.console")
+
+    with pytest.raises(SystemExit) as excinfo:
+        ops.sync_session()
+
+    assert excinfo.value.code == 1
+
+
+def test_sync_session_no_backups_returns(mocker: MagicMock) -> None:
+    """Verifies that sync_session exits early when no backups exist for current branch."""
+    mocker.patch("git_pulsar.ops.Config.load").return_value.daemon.sync_enabled = True
+    repo = mocker.patch("git_pulsar.ops.GitRepo").return_value
+    repo.current_branch.return_value = "main"
+    repo.list_refs.return_value = []
+    mocker.patch("git_pulsar.ops.console")
+
+    ops.sync_session()
+    repo.write_tree.assert_not_called()
+
+
+def test_sync_session_already_up_to_date(mocker: MagicMock) -> None:
+    """Verifies that sync_session exits early without overwriting when trees match."""
+    mocker.patch("git_pulsar.ops.Config.load").return_value.daemon.sync_enabled = True
+    repo = mocker.patch("git_pulsar.ops.GitRepo").return_value
+    repo.current_branch.return_value = "main"
+    repo.list_refs.return_value = ["refs/heads/wip/pulsar/laptop/main"]
+
+    def mock_run(cmd: list[str], *args: Any, **kwargs: Any) -> str:
+        cmd_str = " ".join(cmd)
+        if cmd[0] == "log" and "%ct" in cmd_str:
+            return "1000"
+        if cmd[0] == "log" and "%cr" in cmd_str:
+            return "5 minutes ago"
+        if cmd[0] == "rev-parse":
+            return "matching_tree_sha"
+        return ""
+
+    repo._run.side_effect = mock_run
+    repo.write_tree.return_value = "matching_tree_sha"
+    mocker.patch("git_pulsar.ops.console")
+
+    ops.sync_session()
+
+    # Verify no checkout occurred
+    for call in repo._run.call_args_list:
+        args = call[0][0]
+        assert "checkout" not in args
+
+
+def test_sync_session_user_declines_sync(mocker: MagicMock) -> None:
+    """Verifies that declining the sync prompt aborts cleanly with exit code 0."""
+    mocker.patch("git_pulsar.ops.Config.load").return_value.daemon.sync_enabled = True
+    repo = mocker.patch("git_pulsar.ops.GitRepo").return_value
+    repo.current_branch.return_value = "main"
+    repo.list_refs.return_value = ["refs/heads/wip/pulsar/laptop/main"]
+
+    def mock_run(cmd: list[str], *args: Any, **kwargs: Any) -> str:
+        cmd_str = " ".join(cmd)
+        if cmd[0] == "log" and "%ct" in cmd_str:
+            return "1000"
+        if cmd[0] == "log" and "%cr" in cmd_str:
+            return "5 minutes ago"
+        if cmd[0] == "rev-parse":
+            return "remote_tree_sha"
+        return ""
+
+    repo._run.side_effect = mock_run
+    repo.write_tree.return_value = "local_tree_sha"
+
+    mock_console = mocker.patch("git_pulsar.ops.console")
+    mock_console.input.return_value = "n"
+
+    with pytest.raises(SystemExit) as excinfo:
+        ops.sync_session()
+
+    assert excinfo.value.code == 0
+
+
+def test_finalize_work_dirty_working_tree_aborts(mocker: MagicMock) -> None:
+    """Verifies that finalize_work aborts with exit code 1 if uncommitted changes exist."""
+    repo = mocker.patch("git_pulsar.ops.GitRepo").return_value
+    repo.status_porcelain.return_value = ["M file.txt"]
+    mocker.patch("git_pulsar.ops.console")
+
+    with pytest.raises(SystemExit) as excinfo:
+        ops.finalize_work()
+
+    assert excinfo.value.code == 1
+
+
+def test_finalize_work_no_backups_aborts(mocker: MagicMock) -> None:
+    """Verifies that finalize_work aborts with exit code 1 if no backup refs exist."""
+    repo = mocker.patch("git_pulsar.ops.GitRepo").return_value
+    repo.status_porcelain.return_value = []
+    repo.current_branch.return_value = "main"
+    repo.list_refs.return_value = []
+    mocker.patch("git_pulsar.ops.Config.load").return_value.daemon.sync_enabled = False
+    mocker.patch("git_pulsar.ops.console")
+
+    with pytest.raises(SystemExit) as excinfo:
+        ops.finalize_work()
+
+    assert excinfo.value.code == 1
+
+
+def test_prune_backups_deletes_old_refs(tmp_path: Path, mocker: MagicMock) -> None:
+    """Verifies that prune_backups deletes refs older than cutoff and runs gc."""
+    repo = mocker.patch("git_pulsar.ops.GitRepo").return_value
+    repo.list_refs.return_value = [
+        "refs/heads/wip/pulsar/laptop/main",
+        "refs/heads/wip/pulsar/laptop/old_branch",
+    ]
+
+    current_time = 1000000.0
+    mocker.patch("time.time", return_value=current_time)
+
+    # First ref: 5 days old (keep), Second ref: 35 days old (delete)
+    cutoff_ts_old = str(int(current_time - (35 * 86400)))
+    cutoff_ts_fresh = str(int(current_time - (5 * 86400)))
+    repo._run.side_effect = [
+        cutoff_ts_fresh,  # log for ref 1
+        cutoff_ts_old,  # log for ref 2
+        "",  # update-ref -d
+        "",  # gc --auto
+    ]
+    mocker.patch("git_pulsar.ops.console")
+
+    ops.prune_backups(days=30, repo_path=tmp_path)
+
+    repo._run.assert_any_call(
+        ["update-ref", "-d", "refs/heads/wip/pulsar/laptop/old_branch"], capture=False
+    )
+    repo._run.assert_any_call(["gc", "--auto"], capture=True)
+
+
+def test_prune_backups_no_stale_refs(tmp_path: Path, mocker: MagicMock) -> None:
+    """Verifies that prune_backups does not trigger gc when no stale refs exist."""
+    repo = mocker.patch("git_pulsar.ops.GitRepo").return_value
+    repo.list_refs.return_value = ["refs/heads/wip/pulsar/laptop/main"]
+
+    current_time = 1000000.0
+    mocker.patch("time.time", return_value=current_time)
+    cutoff_ts_fresh = str(int(current_time - (5 * 86400)))
+    repo._run.side_effect = [cutoff_ts_fresh]
+    mocker.patch("git_pulsar.ops.console")
+
+    ops.prune_backups(days=30, repo_path=tmp_path)
+
+    for call in repo._run.call_args_list:
+        assert "gc" not in call[0][0]
+
+
+def test_add_ignore_modifies_gitignore(tmp_path: Path, mocker: MagicMock) -> None:
+    """Verifies that add_ignore appends pattern to .gitignore and handles already present."""
+    mocker.patch.object(Path, "cwd", return_value=tmp_path)
+    mock_config = Config()
+    mock_config.files.manage_gitignore = True
+    mocker.patch("git_pulsar.ops.Config.load", return_value=mock_config)
+    mocker.patch("git_pulsar.ops.GitRepo").return_value._run.return_value = ""
+    mocker.patch("git_pulsar.ops.console")
+
+    ops.add_ignore("*.log")
+
+    gitignore = tmp_path / ".gitignore"
+    assert gitignore.exists()
+    assert "*.log" in gitignore.read_text()
+
+    # Running again should not duplicate
+    ops.add_ignore("*.log")
+    lines = gitignore.read_text().splitlines()
+    assert lines.count("*.log") == 1
+
+
+def test_add_ignore_skips_when_disabled(tmp_path: Path, mocker: MagicMock) -> None:
+    """Verifies that add_ignore does not modify .gitignore if manage_gitignore is False."""
+    mocker.patch.object(Path, "cwd", return_value=tmp_path)
+    mock_config = Config()
+    mock_config.files.manage_gitignore = False
+    mocker.patch("git_pulsar.ops.Config.load", return_value=mock_config)
+    mocker.patch("git_pulsar.ops.GitRepo").return_value._run.return_value = ""
+    mocker.patch("git_pulsar.ops.console")
+
+    ops.add_ignore("*.log")
+    assert not (tmp_path / ".gitignore").exists()
+
+
+def test_add_ignore_untracks_files_on_confirm(
+    tmp_path: Path, mocker: MagicMock
+) -> None:
+    """Verifies that add_ignore runs git rm --cached if files are tracked and user confirms."""
+    mocker.patch.object(Path, "cwd", return_value=tmp_path)
+    mock_config = Config()
+    mock_config.files.manage_gitignore = True
+    mocker.patch("git_pulsar.ops.Config.load", return_value=mock_config)
+
+    repo = mocker.patch("git_pulsar.ops.GitRepo").return_value
+    repo._run.return_value = "app.log"
+    mock_console = mocker.patch("git_pulsar.ops.console")
+    mock_console.input.return_value = "y"
+
+    ops.add_ignore("*.log")
+
+    repo._run.assert_any_call(["rm", "--cached", "*.log"], capture=False)
+
+
+def test_has_large_files_returns_false_on_small_or_error(
+    tmp_path: Path, mocker: MagicMock
+) -> None:
+    """Verifies has_large_files returns False for small files and on subprocess errors."""
+    import subprocess
+
+    conf = Config()
+    conf.limits.large_file_threshold = 1000
+
+    (tmp_path / "small.txt").write_text("small")
+    mocker.patch("subprocess.check_output", return_value="small.txt\n")
+
+    assert not ops.has_large_files(tmp_path, conf)
+
+    # Subprocess error
+    mocker.patch(
+        "subprocess.check_output",
+        side_effect=subprocess.CalledProcessError(1, "git ls-files"),
+    )
+    assert not ops.has_large_files(tmp_path, conf)
 
 
 def test_ignore_pattern_exact_line_match(tmp_path: Path, mocker: MagicMock) -> None:
