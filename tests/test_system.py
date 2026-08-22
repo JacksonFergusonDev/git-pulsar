@@ -245,3 +245,84 @@ def test_xdg_config_home_respected(
     importlib.reload(git_pulsar.constants)
 
     assert custom_xdg / "git-pulsar" == git_pulsar.constants.CONFIG_DIR
+
+
+def test_is_under_load(mocker: MagicMock) -> None:
+    """Verifies load average detection across threshold boundaries."""
+    strat = system.SystemStrategy()
+
+    mocker.patch("os.cpu_count", return_value=4)
+
+    # Under load: load avg 12.0 > 4 * 2.5 (10.0)
+    mocker.patch("os.getloadavg", return_value=(12.0, 5.0, 3.0))
+    assert strat.is_under_load() is True
+
+    # Normal load: load avg 8.0 <= 10.0
+    mocker.patch("os.getloadavg", return_value=(8.0, 5.0, 3.0))
+    assert strat.is_under_load() is False
+
+
+def test_macos_battery_parsing(mocker: MagicMock) -> None:
+    """Verifies battery percentage and power source parsing from pmset output."""
+    strat = system.MacOSStrategy()
+
+    # AC Power, 95%
+    mocker.patch(
+        "subprocess.check_output",
+        return_value="Now drawing from 'AC Power'\n -InternalBattery-0 (id=123) 95%; AC attached; not charging",
+    )
+    pct, plugged = strat.get_battery()
+    assert pct == 95
+    assert plugged is True
+
+    # Battery Power, 42%
+    mocker.patch(
+        "subprocess.check_output",
+        return_value="Now drawing from 'Battery Power'\n -InternalBattery-0 (id=123) 42%; discharging; 3:15 remaining",
+    )
+    pct, plugged = strat.get_battery()
+    assert pct == 42
+    assert plugged is False
+
+    # Error fallback
+    mocker.patch("subprocess.check_output", side_effect=RuntimeError("pmset failed"))
+    pct, plugged = strat.get_battery()
+    assert pct == 100
+    assert plugged is True
+
+
+def test_linux_battery_parsing(tmp_path: Path, mocker: MagicMock) -> None:
+    """Verifies Linux sysfs battery capacity and discharging status parsing."""
+    strat = system.LinuxStrategy()
+
+    bat0 = tmp_path / "sys" / "class" / "power_supply" / "BAT0"
+    bat0.mkdir(parents=True)
+    (bat0 / "capacity").write_text("78\n")
+    (bat0 / "status").write_text("Discharging\n")
+
+    mocker.patch(
+        "git_pulsar.system.Path",
+        side_effect=lambda p: bat0 if "BAT0" in str(p) else Path(p),
+    )
+
+    pct, plugged = strat.get_battery()
+    assert pct == 78
+    assert plugged is False
+
+
+def test_get_system_factory(mocker: MagicMock) -> None:
+    """Verifies that get_system returns the correct platform strategy."""
+    mocker.patch("sys.platform", "darwin")
+    assert isinstance(system.get_system(), system.MacOSStrategy)
+
+    mocker.patch("sys.platform", "linux")
+    assert isinstance(system.get_system(), system.LinuxStrategy)
+
+    mocker.patch("sys.platform", "freebsd")
+    assert type(system.get_system()) is system.SystemStrategy
+
+
+def test_get_registered_repos_missing(tmp_path: Path, mocker: MagicMock) -> None:
+    """Verifies get_registered_repos returns empty list if registry file does not exist."""
+    mocker.patch("git_pulsar.system.REGISTRY_FILE", tmp_path / "nonexistent")
+    assert system.get_registered_repos() == []
