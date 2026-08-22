@@ -684,3 +684,25 @@ def test_ignore_pattern_exact_line_match(tmp_path: Path, mocker: MagicMock) -> N
 
     content = gitignore.read_text()
     assert "foo.txt" in content.splitlines()
+
+
+def test_is_repo_paused_and_set_repo_paused(tmp_path: Path) -> None:
+    """Verifies that is_repo_paused correctly checks and set_repo_paused toggles the sentinel."""
+    (tmp_path / ".git").mkdir()
+
+    # Initial state: not paused
+    assert not ops.is_repo_paused(tmp_path)
+
+    # Pause the repository
+    ops.set_repo_paused(tmp_path, True)
+    assert ops.is_repo_paused(tmp_path)
+    assert (tmp_path / ".git" / "pulsar_paused").exists()
+
+    # Resume the repository
+    ops.set_repo_paused(tmp_path, False)
+    assert not ops.is_repo_paused(tmp_path)
+    assert not (tmp_path / ".git" / "pulsar_paused").exists()
+
+    # Resuming when already not paused does not error
+    ops.set_repo_paused(tmp_path, False)
+    assert not ops.is_repo_paused(tmp_path)

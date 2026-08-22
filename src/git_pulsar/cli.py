@@ -28,7 +28,7 @@ from .constants import (
     PID_FILE,
     REGISTRY_FILE,
 )
-from .git_wrapper import GitRepo
+from .git_wrapper import GitRepo, get_git_dir
 
 logger = logging.getLogger(APP_NAME)
 console = Console()
@@ -48,19 +48,6 @@ class DoctorAction:
     description: str
     prompt: str
     action_callable: Callable[[], bool]
-
-
-def _get_git_dir(repo_path: Path) -> Path:
-    """Resolves the git directory (.git or worktree gitdir)."""
-    dot_git = repo_path / ".git"
-    if dot_git.is_dir():
-        return dot_git
-    if dot_git.is_file():
-        try:
-            return GitRepo(repo_path).git_dir
-        except Exception:
-            pass
-    return dot_git
 
 
 def _get_ref(repo: GitRepo) -> str:
@@ -137,7 +124,7 @@ def _check_repo_health(path: Path, config: Config) -> str | None:
     try:
         repo = GitRepo(path)
         # Check if the repository is explicitly paused.
-        if (_get_git_dir(path) / "pulsar_paused").exists():
+        if ops.is_repo_paused(path):
             return None
 
         # If the working directory is clean, no backup is required.
@@ -327,7 +314,7 @@ def show_status() -> None:
             push_str = "Never"
 
         count = len(repo.status_porcelain())
-        is_paused = (_get_git_dir(cwd) / "pulsar_paused").exists()
+        is_paused = ops.is_repo_paused(cwd)
 
         repo_content = Text()
         repo_content.append(f"Last Commit: {commit_str}\n")
@@ -430,7 +417,7 @@ def list_repos() -> None:
             status_text = "Missing"
             status_style = "red"
         else:
-            if (_get_git_dir(path) / "pulsar_paused").exists():
+            if ops.is_repo_paused(path):
                 status_text = "Paused"
                 status_style = "yellow"
             else:
@@ -537,7 +524,7 @@ def _check_git_hooks(repo_path: Path) -> list[str]:
         list[str]: A list of warning messages regarding potentially blocking hooks.
     """
     warnings: list[str] = []
-    hooks_dir = _get_git_dir(repo_path) / "hooks"
+    hooks_dir = get_git_dir(repo_path) / "hooks"
 
     if not hooks_dir.exists():
         return warnings
@@ -722,19 +709,18 @@ def run_doctor() -> None:
             issues = []
             for p in paths:
                 if p.exists():
-                    p_git_dir = _get_git_dir(p)
+                    p_git_dir = get_git_dir(p)
                     repo_config = Config.load(p)
 
                     # 1a. Check for paused state
-                    pause_file = p_git_dir / "pulsar_paused"
-                    if pause_file.exists():
+                    if ops.is_repo_paused(p):
                         issues.append(f"{p.name}: Repository is explicitly paused.")
 
-                        def resume_repo(path_to_unpause: Path = pause_file) -> bool:
+                        def resume_repo(path_to_unpause: Path = p) -> bool:
                             try:
-                                path_to_unpause.unlink(missing_ok=True)
+                                ops.set_repo_paused(path_to_unpause, False)
                                 return True
-                            except OSError as e:
+                            except Exception as e:
                                 logger.error(f"Failed to resume {path_to_unpause}: {e}")
                                 return False
 
@@ -895,15 +881,12 @@ def set_pause_state(paused: bool) -> None:
         console.print("[bold red]Not a git repository.[/bold red]")
         sys.exit(1)
 
-    pause_file = _get_git_dir(cwd) / "pulsar_paused"
+    ops.set_repo_paused(cwd, paused)
     if paused:
-        pause_file.touch()
         console.print(
             "Pulsar paused. Backups suspended for this repo.", style="bold yellow"
         )
     else:
-        if pause_file.exists():
-            pause_file.unlink()
         console.print("Pulsar resumed. Backups active.", style="bold green")
 
 

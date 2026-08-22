@@ -8,6 +8,19 @@ from .constants import APP_NAME
 logger = logging.getLogger(APP_NAME)
 
 
+def get_git_dir(repo_path: Path) -> Path:
+    """Resolves the git directory (.git or worktree gitdir) for a repository path."""
+    dot_git = repo_path / ".git"
+    if dot_git.is_dir():
+        return dot_git
+    if dot_git.is_file():
+        try:
+            return GitRepo(repo_path).git_dir
+        except Exception:
+            pass
+    return dot_git
+
+
 class GitRepo:
     """A wrapper around the Git command-line interface for a specific repository.
 
