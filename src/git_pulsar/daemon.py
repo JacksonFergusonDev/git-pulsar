@@ -1,6 +1,5 @@
 import atexit
 import datetime
-import fcntl
 import logging
 import os
 import signal
@@ -197,40 +196,10 @@ def prune_registry(original_path_str: str) -> None:
     Args:
         original_path_str (str): The path string to remove.
     """
-    if not REGISTRY_FILE.exists():
-        return
-
-    target = original_path_str.strip()
-    tmp_file = REGISTRY_FILE.with_suffix(".tmp")
-
-    try:
-        # 1. Read existing registry and rewrite atomically while holding exclusive lock.
-        with open(REGISTRY_FILE, "r+") as f:
-            fcntl.flock(f.fileno(), fcntl.LOCK_EX)
-            try:
-                lines = f.readlines()
-                # 2. Write valid lines to temp file.
-                with open(tmp_file, "w") as tf:
-                    for line in lines:
-                        clean_line = line.strip()
-                        if clean_line and clean_line != target:
-                            tf.write(clean_line + "\n")
-                    tf.flush()
-                    os.fsync(tf.fileno())  # Force write to disk.
-
-                # 3. Atomic Swap.
-                os.replace(tmp_file, REGISTRY_FILE)
-            finally:
-                fcntl.flock(f.fileno(), fcntl.LOCK_UN)
-
+    if system.remove_repo_from_registry(original_path_str, registry_path=REGISTRY_FILE):
         repo_name = Path(original_path_str).name
         logger.info(f"PRUNED: {original_path_str} removed from registry.")
         SYSTEM.notify("Backup Stopped", f"Removed missing repo: {repo_name}")
-
-    except OSError as e:
-        logger.error(f"ERROR: Could not prune registry. {e}")
-        if tmp_file.exists():
-            tmp_file.unlink()
 
 
 def _should_skip(repo_path: Path, config: Config, interactive: bool) -> str | None:

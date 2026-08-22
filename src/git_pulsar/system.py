@@ -1,3 +1,4 @@
+import contextlib
 import fcntl
 import logging
 import os
@@ -5,6 +6,7 @@ import plistlib
 import socket
 import subprocess
 import sys
+from collections.abc import Sequence
 from pathlib import Path
 
 from rich.console import Console
@@ -22,12 +24,13 @@ console = Console()
 logger = logging.getLogger(APP_NAME)
 
 
-def get_registered_repos() -> list[Path]:
+def get_registered_repos(registry_path: Path | None = None) -> list[Path]:
     """Reads the registry file and returns a list of registered repository paths."""
-    if not REGISTRY_FILE.exists():
+    target_path = registry_path if registry_path is not None else REGISTRY_FILE
+    if not target_path.exists():
         return []
     try:
-        with open(REGISTRY_FILE) as f:
+        with open(target_path) as f:
             fcntl.flock(f.fileno(), fcntl.LOCK_SH)
             try:
                 return [Path(line.strip()) for line in f if line.strip()]
@@ -36,6 +39,144 @@ def get_registered_repos() -> list[Path]:
     except Exception as e:
         logger.debug(f"Failed to read registry: {e}")
         return []
+
+
+def add_repo_to_registry(
+    repo_path: Path | str, registry_path: Path | None = None
+) -> bool:
+    """Atomically adds a repository path to the registry if not already present.
+
+    Args:
+        repo_path (Path | str): Path of the repository to register.
+        registry_path (Path | None): Path to the registry file. Defaults to REGISTRY_FILE.
+
+    Returns:
+        bool: True if newly added, False if already registered or on failure.
+    """
+    target_path = registry_path if registry_path is not None else REGISTRY_FILE
+    raw_target = str(repo_path).strip()
+    try:
+        target = str(Path(repo_path).resolve())
+    except Exception:
+        target = raw_target
+
+    target_path.parent.mkdir(parents=True, exist_ok=True)
+    if not target_path.exists():
+        target_path.touch()
+
+    try:
+        with open(target_path, "r+") as f:
+            fcntl.flock(f.fileno(), fcntl.LOCK_EX)
+            try:
+                content = f.read()
+                current_paths = [
+                    line.strip() for line in content.splitlines() if line.strip()
+                ]
+                if target in current_paths or raw_target in current_paths:
+                    return False
+
+                f.seek(0, os.SEEK_END)
+                f.write(f"{target}\n")
+                f.flush()
+                os.fsync(f.fileno())
+                return True
+            finally:
+                fcntl.flock(f.fileno(), fcntl.LOCK_UN)
+    except OSError as e:
+        logger.error(f"Failed to add repository to registry: {e}")
+        return False
+
+
+def remove_repo_from_registry(
+    repo_path: Path | str, registry_path: Path | None = None
+) -> bool:
+    """Atomically removes a repository path from the registry.
+
+    Args:
+        repo_path (Path | str): Path of the repository to unregister.
+        registry_path (Path | None): Path to the registry file. Defaults to REGISTRY_FILE.
+
+    Returns:
+        bool: True if removed, False if path was not registered or on failure.
+    """
+    target_path = registry_path if registry_path is not None else REGISTRY_FILE
+    if not target_path.exists():
+        return False
+
+    raw_target = str(repo_path).strip()
+    try:
+        target = str(Path(repo_path).resolve())
+    except Exception:
+        target = raw_target
+
+    tmp_file = target_path.with_suffix(".tmp")
+
+    try:
+        with open(target_path, "r+") as f:
+            fcntl.flock(f.fileno(), fcntl.LOCK_EX)
+            try:
+                lines = [line.strip() for line in f if line.strip()]
+                remaining = [p for p in lines if p != target and p != raw_target]
+                removed = len(remaining) != len(lines)
+
+                with open(tmp_file, "w") as tf:
+                    for p in remaining:
+                        tf.write(f"{p}\n")
+                    tf.flush()
+                    os.fsync(tf.fileno())
+
+                os.replace(tmp_file, target_path)
+                return removed
+            finally:
+                fcntl.flock(f.fileno(), fcntl.LOCK_UN)
+    except OSError as e:
+        logger.error(f"Failed to remove repository from registry: {e}")
+        if tmp_file.exists():
+            with contextlib.suppress(OSError):
+                tmp_file.unlink()
+        return False
+
+
+def write_registered_repos(
+    repos: Sequence[Path | str], registry_path: Path | None = None
+) -> bool:
+    """Atomically replaces the registry content with the provided repository paths.
+
+    Args:
+        repos (Sequence[Path | str]): Repository paths to write.
+        registry_path (Path | None): Path to the registry file. Defaults to REGISTRY_FILE.
+
+    Returns:
+        bool: True on success, False on error.
+    """
+    target_path = registry_path if registry_path is not None else REGISTRY_FILE
+    target_path.parent.mkdir(parents=True, exist_ok=True)
+    if not target_path.exists():
+        target_path.touch()
+
+    tmp_file = target_path.with_suffix(".tmp")
+    try:
+        with open(target_path, "r+") as f:
+            fcntl.flock(f.fileno(), fcntl.LOCK_EX)
+            try:
+                with open(tmp_file, "w") as tf:
+                    for repo in repos:
+                        clean = str(repo).strip()
+                        if clean:
+                            tf.write(f"{clean}\n")
+                    tf.flush()
+                    os.fsync(tf.fileno())
+
+                os.replace(tmp_file, target_path)
+                return True
+            finally:
+                fcntl.flock(f.fileno(), fcntl.LOCK_UN)
+    except OSError as e:
+        logger.error(f"Failed to write registry: {e}")
+        if tmp_file.exists():
+            with contextlib.suppress(OSError):
+                tmp_file.unlink()
+        return False
 
 
 class SystemStrategy:
