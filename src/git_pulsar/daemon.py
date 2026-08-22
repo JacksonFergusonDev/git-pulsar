@@ -325,12 +325,7 @@ def _get_ref_timestamp(repo: GitRepo, ref: str) -> int:
     Returns:
         int: Unix timestamp of the commit, or 0 if ref does not exist.
     """
-    try:
-        ts = repo._run(["log", "-1", "--format=%ct", ref])
-        return int(ts.strip())
-    except Exception as e:
-        logger.debug(f"Could not get timestamp for {ref}: {e}")
-        return 0
+    return repo.get_commit_timestamp(ref) or 0
 
 
 def run_backup(original_path_str: str, interactive: bool = False) -> None:
@@ -396,8 +391,9 @@ def run_backup(original_path_str: str, interactive: bool = False) -> None:
         # --- COMMIT PHASE ---
         # Define Refs
         local_backup_ref = ops.get_backup_ref(current_branch)
-        ref_suffix = local_backup_ref.replace("refs/heads/", "")
-        remote_backup_ref = f"refs/remotes/{config.core.remote_name}/{ref_suffix}"
+        remote_backup_ref = ops.get_remote_backup_ref(
+            current_branch, config.core.remote_name
+        )
 
         last_commit_ts = _get_ref_timestamp(repo, local_backup_ref)
         time_since_commit = time.time() - last_commit_ts

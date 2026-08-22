@@ -93,7 +93,7 @@ def test_check_repo_health_dynamic_threshold(
     mocker.patch("time.time", return_value=current_time)
 
     # Return a backup timestamp that is exactly `time_since_backup` seconds ago
-    mock_repo._run.return_value = str(current_time - time_since_backup)
+    mock_repo.get_commit_timestamp.return_value = current_time - time_since_backup
 
     result = cli._check_repo_health(tmp_path, conf)
 
@@ -181,8 +181,8 @@ def test_show_status_drift_warning(
     current_time = time.time()
 
     # Local commit was 1 hour ago
-    local_ts = str(int(current_time - 3600))
-    mock_repo._run.side_effect = [local_ts, local_ts]
+    local_ts = int(current_time - 3600)
+    mock_repo.get_commit_timestamp.return_value = local_ts
 
     # Warned timestamp was 10 mins ago (Newer than local commit)
     warned_ts = int(current_time - 600)
@@ -1138,7 +1138,7 @@ def test_check_repo_health_no_backup_found(tmp_path: Path, mocker: MagicMock) ->
     (tmp_path / ".git").mkdir()
     mock_repo = mocker.patch("git_pulsar.cli.GitRepo").return_value
     mock_repo.status_porcelain.return_value = ["M dirty.txt"]
-    mock_repo._run.side_effect = RuntimeError("Ref not found")
+    mock_repo.get_commit_timestamp.return_value = None
 
     conf = Config()
     health = cli._check_repo_health(tmp_path, conf)

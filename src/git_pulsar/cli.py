@@ -133,13 +133,9 @@ def _check_repo_health(path: Path, config: Config) -> str | None:
 
         # Verify the freshness of the last backup.
         ref = _get_ref(repo)
-        try:
-            # Retrieve the raw Unix timestamp of the backup reference.
-            ts_str = repo._run(["log", "-1", "--format=%ct", ref])
-            last_backup_ts = int(ts_str.strip())
-        except Exception as e:
-            logger.debug(f"Failed to retrieve backup timestamp for {path.name}: {e}")
-            return f"Has changes, but NO backup found. (Error: {e})"
+        last_backup_ts = repo.get_commit_timestamp(ref)
+        if last_backup_ts is None:
+            return f"Has changes, but NO backup found. ({ref})"
 
         # Check against the dynamic stale threshold (2x commit interval).
         # If changes are pending and no backup has occurred recently,
@@ -292,25 +288,24 @@ def show_status() -> None:
 
         # Resolve Refs
         ref = _get_ref(repo)
-        ref_name = ref.replace("refs/heads/", "")
-        remote_ref = f"refs/remotes/{conf.core.remote_name}/{ref_name}"
+        remote_ref = ops.get_remote_backup_ref(
+            repo.current_branch(), conf.core.remote_name
+        )
 
         # Get Commit Time
-        try:
-            commit_ts = repo._run(["log", "-1", "--format=%ct", ref]).strip()
-            last_commit_time = datetime.datetime.fromtimestamp(int(commit_ts))
+        commit_ts = repo.get_commit_timestamp(ref)
+        if commit_ts is not None:
+            last_commit_time = datetime.datetime.fromtimestamp(commit_ts)
             commit_str = last_commit_time.strftime("%Y-%m-%d %H:%M")
-        except Exception as e:
-            logger.debug(f"Failed to retrieve last commit time for {ref}: {e}")
+        else:
             commit_str = "Never"
 
         # Get Push Time
-        try:
-            push_ts = repo._run(["log", "-1", "--format=%ct", remote_ref]).strip()
-            last_push_time = datetime.datetime.fromtimestamp(int(push_ts))
+        push_ts = repo.get_commit_timestamp(remote_ref)
+        if push_ts is not None:
+            last_push_time = datetime.datetime.fromtimestamp(push_ts)
             push_str = last_push_time.strftime("%Y-%m-%d %H:%M")
-        except Exception as e:
-            logger.debug(f"Failed to retrieve last push time for {remote_ref}: {e}")
+        else:
             push_str = "Never"
 
         count = len(repo.status_porcelain())
@@ -348,7 +343,12 @@ def show_status() -> None:
 
         # Ensure we only warn if the cached remote timestamp is strictly newer
         # than our local backup reference.
-        if warned_ts > 0 and commit_str != "Never" and warned_ts > int(commit_ts):
+        if (
+            warned_ts > 0
+            and commit_str != "Never"
+            and commit_ts is not None
+            and warned_ts > commit_ts
+        ):
             minutes_ago = int((time.time() - warned_ts) / 60)
             drift_content = Text()
             drift_content.append(
