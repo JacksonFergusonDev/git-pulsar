@@ -302,3 +302,211 @@ def test_temporary_index_and_is_repo_busy_in_worktree(tmp_path: Path) -> None:
 
     # is_repo_busy in worktree
     assert not daemon.is_repo_busy(worktree)
+
+
+def test_should_skip_paused_repo(tmp_path: Path) -> None:
+    """Verifies that _should_skip returns 'Paused by user' when the paused sentinel exists."""
+    git_dir = tmp_path / ".git"
+    git_dir.mkdir()
+    (git_dir / "pulsar_paused").touch()
+
+    conf = Config()
+    assert daemon._should_skip(tmp_path, conf, interactive=False) == "Paused by user"
+    assert daemon._should_skip(tmp_path, conf, interactive=True) == "Paused by user"
+
+
+def test_should_skip_missing_path(tmp_path: Path) -> None:
+    """Verifies that _should_skip returns 'Path missing' when the repo directory does not exist."""
+    missing = tmp_path / "nonexistent_repo"
+    conf = Config()
+    assert daemon._should_skip(missing, conf, interactive=False) == "Path missing"
+
+
+def test_should_skip_battery_critical(tmp_path: Path, mocker: MagicMock) -> None:
+    """Verifies that _should_skip returns 'Battery critical' in background mode when below min threshold."""
+    (tmp_path / ".git").mkdir()
+    conf = Config()
+    conf.daemon.min_battery_percent = 15
+
+    mocker.patch("git_pulsar.daemon.SYSTEM.is_under_load", return_value=False)
+    mocker.patch("git_pulsar.daemon.SYSTEM.get_battery", return_value=(10, False))
+
+    # Background mode should skip
+    assert daemon._should_skip(tmp_path, conf, interactive=False) == "Battery critical"
+    # Interactive mode should proceed regardless of battery
+    assert daemon._should_skip(tmp_path, conf, interactive=True) is None
+
+
+def test_should_skip_system_under_load(tmp_path: Path, mocker: MagicMock) -> None:
+    """Verifies that _should_skip returns 'System under load' in background mode."""
+    (tmp_path / ".git").mkdir()
+    conf = Config()
+
+    mocker.patch("git_pulsar.daemon.SYSTEM.is_under_load", return_value=True)
+    assert daemon._should_skip(tmp_path, conf, interactive=False) == "System under load"
+    assert daemon._should_skip(tmp_path, conf, interactive=True) is None
+
+
+def test_attempt_push_skips_in_eco_mode(mocker: MagicMock) -> None:
+    """Verifies that _attempt_push skips push when battery is below eco_mode_percent."""
+    repo = mocker.MagicMock()
+    repo.path = Path("/mock/repo")
+    conf = Config()
+    conf.daemon.eco_mode_percent = 25
+
+    mocker.patch("git_pulsar.daemon.SYSTEM.get_battery", return_value=(20, False))
+    daemon._attempt_push(repo, "ref:ref", conf, interactive=False)
+
+    repo._run.assert_not_called()
+
+
+def test_attempt_push_skips_when_offline(mocker: MagicMock) -> None:
+    """Verifies that _attempt_push skips push when remote host is unreachable."""
+    repo = mocker.MagicMock()
+    repo.path = Path("/mock/repo")
+    conf = Config()
+
+    mocker.patch("git_pulsar.daemon.SYSTEM.get_battery", return_value=(100, True))
+    mocker.patch("git_pulsar.daemon.get_remote_host", return_value="github.com")
+    mocker.patch("git_pulsar.daemon.is_remote_reachable", return_value=False)
+
+    daemon._attempt_push(repo, "ref:ref", conf, interactive=False)
+    repo._run.assert_not_called()
+
+
+def test_attempt_push_executes_successfully(mocker: MagicMock) -> None:
+    """Verifies that _attempt_push executes git push with BatchMode SSH command."""
+    repo = mocker.MagicMock()
+    repo.path = Path("/mock/repo")
+    conf = Config()
+
+    mocker.patch("git_pulsar.daemon.SYSTEM.get_battery", return_value=(100, True))
+    mocker.patch("git_pulsar.daemon.get_remote_host", return_value="github.com")
+    mocker.patch("git_pulsar.daemon.is_remote_reachable", return_value=True)
+
+    # Background mode
+    daemon._attempt_push(repo, "ref:ref", conf, interactive=False)
+    repo._run.assert_called_once_with(
+        ["push", "origin", "ref:ref"],
+        capture=True,
+        env=mocker.ANY,
+    )
+    assert repo._run.call_args[1]["env"]["GIT_SSH_COMMAND"] == "ssh -o BatchMode=yes"
+
+    # Interactive mode
+    repo.reset_mock()
+    mocker.patch("git_pulsar.daemon.console.status")
+    daemon._attempt_push(repo, "ref:ref", conf, interactive=True)
+    repo._run.assert_called_once()
+
+
+def test_run_maintenance_respects_7day_interval(
+    tmp_path: Path, mocker: MagicMock
+) -> None:
+    """Verifies that run_maintenance does not re-run if last_prune is younger than 7 days."""
+    state_file = tmp_path / "last_prune"
+    state_file.touch()
+
+    mocker.patch("git_pulsar.daemon.REGISTRY_FILE", tmp_path / "registry")
+    mock_prune = mocker.patch("git_pulsar.ops.prune_backups")
+
+    daemon.run_maintenance(["/mock/repo1"])
+    mock_prune.assert_not_called()
+
+
+def test_run_maintenance_runs_when_stale_or_missing(
+    tmp_path: Path, mocker: MagicMock
+) -> None:
+    """Verifies that run_maintenance triggers prune_backups when last_prune is missing."""
+    mocker.patch("git_pulsar.daemon.REGISTRY_FILE", tmp_path / "registry")
+    mock_prune = mocker.patch("git_pulsar.ops.prune_backups")
+
+    daemon.run_maintenance(["/mock/repo1", "/mock/repo2"])
+
+    assert mock_prune.call_count == 2
+    assert (tmp_path / "last_prune").exists()
+
+
+def test_get_remote_host_parsing(tmp_path: Path, mocker: MagicMock) -> None:
+    """Verifies that get_remote_host parses both SSH and HTTPS remote URLs."""
+    # Test SSH format
+    mocker.patch(
+        "subprocess.check_output",
+        side_effect=[
+            "git@github.com:org/repo.git\n",
+            "https://gitlab.com/org/repo.git\n",
+            "invalid_remote_format\n",
+            RuntimeError("Subprocess failed"),
+        ],
+    )
+
+    assert daemon.get_remote_host(tmp_path, "origin") == "github.com"
+    assert daemon.get_remote_host(tmp_path, "origin") == "gitlab.com"
+    assert daemon.get_remote_host(tmp_path, "origin") is None
+    assert daemon.get_remote_host(tmp_path, "origin") is None
+
+
+def test_is_remote_reachable(mocker: MagicMock) -> None:
+    """Verifies socket reachability checks including empty host and socket errors."""
+    assert not daemon.is_remote_reachable("")
+
+    # Successful connection
+    mock_conn = mocker.patch("socket.create_connection")
+    assert daemon.is_remote_reachable("github.com")
+
+    # Connection failure
+    mock_conn.side_effect = OSError("Connection refused")
+    assert not daemon.is_remote_reachable("github.com")
+
+
+def test_is_repo_busy_checks(tmp_path: Path, mocker: MagicMock) -> None:
+    """Verifies is_repo_busy detects operational locks and stale index locks."""
+    git_dir = tmp_path / ".git"
+    git_dir.mkdir()
+
+    # Clean repo is not busy
+    assert not daemon.is_repo_busy(tmp_path)
+
+    # Operational lock (e.g. MERGE_HEAD)
+    merge_head = git_dir / "MERGE_HEAD"
+    merge_head.touch()
+    assert daemon.is_repo_busy(tmp_path)
+    merge_head.unlink()
+
+    # Fresh index.lock
+    index_lock = git_dir / "index.lock"
+    index_lock.touch()
+    assert daemon.is_repo_busy(tmp_path)
+
+    # Stale index.lock (>24h old) triggers notification in background mode
+    import os
+    import time
+
+    old_time = time.time() - (25 * 3600)
+    os.utime(index_lock, (old_time, old_time))
+
+    mock_notify = mocker.patch("git_pulsar.daemon.SYSTEM.notify")
+    assert daemon.is_repo_busy(tmp_path, interactive=False)
+    mock_notify.assert_called_once_with(
+        "Pulsar Warning", f"Stale lock in {tmp_path.name}"
+    )
+
+
+def test_run_backup_skips_when_paused_and_no_branch(
+    tmp_path: Path, mocker: MagicMock
+) -> None:
+    """Verifies that run_backup cleanly returns when repo is paused or in detached HEAD."""
+    git_dir = tmp_path / ".git"
+    git_dir.mkdir()
+    (git_dir / "pulsar_paused").touch()
+
+    mock_repo = mocker.patch("git_pulsar.daemon.GitRepo")
+    daemon.run_backup(str(tmp_path))
+    mock_repo.assert_not_called()
+
+    (git_dir / "pulsar_paused").unlink()
+    repo_instance = mock_repo.return_value
+    repo_instance.current_branch.return_value = ""  # Detached HEAD
+
+    daemon.run_backup(str(tmp_path))
+    repo_instance.write_tree.assert_not_called()
