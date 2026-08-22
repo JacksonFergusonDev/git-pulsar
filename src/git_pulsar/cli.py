@@ -978,6 +978,7 @@ def setup_repo(registry_path: Path = REGISTRY_FILE) -> None:
     # Register the repository path.
     console.print("Registering path...", style="dim")
     if not registry_path.exists():
+        registry_path.parent.mkdir(parents=True, exist_ok=True)
         registry_path.touch()
 
     with open(registry_path, "r+") as f:

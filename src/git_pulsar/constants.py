@@ -28,9 +28,6 @@ _BASE_STATE = Path(_XDG_STATE) if _XDG_STATE else Path.home() / ".local/state"
 STATE_DIR = _BASE_STATE / "git-pulsar"
 """Path: The directory for runtime state data (logs, registry)."""
 
-# Ensure state directory exists immediately upon module import.
-STATE_DIR.mkdir(parents=True, exist_ok=True)
-
 REGISTRY_FILE = STATE_DIR / "registry"
 """Path: The file path storing the list of registered repositories."""
 
@@ -38,7 +35,10 @@ LOG_FILE = STATE_DIR / "daemon.log"
 """Path: The file path for the daemon process logs."""
 
 # --- Configuration Paths ---
-CONFIG_DIR: Path = Path.home() / ".config/git-pulsar"
+_XDG_CONFIG = os.environ.get("XDG_CONFIG_HOME")
+_BASE_CONFIG = Path(_XDG_CONFIG) if _XDG_CONFIG else Path.home() / ".config"
+
+CONFIG_DIR: Path = _BASE_CONFIG / "git-pulsar"
 """Path: The directory for user configuration files."""
 
 CONFIG_FILE: Path = CONFIG_DIR / "config.toml"
