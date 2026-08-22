@@ -232,6 +232,27 @@ def test_finalize_aborts_on_user_decline(mocker: MagicMock) -> None:
     repo.merge_squash.assert_not_called()
 
 
+def test_finalize_aborts_on_merge_conflict(mocker: MagicMock) -> None:
+    """Verifies that merge conflicts during octopus squash abort with exit code 1."""
+    repo = mocker.patch("git_pulsar.ops.GitRepo").return_value
+    repo.status_porcelain.return_value = []
+    repo.current_branch.return_value = "feature-branch"
+    repo.rev_parse.side_effect = ["sha", None]
+    repo.diff_shortstat.return_value = (2, 10, 5)
+    repo.get_last_commit_time.return_value = "2 hours ago"
+
+    mocker.patch("git_pulsar.ops.console")
+    mocker.patch("git_pulsar.ops.Confirm.ask", return_value=True)
+    repo.list_refs.return_value = ["ref_A"]
+    repo.merge_squash.side_effect = RuntimeError("Conflict detected")
+
+    with pytest.raises(SystemExit) as excinfo:
+        ops.finalize_work()
+
+    assert excinfo.value.code == 1
+    repo.commit_interactive.assert_not_called()
+
+
 # --- Roaming Radar & State Tests ---
 
 

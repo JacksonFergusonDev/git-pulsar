@@ -117,6 +117,19 @@ def get_remote_drift_state(repo_path: Path) -> tuple[bool, int, str, str]:
     return False, 0, "", ""
 
 
+def _get_git_dir(repo_path: Path) -> Path:
+    """Resolves the git directory (.git or worktree gitdir)."""
+    dot_git = repo_path / ".git"
+    if dot_git.is_dir():
+        return dot_git
+    if dot_git.is_file():
+        try:
+            return GitRepo(repo_path).git_dir
+        except Exception:
+            pass
+    return dot_git
+
+
 def get_drift_state(repo_path: Path) -> tuple[float, int]:
     """Retrieves the cached state for remote drift detection.
 
@@ -128,7 +141,7 @@ def get_drift_state(repo_path: Path) -> tuple[float, int]:
             - float: The Unix timestamp of the last time a drift check was performed.
             - int: The Unix timestamp of the newest remote session the user was warned about.
     """
-    state_file = repo_path / ".git" / "pulsar_drift_state"
+    state_file = _get_git_dir(repo_path) / "pulsar_drift_state"
     if not state_file.exists():
         return 0.0, 0
 
@@ -156,7 +169,7 @@ def set_drift_state(
         last_check_ts (float): The Unix timestamp of the current check.
         warned_remote_ts (int): The Unix timestamp of the remote session warned about.
     """
-    state_file = repo_path / ".git" / "pulsar_drift_state"
+    state_file = _get_git_dir(repo_path) / "pulsar_drift_state"
     tmp_file = state_file.with_suffix(".tmp")
 
     data = {
@@ -437,7 +450,7 @@ def finalize_work() -> None:
                     "[bold red]CONFLICT:[/bold red] Merge conflicts detected. "
                     "Please resolve them, then commit."
                 )
-                sys.exit(0)
+                sys.exit(1)
 
         # 8. Interactive Commit.
         console.print("-> Committing (opens editor)...")
