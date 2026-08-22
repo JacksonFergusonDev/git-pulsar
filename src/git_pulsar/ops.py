@@ -529,7 +529,8 @@ def add_ignore(pattern: str) -> None:
             with open(gitignore) as f:
                 content = f.read()
 
-        if pattern in content:
+        existing_lines = {line.strip() for line in content.splitlines()}
+        if pattern.strip() in existing_lines:
             console.print(f"[blue]INFO:[/blue] '{pattern}' is already in .gitignore.")
         else:
             with open(gitignore, "a") as f:

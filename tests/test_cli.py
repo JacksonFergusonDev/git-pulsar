@@ -261,6 +261,39 @@ def test_setup_repo_triggers_identity_config(tmp_path: Path, mocker: MagicMock) 
     assert isinstance(args[0], GitRepo)
 
 
+def test_setup_repo_exact_gitignore_matching(tmp_path: Path, mocker: MagicMock) -> None:
+    """Verifies that setup_repo checks .gitignore lines exactly rather than substrings."""
+    (tmp_path / ".git").mkdir()
+    gitignore = tmp_path / ".gitignore"
+    # Write a pattern that contains '*.log' as a substring
+    gitignore.write_text("my_special_*.log\n")
+
+    mocker.patch.object(Path, "cwd", return_value=tmp_path)
+    mock_registry = tmp_path / "registry"
+    mocker.patch("git_pulsar.system.configure_identity")
+
+    cli.setup_repo(registry_path=mock_registry)
+
+    content = gitignore.read_text()
+    assert "*.log" in content.splitlines()
+
+
+def test_unregister_repo_removes_entry(tmp_path: Path, mocker: MagicMock) -> None:
+    """Verifies that unregister_repo removes the current directory from the registry file."""
+    mocker.patch.object(Path, "cwd", return_value=tmp_path)
+    mock_registry = tmp_path / "registry"
+    mock_registry.write_text(f"{tmp_path}\n/other/path\n")
+    mocker.patch("git_pulsar.cli.REGISTRY_FILE", mock_registry)
+
+    cli.unregister_repo()
+
+    lines = [
+        line.strip() for line in mock_registry.read_text().splitlines() if line.strip()
+    ]
+    assert str(tmp_path) not in lines
+    assert "/other/path" in lines
+
+
 def test_check_systemd_linger_non_linux(mocker: MagicMock) -> None:
     """Verifies that the linger check safely ignores non-Linux platforms.
 

@@ -1,5 +1,6 @@
 import atexit
 import datetime
+import fcntl
 import logging
 import os
 import signal
@@ -216,21 +217,24 @@ def prune_registry(original_path_str: str) -> None:
     tmp_file = REGISTRY_FILE.with_suffix(".tmp")
 
     try:
-        # 1. Read existing registry.
-        with open(REGISTRY_FILE) as f:
-            lines = f.readlines()
+        # 1. Read existing registry and rewrite atomically while holding exclusive lock.
+        with open(REGISTRY_FILE, "r+") as f:
+            fcntl.flock(f.fileno(), fcntl.LOCK_EX)
+            try:
+                lines = f.readlines()
+                # 2. Write valid lines to temp file.
+                with open(tmp_file, "w") as tf:
+                    for line in lines:
+                        clean_line = line.strip()
+                        if clean_line and clean_line != target:
+                            tf.write(clean_line + "\n")
+                    tf.flush()
+                    os.fsync(tf.fileno())  # Force write to disk.
 
-        # 2. Write valid lines to temp file.
-        with open(tmp_file, "w") as f:
-            for line in lines:
-                clean_line = line.strip()
-                if clean_line and clean_line != target:
-                    f.write(clean_line + "\n")
-            f.flush()
-            os.fsync(f.fileno())  # Force write to disk.
-
-        # 3. Atomic Swap.
-        os.replace(tmp_file, REGISTRY_FILE)
+                # 3. Atomic Swap.
+                os.replace(tmp_file, REGISTRY_FILE)
+            finally:
+                fcntl.flock(f.fileno(), fcntl.LOCK_UN)
 
         repo_name = Path(original_path_str).name
         logger.info(f"PRUNED: {original_path_str} removed from registry.")
