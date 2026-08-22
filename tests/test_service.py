@@ -59,7 +59,17 @@ def test_is_service_enabled_linux(mocker: MagicMock) -> None:
     assert service.is_service_enabled() is True
 
 
-def test_get_paths_darwin_raises() -> None:
+def test_get_paths_darwin_raises(mocker: MagicMock) -> None:
     """Verifies get_paths raises NotImplementedError on macOS."""
+    mocker.patch("sys.platform", "darwin")
     with pytest.raises(NotImplementedError):
         service.get_paths()
+
+
+def test_get_paths_linux(mocker: MagicMock) -> None:
+    """Verifies get_paths returns systemd and log paths on Linux."""
+    mocker.patch("sys.platform", "linux")
+    service_path, log_path = service.get_paths()
+    assert service_path.name == f"{APP_LABEL}.service"
+    assert "systemd" in str(service_path)
+    assert log_path.name == "daemon.log"
