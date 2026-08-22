@@ -1,5 +1,6 @@
 import argparse
 import datetime
+import fcntl
 import logging
 import os
 import subprocess
@@ -464,18 +465,34 @@ def unregister_repo() -> None:
         console.print("Registry is empty.", style="yellow")
         return
 
-    current_paths = [str(p) for p in system.get_registered_repos()]
-    if cwd not in current_paths:
-        console.print(
-            f"Current path not registered: [cyan]{cwd}[/cyan]", style="yellow"
-        )
-        return
+    tmp_file = REGISTRY_FILE.with_suffix(".tmp")
+    try:
+        with open(REGISTRY_FILE, "r+") as f:
+            fcntl.flock(f.fileno(), fcntl.LOCK_EX)
+            try:
+                current_paths = [line.strip() for line in f if line.strip()]
+                if cwd not in current_paths:
+                    console.print(
+                        f"Current path not registered: [cyan]{cwd}[/cyan]",
+                        style="yellow",
+                    )
+                    return
 
-    with open(REGISTRY_FILE, "w") as f:
-        for path in current_paths:
-            if path != cwd:
-                f.write(f"{path}\n")
-    console.print(f"✔ Unregistered: [cyan]{cwd}[/cyan]", style="green")
+                with open(tmp_file, "w") as tf:
+                    for path in current_paths:
+                        if path != cwd:
+                            tf.write(f"{path}\n")
+                    tf.flush()
+                    os.fsync(tf.fileno())
+
+                os.replace(tmp_file, REGISTRY_FILE)
+            finally:
+                fcntl.flock(f.fileno(), fcntl.LOCK_UN)
+        console.print(f"✔ Unregistered: [cyan]{cwd}[/cyan]", style="green")
+    except OSError as e:
+        logger.error(f"Failed to unregister repository: {e}")
+        if tmp_file.exists():
+            tmp_file.unlink()
 
 
 def _check_systemd_linger() -> str | None:
@@ -841,33 +858,6 @@ def run_doctor() -> None:
             else:
                 console.print("   [dim]Skipped.[/dim]")
 
-    # 2. Check logs for recent errors using dynamic window (Event Check).
-    conf = Config.load()
-    lookback_secs = conf.daemon.push_interval * 3
-    recent_errors = _analyze_logs(seconds=lookback_secs)
-
-    # 3. Correlate State and Events
-    if recent_errors:
-        lookback_hours = lookback_secs // 3600
-        time_str = f"{lookback_hours}h" if lookback_hours > 0 else f"{lookback_secs}s"
-
-        if is_healthy:
-            console.print(
-                f"   [dim]i {len(recent_errors)} transient error(s) logged in the last "
-                f"{time_str}, but system automatically recovered.[/dim]"
-            )
-        else:
-            console.print(
-                f"   [red]✘ Found {len(recent_errors)} active error(s) in the last "
-                f"{time_str}:[/red]"
-            )
-            for err in recent_errors[-3:]:  # Show last 3
-                console.print(f"     [dim]{err}[/dim]")
-            if len(recent_errors) > 3:
-                console.print("     ... (run 'git pulsar log' to see full history)")
-    else:
-        console.print("   [green]✔ Recent logs are clean.[/green]")
-
 
 def add_ignore_cli(pattern: str) -> None:
     """Adds a file pattern to the repository's ignore list.
@@ -958,9 +948,11 @@ def setup_repo(registry_path: Path = REGISTRY_FILE) -> None:
                 style="dim",
             )
             with open(gitignore) as f:
-                existing_content = f.read()
+                existing_lines = {line.strip() for line in f}
 
-            missing_defaults = [d for d in DEFAULT_IGNORES if d not in existing_content]
+            missing_defaults = [
+                d for d in DEFAULT_IGNORES if d.strip() not in existing_lines
+            ]
 
             if missing_defaults:
                 console.print(
@@ -982,12 +974,19 @@ def setup_repo(registry_path: Path = REGISTRY_FILE) -> None:
         registry_path.touch()
 
     with open(registry_path, "r+") as f:
-        content = f.read()
-        if str(cwd) not in content:
-            f.write(f"{cwd}\n")
-            console.print(f"Registered: [cyan]{cwd}[/cyan]", style="green")
-        else:
-            console.print("Already registered.", style="dim")
+        fcntl.flock(f.fileno(), fcntl.LOCK_EX)
+        try:
+            content = f.read()
+            if str(cwd) not in [line.strip() for line in content.splitlines()]:
+                f.seek(0, os.SEEK_END)
+                f.write(f"{cwd}\n")
+                f.flush()
+                os.fsync(f.fileno())
+                console.print(f"Registered: [cyan]{cwd}[/cyan]", style="green")
+            else:
+                console.print("Already registered.", style="dim")
+        finally:
+            fcntl.flock(f.fileno(), fcntl.LOCK_UN)
 
     console.print("\n[bold green]✔ Pulsar Active.[/bold green]")
 

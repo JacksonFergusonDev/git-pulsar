@@ -409,3 +409,19 @@ def test_has_large_files_uses_config_limit(tmp_path: Path, mocker: MagicMock) ->
     assert result is True
     # Verify the mock strategy intercepted the call
     mock_strat.notify.assert_called_with("Backup Aborted", mocker.ANY)
+
+
+def test_ignore_pattern_exact_line_match(tmp_path: Path, mocker: MagicMock) -> None:
+    """Verifies that ops.add_ignore checks exact lines instead of substring containment."""
+    mocker.patch.object(Path, "cwd", return_value=tmp_path)
+    gitignore = tmp_path / ".gitignore"
+    gitignore.write_text("sub_foo.txt\n")
+
+    mocker.patch("git_pulsar.ops.console")
+    mock_git = mocker.patch("git_pulsar.ops.GitRepo")
+    mock_git.return_value.status_porcelain.return_value = []
+
+    ops.add_ignore("foo.txt")
+
+    content = gitignore.read_text()
+    assert "foo.txt" in content.splitlines()

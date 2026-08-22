@@ -1,3 +1,4 @@
+import fcntl
 import logging
 import os
 import plistlib
@@ -25,8 +26,16 @@ def get_registered_repos() -> list[Path]:
     """Reads the registry file and returns a list of registered repository paths."""
     if not REGISTRY_FILE.exists():
         return []
-    with open(REGISTRY_FILE) as f:
-        return [Path(line.strip()) for line in f if line.strip()]
+    try:
+        with open(REGISTRY_FILE) as f:
+            fcntl.flock(f.fileno(), fcntl.LOCK_SH)
+            try:
+                return [Path(line.strip()) for line in f if line.strip()]
+            finally:
+                fcntl.flock(f.fileno(), fcntl.LOCK_UN)
+    except Exception as e:
+        logger.debug(f"Failed to read registry: {e}")
+        return []
 
 
 class SystemStrategy:
