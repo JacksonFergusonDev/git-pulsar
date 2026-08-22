@@ -14,6 +14,13 @@ from .constants import (
 
 logger = logging.getLogger(APP_NAME)
 
+PRESETS: dict[str, dict[str, int]] = {
+    "paranoid": {"commit_interval": 300, "push_interval": 300},
+    "aggressive": {"commit_interval": 600, "push_interval": 600},
+    "balanced": {"commit_interval": 900, "push_interval": 3600},
+    "lazy": {"commit_interval": 3600, "push_interval": 14400},
+}
+
 
 def parse_size(value: int | str) -> int:
     """Converts human-readable size strings (e.g., '100MB') to bytes."""
@@ -46,6 +53,118 @@ def parse_time(value: int | str) -> int:
     num, unit = float(match.group(1)), match.group(2)
     multiplier = {"s": 1, "sec": 1, "m": 60, "min": 60, "h": 3600, "hr": 3600}
     return int(num * multiplier[unit])
+
+
+@dataclass(frozen=True)
+class ConfigFieldMeta:
+    """Metadata describing a configuration setting.
+
+    Attributes:
+        key (str): The configuration field key.
+        description (str): Human-readable comment explaining the setting.
+        example_value (str): The example value displayed in configuration templates.
+        parser (Any): Optional parser function for human-readable values.
+    """
+
+    key: str
+    description: str
+    example_value: str
+    parser: Any = None
+
+
+# Single source of truth for configuration metadata and template generation
+CONFIG_SECTIONS_METADATA: dict[str, list[ConfigFieldMeta]] = {
+    "core": [
+        ConfigFieldMeta(
+            key="backup_branch",
+            description="The namespace used for backup references.",
+            example_value=f'"{BACKUP_NAMESPACE}"',
+        ),
+        ConfigFieldMeta(
+            key="remote_name",
+            description="The git remote to push backups to.",
+            example_value='"origin"',
+        ),
+    ],
+    "daemon": [
+        ConfigFieldMeta(
+            key="preset",
+            description=f"Configuration preset. Options: {', '.join(PRESETS.keys())}",
+            example_value='"balanced"',
+        ),
+        ConfigFieldMeta(
+            key="commit_interval",
+            description="Time between local backup commits",
+            example_value='"10m"',
+            parser=parse_time,
+        ),
+        ConfigFieldMeta(
+            key="push_interval",
+            description="Time between pushing to remote",
+            example_value='"1h"',
+            parser=parse_time,
+        ),
+        ConfigFieldMeta(
+            key="min_battery_percent",
+            description="Battery percentage floor for commits (pauses backups if battery is lower)",
+            example_value="10",
+        ),
+        ConfigFieldMeta(
+            key="eco_mode_percent",
+            description="Battery percentage floor for pushing to remotes (pauses pushes if battery is lower)",
+            example_value="20",
+        ),
+    ],
+    "limits": [
+        ConfigFieldMeta(
+            key="max_log_size",
+            description="Max bytes for log files before rotation",
+            example_value='"5MB"',
+            parser=parse_size,
+        ),
+        ConfigFieldMeta(
+            key="large_file_threshold",
+            description="Max bytes for a file before triggering a warning (and ignoring it)",
+            example_value='"100MB"',
+            parser=parse_size,
+        ),
+    ],
+    "files": [
+        ConfigFieldMeta(
+            key="ignore",
+            description="List of glob patterns to ignore for backups (appended to defaults)",
+            example_value="[]",
+        ),
+        ConfigFieldMeta(
+            key="manage_gitignore",
+            description="Whether the daemon is allowed to modify .gitignore automatically",
+            example_value="true",
+        ),
+    ],
+}
+
+FIELD_PARSERS: dict[str, Any] = {
+    meta.key: meta.parser
+    for section_fields in CONFIG_SECTIONS_METADATA.values()
+    for meta in section_fields
+    if meta.parser is not None
+}
+
+
+def generate_default_config_template() -> str:
+    """Generates the canonical TOML configuration template with descriptions and default examples."""
+    lines = [
+        "# Git Pulsar Global Configuration",
+        "# Uncomment settings below to override their defaults.",
+        "",
+    ]
+    for section, fields in CONFIG_SECTIONS_METADATA.items():
+        lines.append(f"[{section}]")
+        for f in fields:
+            lines.append(f"# {f.description}")
+            lines.append(f"# {f.key} = {f.example_value}")
+        lines.append("")
+    return "\n".join(lines).rstrip() + "\n"
 
 
 @dataclass
@@ -108,18 +227,10 @@ class DaemonConfig:
 
     def apply_preset(self) -> None:
         """Overwrites intervals based on the selected preset."""
-        if self.preset == "paranoid":
-            self.commit_interval = 300  # 5 mins
-            self.push_interval = 300  # 5 mins
-        elif self.preset == "aggressive":
-            self.commit_interval = 600  # 10 mins
-            self.push_interval = 600  # 10 mins
-        elif self.preset == "balanced":
-            self.commit_interval = 900  # 15 mins
-            self.push_interval = 3600  # 1 hour
-        elif self.preset == "lazy":
-            self.commit_interval = 3600  # 1 hour
-            self.push_interval = 14400  # 4 hours
+        if self.preset and self.preset in PRESETS:
+            preset_values = PRESETS[self.preset]
+            self.commit_interval = preset_values["commit_interval"]
+            self.push_interval = preset_values["push_interval"]
 
 
 @dataclass
@@ -237,11 +348,9 @@ class Config:
                 continue
 
             try:
-                # Route specific keys through our parsers
-                if k in ["max_log_size", "large_file_threshold"]:
-                    filtered_updates[k] = parse_size(v)
-                elif k in ["commit_interval", "push_interval"]:
-                    filtered_updates[k] = parse_time(v)
+                parser = FIELD_PARSERS.get(k)
+                if parser is not None:
+                    filtered_updates[k] = parser(v)
                 else:
                     filtered_updates[k] = v
             except ValueError as e:
