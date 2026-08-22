@@ -26,7 +26,13 @@ from .constants import (
 )
 from .git_wrapper import GitRepo, get_git_dir
 from .system import get_system
-from .types import GitRef, SkipReason
+from .types import (
+    BackupOptions,
+    CommitTreeParams,
+    DriftState,
+    GitRef,
+    SkipReason,
+)
 
 SYSTEM = get_system()
 
@@ -203,15 +209,12 @@ def prune_registry(original_path_str: str) -> None:
         SYSTEM.notify("Backup Stopped", f"Removed missing repo: {repo_name}")
 
 
-def _should_skip(
-    repo_path: Path, config: Config, interactive: bool
-) -> SkipReason | None:
+def _should_skip(repo_path: Path, options: BackupOptions) -> SkipReason | None:
     """Determines if the backup for a given repository should be skipped.
 
     Args:
         repo_path (Path): The repository path.
-        config (Config): The configuration instance for this repository.
-        interactive (bool): Whether the session is interactive (CLI) or background.
+        options (BackupOptions): The execution options and configuration.
 
     Returns:
         SkipReason | None: The reason for skipping, or None if backup should proceed.
@@ -222,22 +225,20 @@ def _should_skip(
     if ops.is_repo_paused(repo_path):
         return SkipReason.PAUSED
 
-    if not interactive:
+    if not options.interactive:
         if SYSTEM.is_under_load():
             return SkipReason.SYSTEM_UNDER_LOAD
 
         # Check battery levels (don't drain battery on background tasks).
         pct, plugged = SYSTEM.get_battery()
         # Uses config value instead of hardcoded '10'
-        if not plugged and pct < config.daemon.min_battery_percent:
+        if not plugged and pct < options.config.daemon.min_battery_percent:
             return SkipReason.BATTERY_CRITICAL
 
     return None
 
 
-def _attempt_push(
-    repo: GitRepo, refspec: str, config: Config, interactive: bool
-) -> None:
+def _attempt_push(repo: GitRepo, refspec: str, options: BackupOptions) -> None:
     """Attempts to push the backup reference to the remote.
 
     Respects eco-mode settings and network availability.
@@ -245,18 +246,17 @@ def _attempt_push(
     Args:
         repo (GitRepo): The repository instance.
         refspec (str): The refspec to push (e.g., 'ref:ref').
-        config (Config): The configuration instance for this repository.
-        interactive (bool): Whether to output status to the console.
+        options (BackupOptions): The execution options and configuration.
     """
     # 1. Eco Mode Check.
     percent, plugged = SYSTEM.get_battery()
     # Uses config value instead of hardcoded '20'
-    if not plugged and percent < config.daemon.eco_mode_percent:
+    if not plugged and percent < options.config.daemon.eco_mode_percent:
         logger.info(f"ECO MODE {repo.path.name}: Committed. Push skipped.")
         return
 
     # 2. Network Connectivity Check.
-    remote_name = config.core.remote_name
+    remote_name = options.config.core.remote_name
     host = get_remote_host(repo.path, remote_name)
     if host and not is_remote_reachable(host):
         logger.info(f"OFFLINE {repo.path.name}: Committed. Push skipped.")
@@ -268,7 +268,7 @@ def _attempt_push(
         env["GIT_SSH_COMMAND"] = "ssh -o BatchMode=yes"
         cmd = ["push", remote_name, refspec]
 
-        if interactive:
+        if options.interactive:
             with console.status(
                 f"[bold blue]Pushing {repo.path.name}...[/bold blue]", spinner="dots"
             ):
@@ -281,7 +281,7 @@ def _attempt_push(
             logger.info(f"SUCCESS {repo.path.name}: Pushed.")
 
     except Exception as e:
-        if interactive:
+        if options.interactive:
             console.print(f"[bold red]PUSH ERROR {repo.path.name}:[/bold red] {e}")
         else:
             logger.error(f"PUSH ERROR {repo.path.name}: {e}")
@@ -306,9 +306,10 @@ def run_backup(original_path_str: str, interactive: bool = False) -> None:
 
     # Load context-aware config (Global + Local)
     config = Config.load(repo_path)
+    options = BackupOptions(config=config, interactive=interactive)
 
-    # Pass config to _should_skip
-    if reason := _should_skip(repo_path, config, interactive):
+    # Pass options to _should_skip
+    if reason := _should_skip(repo_path, options):
         if reason == SkipReason.PATH_MISSING:
             prune_registry(original_path_str)
         elif reason == SkipReason.SYSTEM_UNDER_LOAD:
@@ -352,13 +353,19 @@ def run_backup(original_path_str: str, interactive: bool = False) -> None:
                             )
                             # Trigger the OS interrupt
                             SYSTEM.notify("Pulsar Drift Detected", warning)
-                            ops.set_drift_state(repo_path, current_time, newest_ts)
+                            ops.set_drift_state(
+                                repo_path, DriftState(current_time, newest_ts)
+                            )
                         else:
                             # State is clean or already warned; update the check timestamp
-                            ops.set_drift_state(repo_path, current_time, warned_ts)
+                            ops.set_drift_state(
+                                repo_path, DriftState(current_time, warned_ts)
+                            )
                     else:
                         # Offline; update check timestamp to avoid spamming TCP handshakes
-                        ops.set_drift_state(repo_path, current_time, warned_ts)
+                        ops.set_drift_state(
+                            repo_path, DriftState(current_time, warned_ts)
+                        )
 
         # --- COMMIT PHASE ---
         # Define Refs
@@ -398,12 +405,13 @@ def run_backup(original_path_str: str, interactive: bool = False) -> None:
                     timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
                     # Use wrapper method
-                    commit_oid = repo.commit_tree(
+                    commit_params = CommitTreeParams(
                         tree=tree_oid,
                         parents=parents,
                         message=f"Shadow backup {timestamp}",
                         env=env,
                     )
+                    commit_oid = repo.commit_tree(commit_params)
 
                     # Use wrapper method
                     repo.update_ref(local_backup_ref, commit_oid, parent_backup)
@@ -424,8 +432,8 @@ def run_backup(original_path_str: str, interactive: bool = False) -> None:
                 time_since_push >= config.daemon.push_interval or interactive
             ):
                 refspec = f"{local_backup_ref}:{local_backup_ref}"
-                # Pass config to _attempt_push
-                _attempt_push(repo, refspec, config, interactive)
+                # Pass options to _attempt_push
+                _attempt_push(repo, refspec, options)
 
     except Exception:
         logger.exception(f"CRITICAL {repo_path.name}: Backup iteration failed")

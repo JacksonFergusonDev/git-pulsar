@@ -1,11 +1,14 @@
-"""Tests for domain types, enums, newtypes, and structured data classes."""
+from pathlib import Path
 
+from git_pulsar.config import Config
 from git_pulsar.types import (
+    BackupOptions,
     BackupRefInfo,
     BatteryStatus,
     BranchName,
     ByteSize,
     CommitSHA,
+    CommitTreeParams,
     ConfigSection,
     DaemonStatus,
     DiffStat,
@@ -19,6 +22,7 @@ from git_pulsar.types import (
     RemoteDriftResult,
     RepoStatus,
     Seconds,
+    ServiceUnitConfig,
     SkipReason,
     TreeSHA,
 )
@@ -154,3 +158,49 @@ def test_backup_ref_info_dataclass() -> None:
     assert info.slug == "mac--123"
     assert info.machine_name == "mac"
     assert info.branch == "main"
+
+
+def test_service_unit_config_dataclass() -> None:
+    """Verifies ServiceUnitConfig dataclass instantiation, default values, and field access."""
+    cfg = ServiceUnitConfig(
+        unit_path=Path("/tmp/pulsar.service"),
+        executable="/usr/local/bin/git-pulsar-daemon",
+    )
+    assert cfg.unit_path == Path("/tmp/pulsar.service")
+    assert cfg.executable == "/usr/local/bin/git-pulsar-daemon"
+    assert cfg.interval == 900
+    assert cfg.log_path is None
+
+    cfg_custom = ServiceUnitConfig(
+        unit_path=Path("/tmp/custom.service"),
+        executable="/bin/daemon",
+        interval=Seconds(300),
+        log_path=Path("/var/log/pulsar.log"),
+    )
+    assert cfg_custom.interval == 300
+    assert cfg_custom.log_path == Path("/var/log/pulsar.log")
+
+
+def test_backup_options_dataclass() -> None:
+    """Verifies BackupOptions dataclass instantiation and default values."""
+    conf = Config()
+    opts = BackupOptions(config=conf)
+    assert opts.config is conf
+    assert opts.interactive is False
+
+    interactive_opts = BackupOptions(config=conf, interactive=True)
+    assert interactive_opts.interactive is True
+
+
+def test_commit_tree_params_dataclass() -> None:
+    """Verifies CommitTreeParams dataclass instantiation and fields."""
+    params = CommitTreeParams(
+        tree=TreeSHA(GitOID("a" * 40)),
+        parents=[CommitSHA(GitOID("b" * 40))],
+        message="Test shadow commit",
+        env={"GIT_INDEX_FILE": "/tmp/idx"},
+    )
+    assert params.tree == "a" * 40
+    assert params.parents == ["b" * 40]
+    assert params.message == "Test shadow commit"
+    assert params.env == {"GIT_INDEX_FILE": "/tmp/idx"}

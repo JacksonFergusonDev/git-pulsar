@@ -6,6 +6,7 @@ from pathlib import Path
 from rich.console import Console
 
 from .constants import APP_LABEL, HOMEBREW_LABEL, LOG_FILE
+from .types import ServiceUnitConfig
 
 console = Console()
 
@@ -67,21 +68,16 @@ def get_paths() -> tuple[Path, Path]:
     raise NotImplementedError("Service installation is managed by Homebrew on macOS.")
 
 
-def install_linux(
-    unit_path: Path, log_path: Path, executable: str, interval: int
-) -> None:
+def install_linux(config: ServiceUnitConfig) -> None:
     """Configures and enables a systemd user timer for Linux.
 
     Creates the .service and .timer unit files in the user's systemd configuration
     directory, reloads the daemon, and enables the timer.
 
     Args:
-        unit_path (Path): The target path for the .service file.
-        log_path (Path): The path to the log file.
-        executable (str): The path to the daemon executable.
-        interval (int): The backup interval in seconds.
+        config (ServiceUnitConfig): Configuration parameters for the Linux service unit.
     """
-    base_dir = unit_path.parent
+    base_dir = config.unit_path.parent
     base_dir.mkdir(parents=True, exist_ok=True)
 
     service_file = base_dir / f"{APP_LABEL}.service"
@@ -91,14 +87,14 @@ def install_linux(
 Description=Git Pulsar Backup Daemon
 
 [Service]
-ExecStart={executable}
+ExecStart={config.executable}
 """
     timer_content = f"""[Unit]
-Description=Run Git Pulsar every {interval} seconds
+Description=Run Git Pulsar every {config.interval} seconds
 
 [Timer]
 OnBootSec=5min
-OnUnitActiveSec={interval}s
+OnUnitActiveSec={config.interval}s
 Unit={APP_LABEL}.service
 
 [Install]
@@ -144,7 +140,13 @@ def install(interval: int = 900) -> None:
 
     console.print(f"Installing background service (interval: {interval}s)...")
     if sys.platform.startswith("linux"):
-        install_linux(path, log, exe, interval)
+        unit_config = ServiceUnitConfig(
+            unit_path=path,
+            executable=exe,
+            interval=interval,
+            log_path=log,
+        )
+        install_linux(unit_config)
 
 
 def uninstall() -> None:

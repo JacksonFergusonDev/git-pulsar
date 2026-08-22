@@ -8,6 +8,7 @@ import pytest
 from git_pulsar import daemon
 from git_pulsar.config import Config
 from git_pulsar.constants import BACKUP_NAMESPACE
+from git_pulsar.types import BackupOptions, CommitTreeParams, DriftState
 
 
 @pytest.fixture
@@ -183,7 +184,9 @@ def test_run_backup_drift_detection_triggers_notification(
     mock_notify.assert_called_once_with("Pulsar Drift Detected", warning_msg)
 
     # Assert state was updated so we don't spam the user again for timestamp 5000
-    mock_set_state.assert_called_once_with(tmp_path.resolve(), current_time, 5000)
+    mock_set_state.assert_called_once_with(
+        tmp_path.resolve(), DriftState(current_time, 5000)
+    )
 
 
 def test_main_signal_alarm_reset_on_exception(
@@ -232,8 +235,11 @@ def test_run_backup_deduplicates_identical_parents(
 
     # Assert commit_tree was called with parents=["same_sha"] (no duplicate)
     repo.commit_tree.assert_called_once()
-    _, kwargs = repo.commit_tree.call_args
-    assert kwargs["parents"] == ["same_sha"]
+    args, kwargs = repo.commit_tree.call_args
+    if args and isinstance(args[0], CommitTreeParams):
+        assert args[0].parents == ["same_sha"]
+    else:
+        assert kwargs.get("parents") == ["same_sha"]
 
 
 def test_run_backup_push_uses_oid_comparison(
@@ -311,15 +317,24 @@ def test_should_skip_paused_repo(tmp_path: Path) -> None:
     (git_dir / "pulsar_paused").touch()
 
     conf = Config()
-    assert daemon._should_skip(tmp_path, conf, interactive=False) == "Paused by user"
-    assert daemon._should_skip(tmp_path, conf, interactive=True) == "Paused by user"
+    assert (
+        daemon._should_skip(tmp_path, BackupOptions(config=conf, interactive=False))
+        == "Paused by user"
+    )
+    assert (
+        daemon._should_skip(tmp_path, BackupOptions(config=conf, interactive=True))
+        == "Paused by user"
+    )
 
 
 def test_should_skip_missing_path(tmp_path: Path) -> None:
     """Verifies that _should_skip returns 'Path missing' when the repo directory does not exist."""
     missing = tmp_path / "nonexistent_repo"
     conf = Config()
-    assert daemon._should_skip(missing, conf, interactive=False) == "Path missing"
+    assert (
+        daemon._should_skip(missing, BackupOptions(config=conf, interactive=False))
+        == "Path missing"
+    )
 
 
 def test_should_skip_battery_critical(tmp_path: Path, mocker: MagicMock) -> None:
@@ -332,9 +347,15 @@ def test_should_skip_battery_critical(tmp_path: Path, mocker: MagicMock) -> None
     mocker.patch("git_pulsar.daemon.SYSTEM.get_battery", return_value=(10, False))
 
     # Background mode should skip
-    assert daemon._should_skip(tmp_path, conf, interactive=False) == "Battery critical"
+    assert (
+        daemon._should_skip(tmp_path, BackupOptions(config=conf, interactive=False))
+        == "Battery critical"
+    )
     # Interactive mode should proceed regardless of battery
-    assert daemon._should_skip(tmp_path, conf, interactive=True) is None
+    assert (
+        daemon._should_skip(tmp_path, BackupOptions(config=conf, interactive=True))
+        is None
+    )
 
 
 def test_should_skip_system_under_load(tmp_path: Path, mocker: MagicMock) -> None:
@@ -343,8 +364,14 @@ def test_should_skip_system_under_load(tmp_path: Path, mocker: MagicMock) -> Non
     conf = Config()
 
     mocker.patch("git_pulsar.daemon.SYSTEM.is_under_load", return_value=True)
-    assert daemon._should_skip(tmp_path, conf, interactive=False) == "System under load"
-    assert daemon._should_skip(tmp_path, conf, interactive=True) is None
+    assert (
+        daemon._should_skip(tmp_path, BackupOptions(config=conf, interactive=False))
+        == "System under load"
+    )
+    assert (
+        daemon._should_skip(tmp_path, BackupOptions(config=conf, interactive=True))
+        is None
+    )
 
 
 def test_attempt_push_skips_in_eco_mode(mocker: MagicMock) -> None:
@@ -355,7 +382,7 @@ def test_attempt_push_skips_in_eco_mode(mocker: MagicMock) -> None:
     conf.daemon.eco_mode_percent = 25
 
     mocker.patch("git_pulsar.daemon.SYSTEM.get_battery", return_value=(20, False))
-    daemon._attempt_push(repo, "ref:ref", conf, interactive=False)
+    daemon._attempt_push(repo, "ref:ref", BackupOptions(config=conf, interactive=False))
 
     repo._run.assert_not_called()
 
@@ -370,7 +397,7 @@ def test_attempt_push_skips_when_offline(mocker: MagicMock) -> None:
     mocker.patch("git_pulsar.daemon.get_remote_host", return_value="github.com")
     mocker.patch("git_pulsar.daemon.is_remote_reachable", return_value=False)
 
-    daemon._attempt_push(repo, "ref:ref", conf, interactive=False)
+    daemon._attempt_push(repo, "ref:ref", BackupOptions(config=conf, interactive=False))
     repo._run.assert_not_called()
 
 
@@ -385,7 +412,7 @@ def test_attempt_push_executes_successfully(mocker: MagicMock) -> None:
     mocker.patch("git_pulsar.daemon.is_remote_reachable", return_value=True)
 
     # Background mode
-    daemon._attempt_push(repo, "ref:ref", conf, interactive=False)
+    daemon._attempt_push(repo, "ref:ref", BackupOptions(config=conf, interactive=False))
     repo._run.assert_called_once_with(
         ["push", "origin", "ref:ref"],
         capture=True,
@@ -396,7 +423,7 @@ def test_attempt_push_executes_successfully(mocker: MagicMock) -> None:
     # Interactive mode
     repo.reset_mock()
     mocker.patch("git_pulsar.daemon.console.status")
-    daemon._attempt_push(repo, "ref:ref", conf, interactive=True)
+    daemon._attempt_push(repo, "ref:ref", BackupOptions(config=conf, interactive=True))
     repo._run.assert_called_once()
 
 
