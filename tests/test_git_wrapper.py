@@ -2,6 +2,8 @@ import subprocess
 from pathlib import Path
 from unittest.mock import MagicMock
 
+import pytest
+
 from git_pulsar.git_wrapper import GitRepo
 
 
@@ -156,3 +158,85 @@ def test_status_porcelain_pathspec_double_dash(
 
     repo.status_porcelain("file.txt")
     mock_run.assert_called_once_with(["status", "--porcelain", "--", "file.txt"])
+
+
+def test_git_repo_raises_on_non_repo(tmp_path: Path) -> None:
+    """Verifies that GitRepo raises ValueError if the directory is not a git repository."""
+    with pytest.raises(ValueError, match=r"Not a git repository"):
+        GitRepo(tmp_path)
+
+
+def test_run_raises_runtime_error_on_git_failure(tmp_path: Path) -> None:
+    """Verifies that _run translates CalledProcessError into RuntimeError with output context."""
+    (tmp_path / ".git").mkdir()
+    repo = GitRepo(tmp_path)
+
+    with pytest.raises(RuntimeError, match=r"Git error"):
+        repo._run(["log", "--invalid-option-xyz"])
+
+
+def test_update_ref_with_old_oid(mocker: MagicMock, tmp_path: Path) -> None:
+    """Verifies that update_ref includes the old_oid argument when supplied."""
+    (tmp_path / ".git").mkdir()
+    repo = GitRepo(tmp_path)
+    mock_run = mocker.patch.object(repo, "_run")
+
+    repo.update_ref("refs/heads/backup", "new_sha123", old_oid="old_sha456")
+    mock_run.assert_called_once_with(
+        [
+            "update-ref",
+            "-m",
+            "Pulsar backup",
+            "refs/heads/backup",
+            "new_sha123",
+            "old_sha456",
+        ]
+    )
+
+
+def test_update_ref_raises_on_failure(
+    mocker: MagicMock, caplog: pytest.LogCaptureFixture, tmp_path: Path
+) -> None:
+    """Verifies that update_ref logs a warning and re-raises exceptions on failure."""
+    (tmp_path / ".git").mkdir()
+    repo = GitRepo(tmp_path)
+    mocker.patch.object(repo, "_run", side_effect=RuntimeError("Lock error"))
+
+    with pytest.raises(RuntimeError, match="Lock error"):
+        repo.update_ref("refs/heads/backup", "new_sha123")
+
+    assert "Failed to update ref refs/heads/backup" in caplog.text
+
+
+def test_merge_squash_no_op_on_empty(mocker: MagicMock, tmp_path: Path) -> None:
+    """Verifies that merge_squash returns early without invoking git when no branches are passed."""
+    (tmp_path / ".git").mkdir()
+    repo = GitRepo(tmp_path)
+    mock_run = mocker.patch.object(repo, "_run")
+
+    repo.merge_squash()
+    mock_run.assert_not_called()
+
+
+def test_checkout_force_flag(mocker: MagicMock, tmp_path: Path) -> None:
+    """Verifies that checkout appends the -f flag when force is True."""
+    (tmp_path / ".git").mkdir()
+    repo = GitRepo(tmp_path)
+    mock_run = mocker.patch.object(repo, "_run")
+
+    repo.checkout("main", force=True)
+    mock_run.assert_called_once_with(["checkout", "-f", "main"], capture=False)
+
+
+def test_commit_tree_raises_on_failure(
+    mocker: MagicMock, caplog: pytest.LogCaptureFixture, tmp_path: Path
+) -> None:
+    """Verifies that commit_tree logs a warning and re-raises on subprocess errors."""
+    (tmp_path / ".git").mkdir()
+    repo = GitRepo(tmp_path)
+    mocker.patch.object(repo, "_run", side_effect=RuntimeError("Tree invalid"))
+
+    with pytest.raises(RuntimeError, match="Tree invalid"):
+        repo.commit_tree("tree_sha", ["parent_sha"], "Test message")
+
+    assert "Failed to commit tree tree_sha" in caplog.text
