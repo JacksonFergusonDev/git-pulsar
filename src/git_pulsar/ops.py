@@ -5,7 +5,6 @@ import os
 import subprocess
 import sys
 import time
-from dataclasses import dataclass
 from pathlib import Path
 
 from rich.console import Console
@@ -17,33 +16,25 @@ from . import system
 from .config import Config
 from .constants import APP_NAME, BACKUP_NAMESPACE
 from .git_wrapper import GitRepo, get_git_dir
+from .types import (
+    BackupRefInfo,
+    BranchName,
+    DriftState,
+    GitRef,
+    MachineName,
+    MachineSlug,
+    RemoteDriftResult,
+)
 
 console = Console()
 logger = logging.getLogger(APP_NAME)
 
 
-@dataclass(frozen=True)
-class BackupRefInfo:
-    """Parsed representation of a Git Pulsar backup reference.
-
-    Attributes:
-        ref (str): The full git ref (e.g. 'refs/heads/wip/pulsar/mac--123/main').
-        slug (str): The composite machine slug (e.g. 'mac--123').
-        machine_name (str): The human-readable machine name (e.g. 'mac').
-        branch (str): The branch name (e.g. 'main' or 'feature/login').
-    """
-
-    ref: str
-    slug: str
-    machine_name: str
-    branch: str
-
-
-def parse_backup_ref(ref: str) -> BackupRefInfo | None:
+def parse_backup_ref(ref: GitRef | str) -> BackupRefInfo | None:
     """Parses a fully qualified backup reference into its components.
 
     Args:
-        ref (str): The git reference (e.g., 'refs/heads/wip/pulsar/mac--123/main').
+        ref (GitRef | str): The git reference (e.g., 'refs/heads/wip/pulsar/mac--123/main').
 
     Returns:
         BackupRefInfo | None: The parsed components, or None if the ref does not match the namespace.
@@ -56,45 +47,52 @@ def parse_backup_ref(ref: str) -> BackupRefInfo | None:
         return None
     slug, branch = remainder.split("/", 1)
     machine_name = slug.split("--", 1)[0] if "--" in slug else slug
-    return BackupRefInfo(ref=ref, slug=slug, machine_name=machine_name, branch=branch)
+    return BackupRefInfo(
+        ref=GitRef(str(ref)),
+        slug=MachineSlug(slug),
+        machine_name=MachineName(machine_name),
+        branch=BranchName(branch),
+    )
 
 
-def get_backup_ref(branch: str) -> str:
+def get_backup_ref(branch: BranchName | str) -> GitRef:
     """Constructs the fully qualified backup reference for the current machine and branch.
 
     Args:
-        branch (str): The name of the branch to back up.
+        branch (BranchName | str): The name of the branch to back up.
 
     Returns:
-        str: The namespaced ref string (e.g., refs/heads/wip/pulsar/slug/branch).
+        GitRef: The namespaced ref string (e.g., refs/heads/wip/pulsar/slug/branch).
     """
     slug = system.get_identity_slug()
-    return f"refs/heads/{BACKUP_NAMESPACE}/{slug}/{branch}"
+    return GitRef(f"refs/heads/{BACKUP_NAMESPACE}/{slug}/{branch}")
 
 
-def get_remote_backup_ref(branch: str, remote_name: str = "origin") -> str:
+def get_remote_backup_ref(
+    branch: BranchName | str, remote_name: str = "origin"
+) -> GitRef:
     """Constructs the remote tracking reference for the local backup branch.
 
     Args:
-        branch (str): The branch name.
+        branch (BranchName | str): The branch name.
         remote_name (str): The remote name (defaults to 'origin').
 
     Returns:
-        str: The remote ref (e.g., 'refs/remotes/origin/wip/pulsar/slug/branch').
+        GitRef: The remote ref (e.g., 'refs/remotes/origin/wip/pulsar/slug/branch').
     """
     local_ref = get_backup_ref(branch)
     suffix = local_ref.replace("refs/heads/", "", 1)
-    return f"refs/remotes/{remote_name}/{suffix}"
+    return GitRef(f"refs/remotes/{remote_name}/{suffix}")
 
 
 def fetch_backup_refs(
-    repo: GitRepo, branch: str | None = None, remote_name: str = "origin"
+    repo: GitRepo, branch: BranchName | str | None = None, remote_name: str = "origin"
 ) -> bool:
     """Fetches backup references from the remote.
 
     Args:
         repo (GitRepo): The repository instance.
-        branch (str | None): If specified, fetches only backups for that branch.
+        branch (BranchName | str | None): If specified, fetches only backups for that branch.
         remote_name (str): The remote name (defaults to 'origin').
 
     Returns:
@@ -113,31 +111,31 @@ def fetch_backup_refs(
         return False
 
 
-def get_remote_drift_state(repo_path: Path) -> tuple[bool, int, str, str]:
+def get_remote_drift_state(repo_path: Path) -> RemoteDriftResult:
     """Checks if another machine has a newer backup session for the current branch.
 
     Args:
         repo_path (Path): Path to the local git repository.
 
     Returns:
-        tuple[bool, int, str, str]: A tuple containing:
-            - bool: True if divergence/drift is detected, False otherwise.
-            - int: The Unix timestamp of the newest remote session (0 if none/error).
-            - str: The machine slug that pushed the newest session (empty if none).
-            - str: A human-readable warning message (empty if no drift).
+        RemoteDriftResult: A NamedTuple containing:
+            - drift_detected (bool): True if divergence/drift is detected, False otherwise.
+            - newest_ts (int): The Unix timestamp of the newest remote session (0 if none/error).
+            - newest_machine (MachineSlug | str): The machine slug that pushed the newest session (empty if none).
+            - warning (str): A human-readable warning message (empty if no drift).
     """
     try:
         repo = GitRepo(repo_path)
         current_branch = repo.current_branch()
         if not current_branch:
-            return False, 0, "", ""
+            return RemoteDriftResult(False, 0, MachineSlug(""), "")
 
         # Lightweight fetch of backup refs for the current branch
         fetch_backup_refs(repo, branch=current_branch)
 
         candidates = repo.list_refs(f"refs/heads/{BACKUP_NAMESPACE}/*/{current_branch}")
         if not candidates:
-            return False, 0, "", ""
+            return RemoteDriftResult(False, 0, MachineSlug(""), "")
 
         my_slug = system.get_identity_slug()
         my_backup_ref = get_backup_ref(current_branch)
@@ -149,7 +147,7 @@ def get_remote_drift_state(repo_path: Path) -> tuple[bool, int, str, str]:
             local_ts = repo.get_commit_timestamp("HEAD") or 0
 
         newest_ts = 0
-        newest_machine = ""
+        newest_machine: MachineSlug | str = ""
 
         for ref in candidates:
             ts = repo.get_commit_timestamp(ref)
@@ -165,12 +163,12 @@ def get_remote_drift_state(repo_path: Path) -> tuple[bool, int, str, str]:
                 f"Divergence Risk: '{newest_machine}' pushed a newer session "
                 f"~{minutes_ago} mins ago. Consider running 'git pulsar sync'."
             )
-            return True, newest_ts, newest_machine, warning
+            return RemoteDriftResult(True, newest_ts, newest_machine, warning)
 
     except Exception as e:
         logger.debug(f"Drift check failed: {e}")
 
-    return False, 0, "", ""
+    return RemoteDriftResult(False, 0, MachineSlug(""), "")
 
 
 def is_repo_paused(repo_path: Path) -> bool:
@@ -199,33 +197,34 @@ def set_repo_paused(repo_path: Path, paused: bool) -> None:
         pause_file.unlink(missing_ok=True)
 
 
-def get_drift_state(repo_path: Path) -> tuple[float, int]:
+def get_drift_state(repo_path: Path) -> DriftState:
     """Retrieves the cached state for remote drift detection.
 
     Args:
         repo_path (Path): The path to the repository.
 
     Returns:
-        tuple[float, int]: A tuple containing:
-            - float: The Unix timestamp of the last time a drift check was performed.
-            - int: The Unix timestamp of the newest remote session the user was warned about.
+        DriftState: A NamedTuple containing:
+            - last_check_ts (float): The Unix timestamp of the last time a drift check was performed.
+            - warned_remote_ts (int): The Unix timestamp of the newest remote session the user was warned about.
     """
     state_file = get_git_dir(repo_path) / "pulsar_drift_state"
     if not state_file.exists():
-        return 0.0, 0
+        return DriftState(0.0, 0)
 
     try:
         content = state_file.read_text().strip()
         if not content:
-            return 0.0, 0
+            return DriftState(0.0, 0)
 
         data = json.loads(content)
-        return float(data.get("last_check_ts", 0.0)), int(
-            data.get("warned_remote_ts", 0)
+        return DriftState(
+            float(data.get("last_check_ts", 0.0)),
+            int(data.get("warned_remote_ts", 0)),
         )
     except (OSError, ValueError, json.JSONDecodeError) as e:
         logger.debug(f"Failed to read drift state: {e}")
-        return 0.0, 0
+        return DriftState(0.0, 0)
 
 
 def set_drift_state(

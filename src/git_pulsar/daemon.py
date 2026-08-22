@@ -26,6 +26,7 @@ from .constants import (
 )
 from .git_wrapper import GitRepo, get_git_dir
 from .system import get_system
+from .types import GitRef, SkipReason
 
 SYSTEM = get_system()
 
@@ -202,7 +203,9 @@ def prune_registry(original_path_str: str) -> None:
         SYSTEM.notify("Backup Stopped", f"Removed missing repo: {repo_name}")
 
 
-def _should_skip(repo_path: Path, config: Config, interactive: bool) -> str | None:
+def _should_skip(
+    repo_path: Path, config: Config, interactive: bool
+) -> SkipReason | None:
     """Determines if the backup for a given repository should be skipped.
 
     Args:
@@ -211,23 +214,23 @@ def _should_skip(repo_path: Path, config: Config, interactive: bool) -> str | No
         interactive (bool): Whether the session is interactive (CLI) or background.
 
     Returns:
-        str | None: The reason for skipping, or None if backup should proceed.
+        SkipReason | None: The reason for skipping, or None if backup should proceed.
     """
     if not repo_path.exists():
-        return "Path missing"
+        return SkipReason.PATH_MISSING
 
     if ops.is_repo_paused(repo_path):
-        return "Paused by user"
+        return SkipReason.PAUSED
 
     if not interactive:
         if SYSTEM.is_under_load():
-            return "System under load"
+            return SkipReason.SYSTEM_UNDER_LOAD
 
         # Check battery levels (don't drain battery on background tasks).
         pct, plugged = SYSTEM.get_battery()
         # Uses config value instead of hardcoded '10'
         if not plugged and pct < config.daemon.min_battery_percent:
-            return "Battery critical"
+            return SkipReason.BATTERY_CRITICAL
 
     return None
 
@@ -284,12 +287,12 @@ def _attempt_push(
             logger.error(f"PUSH ERROR {repo.path.name}: {e}")
 
 
-def _get_ref_timestamp(repo: GitRepo, ref: str) -> int:
+def _get_ref_timestamp(repo: GitRepo, ref: GitRef | str) -> int:
     """Gets the commit timestamp of a specific reference.
 
     Args:
         repo (GitRepo): The repository instance.
-        ref (str): The reference to check.
+        ref (GitRef | str): The reference to check.
 
     Returns:
         int: Unix timestamp of the commit, or 0 if ref does not exist.
@@ -306,12 +309,12 @@ def run_backup(original_path_str: str, interactive: bool = False) -> None:
 
     # Pass config to _should_skip
     if reason := _should_skip(repo_path, config, interactive):
-        if reason == "Path missing":
+        if reason == SkipReason.PATH_MISSING:
             prune_registry(original_path_str)
-        elif reason == "System under load":
+        elif reason == SkipReason.SYSTEM_UNDER_LOAD:
             pass
         else:
-            logger.info(f"SKIPPED {repo_path.name}: {reason}")
+            logger.info(f"SKIPPED {repo_path.name}: {reason.value}")
         return
 
     # Pass config to has_large_files (re-added safety check)

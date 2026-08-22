@@ -28,6 +28,7 @@ from .constants import (
     REGISTRY_FILE,
 )
 from .git_wrapper import GitRepo, get_git_dir
+from .types import DaemonStatus, GitRef, RepoStatus
 
 logger = logging.getLogger(APP_NAME)
 console = Console()
@@ -49,14 +50,14 @@ class DoctorAction:
     action_callable: Callable[[], bool]
 
 
-def _get_ref(repo: GitRepo) -> str:
+def _get_ref(repo: GitRepo) -> GitRef:
     """Resolves the namespaced backup reference for the current repository state.
 
     Args:
         repo (GitRepo): The repository instance to analyze.
 
     Returns:
-        str: The fully qualified backup reference string based on the current branch.
+        GitRef: The fully qualified backup reference string based on the current branch.
     """
     return ops.get_backup_ref(repo.current_branch())
 
@@ -196,18 +197,18 @@ def show_status() -> None:
     service_enabled = service.is_service_enabled()
 
     if pid_running:
-        status_text = "Active (Running)"
+        status = DaemonStatus.RUNNING
         status_style = "bold green"
     elif service_enabled:
-        status_text = "Active (Idle)"
+        status = DaemonStatus.IDLE
         status_style = "green"
     else:
-        status_text = "Stopped"
+        status = DaemonStatus.STOPPED
         status_style = "bold red"
 
     system_content = Text()
     system_content.append("Daemon: ", style="bold")
-    system_content.append(status_text + "\n", style=status_style)
+    system_content.append(f"{status.value}\n", style=status_style)
 
     # --- Power Telemetry Integration ---
     conf = Config.load()
@@ -279,6 +280,7 @@ def show_status() -> None:
 
         count = len(repo.status_porcelain())
         is_paused = ops.is_repo_paused(cwd)
+        repo_mode = RepoStatus.PAUSED if is_paused else RepoStatus.ACTIVE
 
         repo_content = Text()
         repo_content.append(f"Last Commit: {commit_str}\n")
@@ -286,9 +288,11 @@ def show_status() -> None:
         repo_content.append(f"Pending:     {count} files changed\n")
 
         if is_paused:
-            repo_content.append("Mode:        PAUSED", style="bold yellow")
+            repo_content.append(
+                f"Mode:        {repo_mode.value.upper()}", style="bold yellow"
+            )
         else:
-            repo_content.append("Mode:        Active", style="green")
+            repo_content.append(f"Mode:        {repo_mode.value}", style="green")
 
         # --- 1. Health Integration ---
         health_warning = None
@@ -381,19 +385,19 @@ def list_repos() -> None:
     for path in repos:
         display_path = str(path).replace(str(Path.home()), "~")
 
-        status_text = "Unknown"
+        status_text = RepoStatus.UNKNOWN.value
         status_style = "white"
         last_backup = "-"
 
         if not path.exists():
-            status_text = "Missing"
+            status_text = RepoStatus.MISSING.value
             status_style = "red"
         else:
             if ops.is_repo_paused(path):
-                status_text = "Paused"
+                status_text = RepoStatus.PAUSED.value
                 status_style = "yellow"
             else:
-                status_text = "Active"
+                status_text = RepoStatus.ACTIVE.value
                 status_style = "green"
 
             try:
@@ -402,12 +406,12 @@ def list_repos() -> None:
                 last_backup = r.get_last_commit_time(ref)
             except Exception as e:
                 logger.debug(f"Failed to retrieve backup info for {path}: {e}")
-                if status_text == "Active":
+                if status_text == RepoStatus.ACTIVE.value:
                     try:
                         GitRepo(path)
                     except Exception as inner_e:
                         logger.debug(f"Repo instantiation failed for {path}: {inner_e}")
-                        status_text = "Error"
+                        status_text = RepoStatus.ERROR.value
                         status_style = "bold red"
 
         table.add_row(
