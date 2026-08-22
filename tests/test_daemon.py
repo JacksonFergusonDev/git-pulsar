@@ -8,6 +8,7 @@ import pytest
 from git_pulsar import daemon
 from git_pulsar.config import Config
 from git_pulsar.constants import BACKUP_NAMESPACE
+from git_pulsar.types import DriftState
 
 
 @pytest.fixture
@@ -183,7 +184,9 @@ def test_run_backup_drift_detection_triggers_notification(
     mock_notify.assert_called_once_with("Pulsar Drift Detected", warning_msg)
 
     # Assert state was updated so we don't spam the user again for timestamp 5000
-    mock_set_state.assert_called_once_with(tmp_path.resolve(), current_time, 5000)
+    mock_set_state.assert_called_once_with(
+        tmp_path.resolve(), DriftState(current_time, 5000)
+    )
 
 
 def test_main_signal_alarm_reset_on_exception(

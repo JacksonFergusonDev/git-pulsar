@@ -26,7 +26,7 @@ from .constants import (
 )
 from .git_wrapper import GitRepo, get_git_dir
 from .system import get_system
-from .types import GitRef, SkipReason
+from .types import DriftState, GitRef, SkipReason
 
 SYSTEM = get_system()
 
@@ -352,13 +352,19 @@ def run_backup(original_path_str: str, interactive: bool = False) -> None:
                             )
                             # Trigger the OS interrupt
                             SYSTEM.notify("Pulsar Drift Detected", warning)
-                            ops.set_drift_state(repo_path, current_time, newest_ts)
+                            ops.set_drift_state(
+                                repo_path, DriftState(current_time, newest_ts)
+                            )
                         else:
                             # State is clean or already warned; update the check timestamp
-                            ops.set_drift_state(repo_path, current_time, warned_ts)
+                            ops.set_drift_state(
+                                repo_path, DriftState(current_time, warned_ts)
+                            )
                     else:
                         # Offline; update check timestamp to avoid spamming TCP handshakes
-                        ops.set_drift_state(repo_path, current_time, warned_ts)
+                        ops.set_drift_state(
+                            repo_path, DriftState(current_time, warned_ts)
+                        )
 
         # --- COMMIT PHASE ---
         # Define Refs

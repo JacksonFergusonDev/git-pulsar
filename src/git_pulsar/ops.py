@@ -227,22 +227,19 @@ def get_drift_state(repo_path: Path) -> DriftState:
         return DriftState(0.0, 0)
 
 
-def set_drift_state(
-    repo_path: Path, last_check_ts: float, warned_remote_ts: int
-) -> None:
+def set_drift_state(repo_path: Path, state: DriftState) -> None:
     """Persists the drift detection state to disk atomically.
 
     Args:
         repo_path (Path): The path to the repository.
-        last_check_ts (float): The Unix timestamp of the current check.
-        warned_remote_ts (int): The Unix timestamp of the remote session warned about.
+        state (DriftState): The drift state containing last check and warned timestamps.
     """
     state_file = get_git_dir(repo_path) / "pulsar_drift_state"
     tmp_file = state_file.with_suffix(".tmp")
 
     data = {
-        "last_check_ts": last_check_ts,
-        "warned_remote_ts": warned_remote_ts,
+        "last_check_ts": state.last_check_ts,
+        "warned_remote_ts": state.warned_remote_ts,
     }
 
     try:

@@ -9,6 +9,7 @@ import pytest
 from git_pulsar import ops
 from git_pulsar.config import Config
 from git_pulsar.constants import BACKUP_NAMESPACE
+from git_pulsar.types import DriftState
 
 # Restore / Sync Tests
 
@@ -371,7 +372,7 @@ def test_set_drift_state_atomic(tmp_path: Path) -> None:
     git_dir.mkdir()
     state_file = git_dir / "pulsar_drift_state"
 
-    ops.set_drift_state(tmp_path, 999.9, 200)
+    ops.set_drift_state(tmp_path, DriftState(999.9, 200))
 
     assert state_file.exists()
     data = json.loads(state_file.read_text())
