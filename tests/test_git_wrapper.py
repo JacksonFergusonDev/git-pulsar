@@ -4,7 +4,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from git_pulsar.git_wrapper import GitRepo
+from git_pulsar.git_wrapper import GitRepo, get_git_dir
 
 
 def test_list_refs_logs_error_on_failure(
@@ -240,3 +240,43 @@ def test_commit_tree_raises_on_failure(
         repo.commit_tree("tree_sha", ["parent_sha"], "Test message")
 
     assert "Failed to commit tree tree_sha" in caplog.text
+
+
+def test_get_git_dir_helper_function(tmp_path: Path) -> None:
+    """Verifies that get_git_dir resolves git directory correctly in various configurations."""
+    # Standard repository
+    main_repo = tmp_path / "repo"
+    main_repo.mkdir()
+    dot_git = main_repo / ".git"
+    dot_git.mkdir()
+    assert get_git_dir(main_repo) == dot_git
+
+    # Non-git directory fallback
+    non_git = tmp_path / "other"
+    non_git.mkdir()
+    assert get_git_dir(non_git) == non_git / ".git"
+
+    # Worktree repository (.git file pointing to gitdir)
+    real_git_dir = tmp_path / "real_git_dir"
+    real_git_dir.mkdir()
+    git_file = non_git / ".git"
+    git_file.write_text(f"gitdir: {real_git_dir}\n")
+
+    # When GitRepo rev-parse succeeds
+    subprocess.run(["git", "init", "-b", "main"], cwd=main_repo, check=True)
+    subprocess.run(
+        ["git", "config", "user.name", "Test Runner"], cwd=main_repo, check=True
+    )
+    subprocess.run(
+        ["git", "config", "user.email", "test@example.com"], cwd=main_repo, check=True
+    )
+    (main_repo / "test.txt").write_text("hello")
+    subprocess.run(["git", "add", "."], cwd=main_repo, check=True)
+    subprocess.run(["git", "commit", "-m", "init"], cwd=main_repo, check=True)
+
+    wt = tmp_path / "worktree_dir"
+    subprocess.run(
+        ["git", "worktree", "add", str(wt), "-b", "wt-test"], cwd=main_repo, check=True
+    )
+    assert get_git_dir(wt).exists()
+    assert "worktrees" in str(get_git_dir(wt))

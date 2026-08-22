@@ -25,7 +25,7 @@ from .constants import (
     PID_FILE,
     REGISTRY_FILE,
 )
-from .git_wrapper import GitRepo
+from .git_wrapper import GitRepo, get_git_dir
 from .system import get_system
 
 SYSTEM = get_system()
@@ -35,19 +35,6 @@ logger.setLevel(logging.INFO)
 
 console = Console()
 err_console = Console(stderr=True)
-
-
-def _get_git_dir(repo_path: Path) -> Path:
-    """Resolves the git directory (.git or worktree gitdir)."""
-    dot_git = repo_path / ".git"
-    if dot_git.is_dir():
-        return dot_git
-    if dot_git.is_file():
-        try:
-            return GitRepo(repo_path).git_dir
-        except Exception:
-            pass
-    return dot_git
 
 
 @contextmanager
@@ -63,7 +50,7 @@ def temporary_index(repo_path: Path) -> Iterator[dict[str, str]]:
     Yields:
         dict[str, str]: A dictionary containing the modified environment variables.
     """
-    temp_index = _get_git_dir(repo_path) / "pulsar_index"
+    temp_index = get_git_dir(repo_path) / "pulsar_index"
     env = os.environ.copy()
     env["GIT_INDEX_FILE"] = str(temp_index)
     try:
@@ -169,7 +156,7 @@ def is_repo_busy(repo_path: Path, interactive: bool = False) -> bool:
     Returns:
         bool: True if the repository is busy/locked, False otherwise.
     """
-    git_dir = _get_git_dir(repo_path)
+    git_dir = get_git_dir(repo_path)
 
     # 1. Check for operational locks (e.g., MERGE_HEAD).
     for f in GIT_LOCK_FILES:
@@ -260,7 +247,7 @@ def _should_skip(repo_path: Path, config: Config, interactive: bool) -> str | No
     if not repo_path.exists():
         return "Path missing"
 
-    if (_get_git_dir(repo_path) / "pulsar_paused").exists():
+    if ops.is_repo_paused(repo_path):
         return "Paused by user"
 
     if not interactive:

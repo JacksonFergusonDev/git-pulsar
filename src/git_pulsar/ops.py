@@ -15,7 +15,7 @@ from rich.table import Table
 from . import system
 from .config import Config
 from .constants import APP_NAME, BACKUP_NAMESPACE
-from .git_wrapper import GitRepo
+from .git_wrapper import GitRepo, get_git_dir
 
 console = Console()
 logger = logging.getLogger(APP_NAME)
@@ -117,17 +117,30 @@ def get_remote_drift_state(repo_path: Path) -> tuple[bool, int, str, str]:
     return False, 0, "", ""
 
 
-def _get_git_dir(repo_path: Path) -> Path:
-    """Resolves the git directory (.git or worktree gitdir)."""
-    dot_git = repo_path / ".git"
-    if dot_git.is_dir():
-        return dot_git
-    if dot_git.is_file():
-        try:
-            return GitRepo(repo_path).git_dir
-        except Exception:
-            pass
-    return dot_git
+def is_repo_paused(repo_path: Path) -> bool:
+    """Checks if the repository has backups paused by the user.
+
+    Args:
+        repo_path (Path): Path to the repository.
+
+    Returns:
+        bool: True if backups are paused, False otherwise.
+    """
+    return (get_git_dir(repo_path) / "pulsar_paused").exists()
+
+
+def set_repo_paused(repo_path: Path, paused: bool) -> None:
+    """Sets the paused state for a repository.
+
+    Args:
+        repo_path (Path): Path to the repository.
+        paused (bool): True to pause backups, False to resume them.
+    """
+    pause_file = get_git_dir(repo_path) / "pulsar_paused"
+    if paused:
+        pause_file.touch()
+    else:
+        pause_file.unlink(missing_ok=True)
 
 
 def get_drift_state(repo_path: Path) -> tuple[float, int]:
@@ -141,7 +154,7 @@ def get_drift_state(repo_path: Path) -> tuple[float, int]:
             - float: The Unix timestamp of the last time a drift check was performed.
             - int: The Unix timestamp of the newest remote session the user was warned about.
     """
-    state_file = _get_git_dir(repo_path) / "pulsar_drift_state"
+    state_file = get_git_dir(repo_path) / "pulsar_drift_state"
     if not state_file.exists():
         return 0.0, 0
 
@@ -169,7 +182,7 @@ def set_drift_state(
         last_check_ts (float): The Unix timestamp of the current check.
         warned_remote_ts (int): The Unix timestamp of the remote session warned about.
     """
-    state_file = _get_git_dir(repo_path) / "pulsar_drift_state"
+    state_file = get_git_dir(repo_path) / "pulsar_drift_state"
     tmp_file = state_file.with_suffix(".tmp")
 
     data = {
