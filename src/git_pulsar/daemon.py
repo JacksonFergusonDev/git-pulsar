@@ -26,7 +26,7 @@ from .constants import (
 )
 from .git_wrapper import GitRepo, get_git_dir
 from .system import get_system
-from .types import DriftState, GitRef, SkipReason
+from .types import CommitTreeParams, DriftState, GitRef, SkipReason
 
 SYSTEM = get_system()
 
@@ -404,12 +404,13 @@ def run_backup(original_path_str: str, interactive: bool = False) -> None:
                     timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
                     # Use wrapper method
-                    commit_oid = repo.commit_tree(
+                    commit_params = CommitTreeParams(
                         tree=tree_oid,
                         parents=parents,
                         message=f"Shadow backup {timestamp}",
                         env=env,
                     )
+                    commit_oid = repo.commit_tree(commit_params)
 
                     # Use wrapper method
                     repo.update_ref(local_backup_ref, commit_oid, parent_backup)

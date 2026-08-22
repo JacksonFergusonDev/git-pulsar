@@ -8,7 +8,7 @@ import pytest
 from git_pulsar import daemon
 from git_pulsar.config import Config
 from git_pulsar.constants import BACKUP_NAMESPACE
-from git_pulsar.types import DriftState
+from git_pulsar.types import CommitTreeParams, DriftState
 
 
 @pytest.fixture
@@ -235,8 +235,11 @@ def test_run_backup_deduplicates_identical_parents(
 
     # Assert commit_tree was called with parents=["same_sha"] (no duplicate)
     repo.commit_tree.assert_called_once()
-    _, kwargs = repo.commit_tree.call_args
-    assert kwargs["parents"] == ["same_sha"]
+    args, kwargs = repo.commit_tree.call_args
+    if args and isinstance(args[0], CommitTreeParams):
+        assert args[0].parents == ["same_sha"]
+    else:
+        assert kwargs.get("parents") == ["same_sha"]
 
 
 def test_run_backup_push_uses_oid_comparison(

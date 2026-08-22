@@ -5,7 +5,15 @@ from collections.abc import Sequence
 from pathlib import Path
 
 from .constants import APP_NAME
-from .types import BranchName, CommitSHA, DiffStat, GitOID, GitRef, TreeSHA
+from .types import (
+    BranchName,
+    CommitSHA,
+    CommitTreeParams,
+    DiffStat,
+    GitOID,
+    GitRef,
+    TreeSHA,
+)
 
 logger = logging.getLogger(APP_NAME)
 
@@ -268,30 +276,42 @@ class GitRepo:
 
     def commit_tree(
         self,
-        tree: TreeSHA | str,
-        parents: Sequence[GitOID | str],
-        message: str,
+        tree: TreeSHA | GitOID | str | CommitTreeParams,
+        parents: Sequence[GitOID | CommitSHA | str] | None = None,
+        message: str = "",
         env: dict[str, str] | None = None,
     ) -> CommitSHA:
         """Creates a commit object from a tree object.
 
+        Accepts either a `CommitTreeParams` parameter object or individual parameters.
+
         Args:
-            tree (TreeSHA | str): The tree SHA-1 to commit.
-            parents (Sequence[GitOID | str]): A sequence of parent commit SHA-1s.
-            message (str): The commit message.
-            env (Optional[dict], optional): Environment variables to
-                                            pass to the subprocess.
+            tree (TreeSHA | GitOID | str | CommitTreeParams): The tree SHA-1 or a CommitTreeParams object.
+            parents (Sequence[GitOID | CommitSHA | str] | None, optional): A sequence of parent commit SHA-1s.
+            message (str, optional): The commit message.
+            env (Optional[dict], optional): Environment variables to pass to the subprocess.
 
         Returns:
             CommitSHA: The SHA-1 hash of the new commit.
         """
-        cmd = ["commit-tree", str(tree), "-m", message]
-        for p in parents:
+        if isinstance(tree, CommitTreeParams):
+            actual_tree = tree.tree
+            actual_parents = tree.parents
+            actual_message = tree.message
+            actual_env = tree.env
+        else:
+            actual_tree = tree
+            actual_parents = parents or []
+            actual_message = message
+            actual_env = env
+
+        cmd = ["commit-tree", str(actual_tree), "-m", actual_message]
+        for p in actual_parents:
             cmd.extend(["-p", str(p)])
         try:
-            return CommitSHA(GitOID(self._run(cmd, env=env)))
+            return CommitSHA(GitOID(self._run(cmd, env=actual_env)))
         except Exception as e:
-            logger.warning(f"Failed to commit tree {tree}: {e}")
+            logger.warning(f"Failed to commit tree {actual_tree}: {e}")
             raise
 
     def update_ref(

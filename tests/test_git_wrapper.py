@@ -5,6 +5,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from git_pulsar.git_wrapper import GitRepo, get_git_dir
+from git_pulsar.types import CommitTreeParams
 
 
 def test_list_refs_logs_error_on_failure(
@@ -296,3 +297,34 @@ def test_get_commit_timestamp(tmp_path: Path, mocker: MagicMock) -> None:
     # Error handling / missing ref returns None
     mock_run.side_effect = RuntimeError("unknown revision")
     assert repo.get_commit_timestamp("nonexistent_ref") is None
+
+
+def test_commit_tree_with_params_object(tmp_path: Path, mocker: MagicMock) -> None:
+    """Verifies that commit_tree correctly unpacks a CommitTreeParams object."""
+    (tmp_path / ".git").mkdir()
+    repo = GitRepo(tmp_path)
+    mock_run = mocker.patch.object(repo, "_run", return_value="new_commit_sha_1234")
+
+    params = CommitTreeParams(
+        tree="tree_sha_abc",
+        parents=["parent_1", "parent_2"],
+        message="Structured commit message",
+        env={"GIT_INDEX_FILE": "/tmp/custom_index"},
+    )
+
+    result = repo.commit_tree(params)
+
+    assert result == "new_commit_sha_1234"
+    mock_run.assert_called_once_with(
+        [
+            "commit-tree",
+            "tree_sha_abc",
+            "-m",
+            "Structured commit message",
+            "-p",
+            "parent_1",
+            "-p",
+            "parent_2",
+        ],
+        env={"GIT_INDEX_FILE": "/tmp/custom_index"},
+    )
