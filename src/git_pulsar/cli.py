@@ -1,6 +1,5 @@
 import argparse
 import datetime
-import fcntl
 import logging
 import os
 import subprocess
@@ -368,7 +367,7 @@ def show_status() -> None:
 
     # Display global repository count if not currently in a repository.
     elif REGISTRY_FILE.exists():
-        count = len(system.get_registered_repos())
+        count = len(system.get_registered_repos(REGISTRY_FILE))
         console.print(f"[dim]Watching {count} repositories.[/dim]")
 
 
@@ -399,12 +398,15 @@ def list_repos() -> None:
         console.print("[yellow]Registry is empty.[/yellow]")
         return
 
+    repos = system.get_registered_repos(REGISTRY_FILE)
+    if not repos:
+        console.print("[yellow]Registry is empty.[/yellow]")
+        return
+
     table = Table(show_header=True, header_style="bold magenta")
     table.add_column("Repository", style="cyan")
     table.add_column("Status")
     table.add_column("Last Backup", justify="right", style="dim")
-
-    repos = system.get_registered_repos()
 
     for path in repos:
         display_path = str(path).replace(str(Path.home()), "~")
@@ -447,39 +449,18 @@ def list_repos() -> None:
 
 def unregister_repo() -> None:
     """Removes the current working directory from the Git Pulsar registry."""
-    cwd = str(Path.cwd())
+    cwd = Path.cwd()
     if not REGISTRY_FILE.exists():
         console.print("Registry is empty.", style="yellow")
         return
 
-    tmp_file = REGISTRY_FILE.with_suffix(".tmp")
-    try:
-        with open(REGISTRY_FILE, "r+") as f:
-            fcntl.flock(f.fileno(), fcntl.LOCK_EX)
-            try:
-                current_paths = [line.strip() for line in f if line.strip()]
-                if cwd not in current_paths:
-                    console.print(
-                        f"Current path not registered: [cyan]{cwd}[/cyan]",
-                        style="yellow",
-                    )
-                    return
-
-                with open(tmp_file, "w") as tf:
-                    for path in current_paths:
-                        if path != cwd:
-                            tf.write(f"{path}\n")
-                    tf.flush()
-                    os.fsync(tf.fileno())
-
-                os.replace(tmp_file, REGISTRY_FILE)
-            finally:
-                fcntl.flock(f.fileno(), fcntl.LOCK_UN)
+    if system.remove_repo_from_registry(cwd, registry_path=REGISTRY_FILE):
         console.print(f"✔ Unregistered: [cyan]{cwd}[/cyan]", style="green")
-    except OSError as e:
-        logger.error(f"Failed to unregister repository: {e}")
-        if tmp_file.exists():
-            tmp_file.unlink()
+    else:
+        console.print(
+            f"Current path not registered: [cyan]{cwd}[/cyan]",
+            style="yellow",
+        )
 
 
 def _check_systemd_linger() -> str | None:
@@ -575,13 +556,9 @@ def run_doctor() -> None:
                 )
 
                 def clean_registry() -> bool:
-                    try:
-                        with open(REGISTRY_FILE, "w") as f:
-                            f.write("\n".join(valid_lines) + "\n")
-                        return True
-                    except Exception as e:
-                        logger.error(f"Registry cleanup failed: {e}")
-                        return False
+                    return system.write_registered_repos(
+                        valid_lines, registry_path=REGISTRY_FILE
+                    )
 
                 actions.append(
                     DoctorAction(
@@ -702,10 +679,8 @@ def run_doctor() -> None:
     # 1. Check the health of registered repositories (State Check + Hook Interference).
     is_healthy = True
     with console.status("[bold blue]Checking Repository Health...", spinner="dots"):
-        if REGISTRY_FILE.exists():
-            with open(REGISTRY_FILE) as f:
-                paths = [Path(line.strip()) for line in f if line.strip()]
-
+        paths = system.get_registered_repos(REGISTRY_FILE)
+        if paths:
             issues = []
             for p in paths:
                 if p.exists():
@@ -952,24 +927,10 @@ def setup_repo(registry_path: Path = REGISTRY_FILE) -> None:
 
     # Register the repository path.
     console.print("Registering path...", style="dim")
-    if not registry_path.exists():
-        registry_path.parent.mkdir(parents=True, exist_ok=True)
-        registry_path.touch()
-
-    with open(registry_path, "r+") as f:
-        fcntl.flock(f.fileno(), fcntl.LOCK_EX)
-        try:
-            content = f.read()
-            if str(cwd) not in [line.strip() for line in content.splitlines()]:
-                f.seek(0, os.SEEK_END)
-                f.write(f"{cwd}\n")
-                f.flush()
-                os.fsync(f.fileno())
-                console.print(f"Registered: [cyan]{cwd}[/cyan]", style="green")
-            else:
-                console.print("Already registered.", style="dim")
-        finally:
-            fcntl.flock(f.fileno(), fcntl.LOCK_UN)
+    if system.add_repo_to_registry(cwd, registry_path=registry_path):
+        console.print(f"Registered: [cyan]{cwd}[/cyan]", style="green")
+    else:
+        console.print("Already registered.", style="dim")
 
     console.print("\n[bold green]✔ Pulsar Active.[/bold green]")
 

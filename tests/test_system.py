@@ -326,3 +326,76 @@ def test_get_registered_repos_missing(tmp_path: Path, mocker: MagicMock) -> None
     """Verifies get_registered_repos returns empty list if registry file does not exist."""
     mocker.patch("git_pulsar.system.REGISTRY_FILE", tmp_path / "nonexistent")
     assert system.get_registered_repos() == []
+
+
+def test_add_repo_to_registry(tmp_path: Path) -> None:
+    """Verifies add_repo_to_registry adds paths and enforces uniqueness."""
+    reg_file = tmp_path / "custom_state" / "registry"
+    repo1 = tmp_path / "repo1"
+    repo1.mkdir()
+    repo2 = tmp_path / "repo2"
+    repo2.mkdir()
+
+    # Add first repo -> returns True
+    assert system.add_repo_to_registry(repo1, registry_path=reg_file) is True
+    assert system.get_registered_repos(reg_file) == [repo1.resolve()]
+
+    # Add duplicate repo -> returns False
+    assert system.add_repo_to_registry(repo1, registry_path=reg_file) is False
+    assert len(system.get_registered_repos(reg_file)) == 1
+
+    # Add second repo -> returns True
+    assert system.add_repo_to_registry(repo2, registry_path=reg_file) is True
+    assert system.get_registered_repos(reg_file) == [repo1.resolve(), repo2.resolve()]
+
+
+def test_remove_repo_from_registry(tmp_path: Path) -> None:
+    """Verifies remove_repo_from_registry removes paths atomically and handles missing entries."""
+    reg_file = tmp_path / "registry"
+    repo1 = tmp_path / "repo1"
+    repo2 = tmp_path / "repo2"
+    repo3 = tmp_path / "repo3"
+    for r in (repo1, repo2, repo3):
+        r.mkdir()
+
+    # Registry does not exist -> returns False
+    assert system.remove_repo_from_registry(repo1, registry_path=reg_file) is False
+
+    system.add_repo_to_registry(repo1, registry_path=reg_file)
+    system.add_repo_to_registry(repo2, registry_path=reg_file)
+
+    # Remove non-existent entry -> returns False
+    assert system.remove_repo_from_registry(repo3, registry_path=reg_file) is False
+    assert len(system.get_registered_repos(reg_file)) == 2
+
+    # Remove existing entry -> returns True
+    assert system.remove_repo_from_registry(repo1, registry_path=reg_file) is True
+    assert system.get_registered_repos(reg_file) == [repo2.resolve()]
+
+
+def test_write_registered_repos(tmp_path: Path) -> None:
+    """Verifies write_registered_repos writes list of repos atomically."""
+    reg_file = tmp_path / "nested" / "registry"
+    repo1 = tmp_path / "repo1"
+    repo2 = tmp_path / "repo2"
+
+    assert system.write_registered_repos([repo1, repo2], registry_path=reg_file) is True
+    assert system.get_registered_repos(reg_file) == [
+        Path(str(repo1)),
+        Path(str(repo2)),
+    ]
+
+
+def test_registry_oserror_handling(tmp_path: Path, mocker: MagicMock) -> None:
+    """Verifies OSError handling in add/remove/write registry functions."""
+    reg_file = tmp_path / "registry"
+    reg_file.touch()
+
+    mocker.patch("builtins.open", side_effect=OSError("Disk read-only"))
+    assert system.add_repo_to_registry("/some/path", registry_path=reg_file) is False
+    assert (
+        system.remove_repo_from_registry("/some/path", registry_path=reg_file) is False
+    )
+    assert (
+        system.write_registered_repos(["/some/path"], registry_path=reg_file) is False
+    )
