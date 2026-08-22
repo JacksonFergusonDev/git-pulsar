@@ -212,6 +212,22 @@ class GitRepo:
         """
         return self._run(["log", "-1", "--format=%cr", branch])
 
+    def get_commit_timestamp(self, ref: str) -> int | None:
+        """Retrieves the Unix timestamp of the latest commit on a given ref.
+
+        Args:
+            ref (str): The git reference or revision.
+
+        Returns:
+            int | None: Unix timestamp of the commit, or None if the ref does not exist or fails.
+        """
+        try:
+            output = self._run(["log", "-1", "--format=%ct", ref])
+            return int(output.strip())
+        except Exception as e:
+            logger.debug(f"Could not get commit timestamp for '{ref}': {e}")
+            return None
+
     def rev_parse(self, rev: str) -> str | None:
         """Resolves a revision (tag, branch, relative ref) to a full SHA-1 hash.
 

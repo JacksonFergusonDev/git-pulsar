@@ -135,19 +135,19 @@ def test_sync_session_success(mocker: MagicMock) -> None:
     ]
 
     # 2. Setup timestamp logic (desktop is newer).
-    def mock_run(cmd: list[str], *args: Any, **kwargs: Any) -> str:
-        # Check if "desktop" or "laptop" is in the command arguments.
-        cmd_str = " ".join(cmd)
-        if cmd[0] == "log" and "desktop" in cmd_str:
-            return "2000"
-        if cmd[0] == "log" and "laptop" in cmd_str:
-            return "1000"
-        return ""
+    def mock_get_commit_timestamp(ref: str) -> int:
+        if "desktop" in ref:
+            return 2000
+        if "laptop" in ref:
+            return 1000
+        return 0
 
-    repo._run.side_effect = mock_run
+    repo.get_commit_timestamp.side_effect = mock_get_commit_timestamp
+    repo.get_last_commit_time.return_value = "5 minutes ago"
 
     # 3. Setup tree diff (simulate remote tree != local tree).
     repo.write_tree.return_value = "local_tree"
+    repo._run.return_value = "remote_tree"
 
     ops.sync_session()
 
@@ -330,17 +330,15 @@ def test_get_remote_drift_state_remote_is_newer(
         "refs/heads/wip/pulsar/laptop--123/main",
     ]
 
-    def mock_run_side_effect(cmd: list[str], **kwargs: Any) -> str:
-        if cmd[0] == "fetch":
-            return ""
-        if cmd[0] == "log":
-            if "desktop" in cmd[-1]:
-                return "2000"
-            if "laptop" in cmd[-1]:
-                return "1000"
-        return "0"
+    def mock_get_commit_timestamp(ref: str) -> int:
+        if "desktop" in ref:
+            return 2000
+        if "laptop" in ref:
+            return 1000
+        return 0
 
-    repo._run.side_effect = mock_run_side_effect
+    repo.get_commit_timestamp.side_effect = mock_get_commit_timestamp
+    repo._run.return_value = ""
     mocker.patch("time.time", return_value=2900.0)
 
     drift, ts, machine, warning = ops.get_remote_drift_state(tmp_path)
@@ -471,16 +469,13 @@ def test_sync_session_already_up_to_date(mocker: MagicMock) -> None:
     repo.list_refs.return_value = ["refs/heads/wip/pulsar/laptop/main"]
 
     def mock_run(cmd: list[str], *args: Any, **kwargs: Any) -> str:
-        cmd_str = " ".join(cmd)
-        if cmd[0] == "log" and "%ct" in cmd_str:
-            return "1000"
-        if cmd[0] == "log" and "%cr" in cmd_str:
-            return "5 minutes ago"
         if cmd[0] == "rev-parse":
             return "matching_tree_sha"
         return ""
 
     repo._run.side_effect = mock_run
+    repo.get_commit_timestamp.return_value = 1000
+    repo.get_last_commit_time.return_value = "5 minutes ago"
     repo.write_tree.return_value = "matching_tree_sha"
     mocker.patch("git_pulsar.ops.console")
 
@@ -500,16 +495,13 @@ def test_sync_session_user_declines_sync(mocker: MagicMock) -> None:
     repo.list_refs.return_value = ["refs/heads/wip/pulsar/laptop/main"]
 
     def mock_run(cmd: list[str], *args: Any, **kwargs: Any) -> str:
-        cmd_str = " ".join(cmd)
-        if cmd[0] == "log" and "%ct" in cmd_str:
-            return "1000"
-        if cmd[0] == "log" and "%cr" in cmd_str:
-            return "5 minutes ago"
         if cmd[0] == "rev-parse":
             return "remote_tree_sha"
         return ""
 
     repo._run.side_effect = mock_run
+    repo.get_commit_timestamp.return_value = 1000
+    repo.get_last_commit_time.return_value = "5 minutes ago"
     repo.write_tree.return_value = "local_tree_sha"
 
     mock_console = mocker.patch("git_pulsar.ops.console")
@@ -560,14 +552,13 @@ def test_prune_backups_deletes_old_refs(tmp_path: Path, mocker: MagicMock) -> No
     mocker.patch("time.time", return_value=current_time)
 
     # First ref: 5 days old (keep), Second ref: 35 days old (delete)
-    cutoff_ts_old = str(int(current_time - (35 * 86400)))
-    cutoff_ts_fresh = str(int(current_time - (5 * 86400)))
-    repo._run.side_effect = [
-        cutoff_ts_fresh,  # log for ref 1
-        cutoff_ts_old,  # log for ref 2
-        "",  # update-ref -d
-        "",  # gc --auto
+    cutoff_ts_old = int(current_time - (35 * 86400))
+    cutoff_ts_fresh = int(current_time - (5 * 86400))
+    repo.get_commit_timestamp.side_effect = [
+        cutoff_ts_fresh,  # ref 1
+        cutoff_ts_old,  # ref 2
     ]
+    repo._run.return_value = ""
     mocker.patch("git_pulsar.ops.console")
 
     ops.prune_backups(days=30, repo_path=tmp_path)
@@ -706,3 +697,71 @@ def test_is_repo_paused_and_set_repo_paused(tmp_path: Path) -> None:
     # Resuming when already not paused does not error
     ops.set_repo_paused(tmp_path, False)
     assert not ops.is_repo_paused(tmp_path)
+
+
+def test_parse_backup_ref() -> None:
+    """Verifies that parse_backup_ref extracts components correctly."""
+    # Standard ref with compound slug
+    ref1 = f"refs/heads/{BACKUP_NAMESPACE}/macbook-pro--a1b2c3d4/main"
+    info1 = ops.parse_backup_ref(ref1)
+    assert info1 is not None
+    assert info1.ref == ref1
+    assert info1.slug == "macbook-pro--a1b2c3d4"
+    assert info1.machine_name == "macbook-pro"
+    assert info1.branch == "main"
+
+    # Multi-segment branch name (e.g. feature branch)
+    ref2 = f"refs/heads/{BACKUP_NAMESPACE}/desktop/feature/login/oauth"
+    info2 = ops.parse_backup_ref(ref2)
+    assert info2 is not None
+    assert info2.slug == "desktop"
+    assert info2.machine_name == "desktop"
+    assert info2.branch == "feature/login/oauth"
+
+    # Non-matching ref prefix returns None
+    assert ops.parse_backup_ref("refs/heads/main") is None
+    assert ops.parse_backup_ref("refs/remotes/origin/main") is None
+    assert (
+        ops.parse_backup_ref(f"refs/heads/{BACKUP_NAMESPACE}/invalid_no_slash") is None
+    )
+
+
+def test_get_remote_backup_ref(mocker: MagicMock) -> None:
+    """Verifies get_remote_backup_ref creates correct remote tracking reference."""
+    mocker.patch("git_pulsar.system.get_identity_slug", return_value="my-device--99")
+    remote_ref = ops.get_remote_backup_ref("main", remote_name="upstream")
+    assert remote_ref == f"refs/remotes/upstream/{BACKUP_NAMESPACE}/my-device--99/main"
+
+
+def test_fetch_backup_refs(tmp_path: Path, mocker: MagicMock) -> None:
+    """Verifies fetch_backup_refs constructs the appropriate refspecs and handles errors."""
+    (tmp_path / ".git").mkdir()
+    mock_git = mocker.patch("git_pulsar.ops.GitRepo").return_value
+
+    # Specific branch fetch
+    mock_git._run.return_value = ""
+    res = ops.fetch_backup_refs(mock_git, branch="dev", remote_name="origin")
+    assert res is True
+    mock_git._run.assert_called_with(
+        [
+            "fetch",
+            "origin",
+            f"refs/heads/{BACKUP_NAMESPACE}/*/dev:refs/heads/{BACKUP_NAMESPACE}/*/dev",
+        ],
+        capture=True,
+    )
+
+    # All branches fetch
+    ops.fetch_backup_refs(mock_git, branch=None, remote_name="origin")
+    mock_git._run.assert_called_with(
+        [
+            "fetch",
+            "origin",
+            f"refs/heads/{BACKUP_NAMESPACE}/*:refs/heads/{BACKUP_NAMESPACE}/*",
+        ],
+        capture=True,
+    )
+
+    # Network error handling
+    mock_git._run.side_effect = RuntimeError("network offline")
+    assert ops.fetch_backup_refs(mock_git, branch="dev") is False

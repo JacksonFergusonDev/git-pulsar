@@ -280,3 +280,19 @@ def test_get_git_dir_helper_function(tmp_path: Path) -> None:
     )
     assert get_git_dir(wt).exists()
     assert "worktrees" in str(get_git_dir(wt))
+
+
+def test_get_commit_timestamp(tmp_path: Path, mocker: MagicMock) -> None:
+    """Verifies that GitRepo.get_commit_timestamp retrieves and parses timestamps correctly."""
+    (tmp_path / ".git").mkdir()
+    repo = GitRepo(tmp_path)
+    mock_run = mocker.patch.object(repo, "_run")
+
+    # Successful parse
+    mock_run.return_value = "1700000000\n"
+    assert repo.get_commit_timestamp("HEAD") == 1700000000
+    mock_run.assert_called_with(["log", "-1", "--format=%ct", "HEAD"])
+
+    # Error handling / missing ref returns None
+    mock_run.side_effect = RuntimeError("unknown revision")
+    assert repo.get_commit_timestamp("nonexistent_ref") is None

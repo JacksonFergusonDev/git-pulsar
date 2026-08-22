@@ -283,6 +283,8 @@ def _fetch_remote_identities(repo: GitRepo) -> set[str]:
         logger.warning(f"Identity Sync: Could not query remote (Offline?): {e}")
         return set()
 
+    from . import ops
+
     used_names = set()
     for line in output.splitlines():
         parts = line.split()
@@ -290,19 +292,9 @@ def _fetch_remote_identities(repo: GitRepo) -> set[str]:
             continue
 
         ref = parts[1]  # refs/heads/wip/pulsar/slug/branch
-        try:
-            # Extract slug: refs/heads/wip/pulsar/{slug}/...
-            # Split by '/' and take the 4th element (index 4)
-            # refs[0] / heads[1] / wip[2] / pulsar[3] / slug[4]
-            segments = ref.split("/")
-            if len(segments) > 4:
-                slug = segments[4]
-                if "--" in slug:
-                    name, _ = slug.split("--", 1)
-                    used_names.add(name)
-        except ValueError as e:
-            logger.warning(f"Failed to parse slug from ref '{ref}': {e}")
-            continue
+        info = ops.parse_backup_ref(ref)
+        if info and "--" in info.slug:
+            used_names.add(info.machine_name)
 
     return used_names
 

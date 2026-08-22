@@ -5,6 +5,7 @@ import os
 import subprocess
 import sys
 import time
+from dataclasses import dataclass
 from pathlib import Path
 
 from rich.console import Console
@@ -21,6 +22,43 @@ console = Console()
 logger = logging.getLogger(APP_NAME)
 
 
+@dataclass(frozen=True)
+class BackupRefInfo:
+    """Parsed representation of a Git Pulsar backup reference.
+
+    Attributes:
+        ref (str): The full git ref (e.g. 'refs/heads/wip/pulsar/mac--123/main').
+        slug (str): The composite machine slug (e.g. 'mac--123').
+        machine_name (str): The human-readable machine name (e.g. 'mac').
+        branch (str): The branch name (e.g. 'main' or 'feature/login').
+    """
+
+    ref: str
+    slug: str
+    machine_name: str
+    branch: str
+
+
+def parse_backup_ref(ref: str) -> BackupRefInfo | None:
+    """Parses a fully qualified backup reference into its components.
+
+    Args:
+        ref (str): The git reference (e.g., 'refs/heads/wip/pulsar/mac--123/main').
+
+    Returns:
+        BackupRefInfo | None: The parsed components, or None if the ref does not match the namespace.
+    """
+    prefix = f"refs/heads/{BACKUP_NAMESPACE}/"
+    if not ref.startswith(prefix):
+        return None
+    remainder = ref[len(prefix) :]
+    if "/" not in remainder:
+        return None
+    slug, branch = remainder.split("/", 1)
+    machine_name = slug.split("--", 1)[0] if "--" in slug else slug
+    return BackupRefInfo(ref=ref, slug=slug, machine_name=machine_name, branch=branch)
+
+
 def get_backup_ref(branch: str) -> str:
     """Constructs the fully qualified backup reference for the current machine and branch.
 
@@ -32,6 +70,47 @@ def get_backup_ref(branch: str) -> str:
     """
     slug = system.get_identity_slug()
     return f"refs/heads/{BACKUP_NAMESPACE}/{slug}/{branch}"
+
+
+def get_remote_backup_ref(branch: str, remote_name: str = "origin") -> str:
+    """Constructs the remote tracking reference for the local backup branch.
+
+    Args:
+        branch (str): The branch name.
+        remote_name (str): The remote name (defaults to 'origin').
+
+    Returns:
+        str: The remote ref (e.g., 'refs/remotes/origin/wip/pulsar/slug/branch').
+    """
+    local_ref = get_backup_ref(branch)
+    suffix = local_ref.replace("refs/heads/", "", 1)
+    return f"refs/remotes/{remote_name}/{suffix}"
+
+
+def fetch_backup_refs(
+    repo: GitRepo, branch: str | None = None, remote_name: str = "origin"
+) -> bool:
+    """Fetches backup references from the remote.
+
+    Args:
+        repo (GitRepo): The repository instance.
+        branch (str | None): If specified, fetches only backups for that branch.
+        remote_name (str): The remote name (defaults to 'origin').
+
+    Returns:
+        bool: True if fetch succeeded, False if it failed (e.g. offline).
+    """
+    refspec_pattern = f"refs/heads/{BACKUP_NAMESPACE}/*"
+    if branch:
+        refspec = f"{refspec_pattern}/{branch}:{refspec_pattern}/{branch}"
+    else:
+        refspec = f"{refspec_pattern}:{refspec_pattern}"
+    try:
+        repo._run(["fetch", remote_name, refspec], capture=True)
+        return True
+    except Exception as e:
+        logger.debug(f"Fetch failed for backup refs (branch={branch}): {e}")
+        return False
 
 
 def get_remote_drift_state(repo_path: Path) -> tuple[bool, int, str, str]:
@@ -54,18 +133,7 @@ def get_remote_drift_state(repo_path: Path) -> tuple[bool, int, str, str]:
             return False, 0, "", ""
 
         # Lightweight fetch of backup refs for the current branch
-        try:
-            repo._run(
-                [
-                    "fetch",
-                    "origin",
-                    f"refs/heads/{BACKUP_NAMESPACE}/*/{current_branch}:refs/heads/{BACKUP_NAMESPACE}/*/{current_branch}",
-                ],
-                capture=True,
-            )
-        except Exception as e:
-            logger.debug(f"Fetch failed during drift check: {e}")
-            return False, 0, "", ""  # Silently fail if offline or remote is unreachable
+        fetch_backup_refs(repo, branch=current_branch)
 
         candidates = repo.list_refs(f"refs/heads/{BACKUP_NAMESPACE}/*/{current_branch}")
         if not candidates:
@@ -75,33 +143,21 @@ def get_remote_drift_state(repo_path: Path) -> tuple[bool, int, str, str]:
         my_backup_ref = get_backup_ref(current_branch)
 
         # Determine our local latest timestamp (backup ref or HEAD)
-        local_ts = 0
-        try:
-            if my_backup_ref in candidates:
-                local_ts = int(
-                    repo._run(["log", "-1", "--format=%ct", my_backup_ref]).strip()
-                )
-            else:
-                local_ts = int(repo._run(["log", "-1", "--format=%ct", "HEAD"]).strip())
-        except Exception as e:
-            logger.debug(f"Failed to get local timestamp: {e}")
+        if my_backup_ref in candidates:
+            local_ts = repo.get_commit_timestamp(my_backup_ref) or 0
+        else:
+            local_ts = repo.get_commit_timestamp("HEAD") or 0
 
         newest_ts = 0
         newest_machine = ""
-        # Dynamically calculate the machine index in the ref string
-        machine_index = 2 + len(BACKUP_NAMESPACE.split("/"))
 
         for ref in candidates:
-            try:
-                ts = int(repo._run(["log", "-1", "--format=%ct", ref]).strip())
-                if ts > newest_ts:
+            ts = repo.get_commit_timestamp(ref)
+            if ts is not None and ts > newest_ts:
+                info = parse_backup_ref(ref)
+                if info:
                     newest_ts = ts
-                    parts = ref.split("/")
-                    if len(parts) > machine_index:
-                        newest_machine = parts[machine_index]
-            except Exception as e:
-                logger.debug(f"Failed to process ref {ref}: {e}")
-                continue
+                    newest_machine = info.slug
 
         if newest_ts > local_ts and newest_machine and newest_machine != my_slug:
             minutes_ago = int((time.time() - newest_ts) / 60)
@@ -275,18 +331,7 @@ def sync_session() -> None:
         f"[bold blue]Scanning for session on '{current_branch}'...[/bold blue]",
         spinner="dots",
     ):
-        try:
-            # Only fetch backups related to the current branch
-            repo._run(
-                [
-                    "fetch",
-                    "origin",
-                    f"refs/heads/{BACKUP_NAMESPACE}/*/{current_branch}:refs/heads/{BACKUP_NAMESPACE}/*/{current_branch}",
-                ],
-                capture=True,
-            )
-        except Exception as e:
-            logger.warning(f"Fetch error: {e}")
+        if not fetch_backup_refs(repo, branch=current_branch):
             console.print(
                 "[yellow][bold]WARNING:[/bold] Fetch warning: network might be down "
                 "(checking local cache).[/yellow]"
@@ -304,23 +349,19 @@ def sync_session() -> None:
     latest_time = 0
 
     for ref in candidates:
-        try:
-            ts_str = repo._run(["log", "-1", "--format=%ct", ref])
-            ts = int(ts_str.strip())
-            if ts > latest_time:
-                latest_time = ts
-                latest_ref = ref
-        except Exception as e:
-            logger.warning(f"Failed to parse timestamp for backup ref '{ref}': {e}")
-            continue
+        ts = repo.get_commit_timestamp(ref)
+        if ts is not None and ts > latest_time:
+            latest_time = ts
+            latest_ref = ref
 
     if not latest_ref:
         console.print("[bold red]ERROR:[/bold red] Could not determine latest backup.")
         return
 
     # 4. Compare with local state.
-    machine_name = latest_ref.split("/")[-2]
-    human_time = repo._run(["log", "-1", "--format=%cr", latest_ref])
+    parsed = parse_backup_ref(latest_ref)
+    machine_name = parsed.machine_name if parsed else latest_ref
+    human_time = repo.get_last_commit_time(latest_ref)
 
     console.print(
         Panel(
@@ -390,15 +431,8 @@ def finalize_work() -> None:
                 "[bold blue]Syncing with origin...[/bold blue]", spinner="dots"
             ):
                 try:
-                    repo._run(["fetch", "origin", "main"], capture=True)
-                    repo._run(
-                        [
-                            "fetch",
-                            "origin",
-                            f"refs/heads/{BACKUP_NAMESPACE}/*:refs/heads/{BACKUP_NAMESPACE}/*",
-                        ],
-                        capture=True,
-                    )
+                    repo._run(["fetch", config.core.remote_name, "main"], capture=True)
+                    fetch_backup_refs(repo, remote_name=config.core.remote_name)
                 except Exception as e:
                     console.print(
                         f"[yellow][bold]WARNING:[/bold] Fetch warning: {e}[/yellow]"
@@ -430,7 +464,8 @@ def finalize_work() -> None:
         table.add_column("-", style="red", justify="right")
 
         for c in candidates:
-            machine = c.split("/")[-2] if len(c.split("/")) >= 2 else "unknown"
+            parsed = parse_backup_ref(c)
+            machine = parsed.machine_name if parsed else "unknown"
             try:
                 rel_time = repo.get_last_commit_time(c)
             except Exception:
@@ -498,10 +533,8 @@ def prune_backups(days: int, repo_path: Path | None = None) -> None:
 
     for ref in refs:
         try:
-            ts_str = repo._run(["log", "-1", "--format=%ct", ref])
-            ts = int(ts_str.strip())
-
-            if ts < cutoff:
+            ts = repo.get_commit_timestamp(ref)
+            if ts is not None and ts < cutoff:
                 age_days = (time.time() - ts) / 86400
                 console.print(f"   Deleting {ref} (Age: {age_days:.1f} days)")
                 repo._run(["update-ref", "-d", ref], capture=False)
