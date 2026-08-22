@@ -57,6 +57,7 @@ def test_run_backup_shadow_commit_flow(
     daemon.run_backup(str(tmp_path))
 
     # Assert plumbing usage
+    repo.add_all.assert_not_called()
     repo._run.assert_any_call(["add", "."], env=mocker.ANY)
     repo.write_tree.assert_called_once()
     repo.commit_tree.assert_called_once()
@@ -183,3 +184,26 @@ def test_run_backup_drift_detection_triggers_notification(
 
     # Assert state was updated so we don't spam the user again for timestamp 5000
     mock_set_state.assert_called_once_with(tmp_path.resolve(), current_time, 5000)
+
+
+def test_main_signal_alarm_reset_on_exception(
+    tmp_path: Path, mocker: MagicMock
+) -> None:
+    """Verifies that signal.alarm(0) is executed even when run_backup raises an error."""
+    mock_repo = tmp_path / "repo1"
+    mocker.patch("git_pulsar.system.get_registered_repos", return_value=[mock_repo])
+    mocker.patch(
+        "git_pulsar.daemon.run_backup", side_effect=RuntimeError("Simulated failure")
+    )
+    mocker.patch("git_pulsar.daemon.run_maintenance")
+    mocker.patch("git_pulsar.daemon.setup_logging")
+
+    mock_alarm = mocker.patch("signal.alarm")
+
+    daemon.main(interactive=False)
+
+    # Verify signal.alarm(5) was set and signal.alarm(0) was cleared
+    assert mock_alarm.call_args_list == [
+        mocker.call(5),
+        mocker.call(0),
+    ]

@@ -400,10 +400,6 @@ def run_backup(original_path_str: str, interactive: bool = False) -> None:
         if time_since_commit >= config.daemon.commit_interval:
             with temporary_index(repo_path) as env:
                 # Stage current working directory into temp index.
-                # Use wrapper method if available, or repo._run(["add", "."], env=env)
-                repo.add_all()
-                # Note: GitRepo.add_all() in wrapper doesn't accept env.
-                # Keeping manual run with env.
                 repo._run(["add", "."], env=env)
 
                 # Write Tree.
@@ -526,8 +522,10 @@ def main(interactive: bool = False) -> None:
         try:
             # 5 second timeout per repo to prevent hanging.
             signal.alarm(5)
-            run_backup(repo_str, interactive=interactive)
-            signal.alarm(0)  # Disable alarm.
+            try:
+                run_backup(repo_str, interactive=interactive)
+            finally:
+                signal.alarm(0)  # Disable alarm.
         except TimeoutError:
             logger.warning(f"TIMEOUT {repo_str}: Skipped (possible stalled mount).")
         except Exception:
