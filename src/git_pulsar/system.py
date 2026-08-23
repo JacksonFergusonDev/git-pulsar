@@ -42,6 +42,12 @@ def get_registered_repos(registry_path: Path | None = None) -> list[Path]:
         return []
 
 
+# --- Architectural Note: Dual Concurrency & Crash Resilience ---
+# Registry mutation uses a two-tier synchronization strategy:
+# 1. Advisory Locking ('fcntl.flock'): Coordinates concurrent access between the
+#    background daemon loop and interactive CLI commands.
+# 2. Atomic Rename ('os.replace' + 'os.fsync'): Writes to a sibling '.tmp' file before
+#    swapping the inode, guaranteeing zero registry corruption during power failure/kill signals.
 def add_repo_to_registry(
     repo_path: Path | str, registry_path: Path | None = None
 ) -> bool:
@@ -381,6 +387,12 @@ def get_machine_id() -> MachineId:
     return MachineId(name.split(".")[0])
 
 
+# --- Design Note: Composite Identity Slug Format ---
+# The identity slug format '{human_name}--{short_id}' solves two competing requirements:
+# 1. Collision Resistance: The 8-char hardware UUID prefix prevents namespace collisions
+#    when multiple devices share default hostnames (e.g., 'macbook' or 'archlinux').
+# 2. Observability: 'parse_backup_ref()' splits on '--' to extract the human-readable
+#    name for terminal tables, pre-flight checklists, and desktop notifications.
 def get_identity_slug() -> MachineSlug:
     """Constructs the composite identity slug for this machine.
 

@@ -43,6 +43,13 @@ console = Console()
 err_console = Console(stderr=True)
 
 
+# --- Architectural Note: Out-of-Band Index Isolation ---
+# The daemon must NEVER touch or lock the primary '.git/index' file.
+# By isolating staging to a dedicated 'GIT_INDEX_FILE' (.git/pulsar_index) and
+# synthesizing commits using low-level plumbing ('write-tree' / 'commit-tree'):
+# 1. The user's staged changes (and partial hunk staging) remain untouched.
+# 2. Pre-commit hooks and linters configured in the user repo are bypassed.
+# 3. Operations can proceed concurrently with the developer's interactive work.
 @contextmanager
 def temporary_index(repo_path: Path) -> Iterator[dict[str, str]]:
     """Context manager for creating an isolated git index environment.
@@ -209,6 +216,12 @@ def prune_registry(original_path_str: str) -> None:
         SYSTEM.notify("Backup Stopped", f"Removed missing repo: {repo_name}")
 
 
+# --- Design Note: Tiered Power-Aware Execution ---
+# State capture is bifurcated based on hardware energy cost:
+# 1. Battery < min_battery_percent (Default 10%): Full suspension to prevent battery drain.
+# 2. Battery < eco_mode_percent (Default 20%): Eco-mode active. Local state captures
+#    continue uninterrupted (cheap disk I/O), while remote pushes (costly NIC/radio power)
+#    are deferred until AC power is restored or battery is recharged.
 def _should_skip(repo_path: Path, options: BackupOptions) -> SkipReason | None:
     """Determines if the backup for a given repository should be skipped.
 
@@ -385,7 +398,13 @@ def run_backup(original_path_str: str, interactive: bool = False) -> None:
                 # Write Tree.
                 tree_oid = repo.write_tree(env=env)
 
-                # Determine Parents (Synthetic Merge).
+                # --- Architectural Note: Synthetic Merge DAG Topology ---
+                # Shadow commits deliberately use a dual-parent structure (parent_backup + HEAD):
+                # 1. Parent 1 (local_backup_ref): Maintains linear continuity of the shadow stream.
+                # 2. Parent 2 (HEAD): Anchors the shadow commit to the user's active branch state.
+                # This topological anchor ensures 'git gc' does not collect intermediate objects,
+                # and allows three-way merge algorithms (e.g. in 'git pulsar sync/finalize') to compute
+                # an accurate merge base against upstream development without rebasing the shadow ref.
                 parents = []
                 if parent_backup := repo.rev_parse(local_backup_ref):
                     parents.append(parent_backup)

@@ -483,6 +483,11 @@ def finalize_work() -> None:
         repo.checkout(target)
 
         # 7. Perform Octopus Squash Merge.
+        # --- Architectural Note: Distributed Stream Consolidation ---
+        # 'finalize_work' collapses multi-device shadow history using an Octopus Squash merge.
+        # Rather than generating multi-parent merge commits that pollute public history with WIP noise,
+        # the squash merge stages all distributed changes across all device streams simultaneously,
+        # allowing the user to produce a single atomic, meaningful commit on main/master.
         with console.status(
             f"[bold blue]Collapsing {len(candidates)} backup streams...[/bold blue]",
             spinner="dots",
