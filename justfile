@@ -107,38 +107,8 @@ clean:
     @printf "{{ green }}✔ Workspace cleaned{{ nc }}\n"
 
 # Bump project version (part: major, minor, patch), sync lockfile, commit, tag, and atomic push
-bump part: lint typecheck test-unit
-    #!/usr/bin/env bash
-
-    echo "Ensuring local repository is up to date..."
-    git pull --ff-only
-
-    echo "Checking for pre-existing uncommitted changes..."
-    if [[ -n "$(git status --porcelain --untracked-files=no -- pyproject.toml uv.lock)" ]]; then
-        echo "Error: pyproject.toml or uv.lock already has uncommitted changes. Commit or stash them first." >&2
-        exit 1
-    fi
-
-    VERSION=$(uv run https://raw.githubusercontent.com/JacksonFergusonDev/ci-cd-tooling/refs/heads/main/scripts/bump.py {{ part }})
-    NEW_TAG="v$VERSION"
-
-    echo "Checking tag $NEW_TAG does not already exist..."
-    if git rev-parse "$NEW_TAG" >/dev/null 2>&1; then
-        echo "Error: tag $NEW_TAG already exists." >&2
-        git checkout -- pyproject.toml
-        exit 1
-    fi
-
-    echo "Updating lockfile for $NEW_TAG..."
-    uv sync
-
-    echo "Staging changes and creating commit..."
-    git add pyproject.toml uv.lock
-    git commit -m "chore: bump version to $VERSION"
-    git tag -a "$NEW_TAG" -m "Bump version to $NEW_TAG"
-
-    echo "Shipping atomically to remote..."
-    git push origin HEAD --tags
+bump part: ci
+    uv run https://raw.githubusercontent.com/JacksonFergusonDev/ci-cd-tooling/refs/heads/main/scripts/release.py {{ part }}
 
 # Drop into an isolated macOS sandbox shell with a freshly built local git-pulsar on $PATH
 sandbox *args: sync
