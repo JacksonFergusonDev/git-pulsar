@@ -107,7 +107,7 @@ clean:
     @printf "{{ green }}✔ Workspace cleaned{{ nc }}\n"
 
 # Bump project version (part: major, minor, patch), sync lockfile, commit, tag, and atomic push
-bump part: ci
+bump part:
     uv run --refresh https://raw.githubusercontent.com/JacksonFergusonDev/ci-cd-tooling/refs/heads/main/scripts/release.py {{ part }}
 
 # Drop into an isolated macOS sandbox shell with a freshly built local git-pulsar on $PATH
