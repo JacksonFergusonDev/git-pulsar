@@ -31,7 +31,7 @@ jobs:
   sync-homebrew:
     name: Delegate Homebrew Update
     needs: build-n-publish
-    uses: JacksonFergusonDev/ci-cd-tooling/.github/workflows/update-homebrew.yml@9bb493d0b0ee059aee4b89234bc9e6130857ec23 # main
+    uses: JacksonFergusonDev/ci-cd-release-infrastructure/.github/workflows/update-homebrew.yml@cff447baf1076b8807502ab8da7d2f0867a973fc # main
     with:
       tag: ${{ github.ref_name }}
       package_name: "git-pulsar"
