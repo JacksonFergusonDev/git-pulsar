@@ -26,6 +26,7 @@ classifiers = [
 Repository = "https://github.com/jacksonfergusondev/git-pulsar"
 Issues = "https://github.com/jacksonfergusondev/git-pulsar/issues"
 PyPi = "https://pypi.org/project/git-pulsar/"
+Author = "https://jacksonferguson.me"
 
 [build-system]
 requires = ["hatchling"]
