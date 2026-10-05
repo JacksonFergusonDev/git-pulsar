@@ -17,10 +17,10 @@ jobs:
         python-version: ["3.12", "3.13", "3.14"]
 
     steps:
-    - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
     - name: Install uv
-      uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+      uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
       with:
         python-version: ${{ matrix.python-version }}
 
@@ -36,7 +36,7 @@ jobs:
       run: uv run ruff format --check --output-format=github .
 
     - name: Lint Markdown
-      uses: DavidAnson/markdownlint-cli2-action@8de2aa07cae85fd17c0b35642db70cf5495f1d25 # v24
+      uses: DavidAnson/markdownlint-cli2-action@21c1be1b93ad9ed58fa840aacc3f279cde2a72ff # v24
       with:
         globs: '**/*.md'
 
@@ -53,7 +53,7 @@ jobs:
 
     - name: Upload coverage to Codecov
       if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.14'
-      uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v7
+      uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7
       with:
         token: ${{ secrets.CODECOV_TOKEN }}
         files: coverage.xml
@@ -63,7 +63,7 @@ jobs:
 
     - name: Upload test analytics to Codecov
       if: ${{ matrix.os == 'ubuntu-latest' && matrix.python-version == '3.14' && !cancelled() }}
-      uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v7
+      uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7
       with:
         token: ${{ secrets.CODECOV_TOKEN }}
         files: junit.xml
