@@ -1,4 +1,4 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 660 200" width="660" height="200">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 595.13001 154.85" width="595.13001" height="154.85">
   <defs>
     <style>
       .wordmark {
@@ -8,15 +8,17 @@
     </style>
   </defs>
 
-  <rect x="4" y="4" width="192" height="192" rx="40" fill="#0f172a"/>
-  <line x1="12" y1="100" x2="75" y2="100" stroke="#a78bfa" stroke-width="5" stroke-linecap="round" opacity="0.55"/>
-  <path d="M 91 80.95 A 22 22 0 0 1 91 119.05" fill="none" stroke="#a78bfa" stroke-width="7" stroke-linecap="round" opacity="0.95"/>
-  <path d="M 100 65.36 A 40 40 0 0 1 100 134.64" fill="none" stroke="#a78bfa" stroke-width="5.5" stroke-linecap="round" opacity="0.72"/>
-  <path d="M 109 49.77 A 58 58 0 0 1 109 150.23" fill="none" stroke="#a78bfa" stroke-width="4" stroke-linecap="round" opacity="0.45"/>
-  <path d="M 118 34.18 A 76 76 0 0 1 118 165.82" fill="none" stroke="#a78bfa" stroke-width="2.5" stroke-linecap="round" opacity="0.22"/>
-  <circle cx="80" cy="100" r="14" fill="#0f172a"/>
-  <circle cx="80" cy="100" r="10" fill="#a78bfa"/>
-  <circle cx="80" cy="100" r="4" fill="#ffffff" opacity="0.95"/>
+  <g transform="translate(77.425 77.425) scale(0.623604060914) translate(-100 -100)">
+    <rect x="4" y="4" width="192" height="192" rx="40" stroke="#a78bfa" stroke-width="5" fill="#0f172a"/>
+    <line x1="12" y1="100" x2="75" y2="100" stroke="#a78bfa" stroke-width="5" stroke-linecap="round" opacity="0.55"/>
+    <path d="M 91 80.95 A 22 22 0 0 1 91 119.05" fill="none" stroke="#a78bfa" stroke-width="7" stroke-linecap="round" opacity="0.95"/>
+    <path d="M 100 65.36 A 40 40 0 0 1 100 134.64" fill="none" stroke="#a78bfa" stroke-width="5.5" stroke-linecap="round" opacity="0.72"/>
+    <path d="M 109 49.77 A 58 58 0 0 1 109 150.23" fill="none" stroke="#a78bfa" stroke-width="4" stroke-linecap="round" opacity="0.45"/>
+    <path d="M 118 34.18 A 76 76 0 0 1 118 165.82" fill="none" stroke="#a78bfa" stroke-width="2.5" stroke-linecap="round" opacity="0.22"/>
+    <circle cx="80" cy="100" r="14" fill="#0f172a"/>
+    <circle cx="80" cy="100" r="10" fill="#a78bfa"/>
+    <circle cx="80" cy="100" r="4" fill="#ffffff" opacity="0.95"/>
 
-  <text x="220" y="135" class="wordmark">Git Pulsar</text>
+  </g>
+  <text x="166.03" y="108.925" class="wordmark">Git Pulsar</text>
 </svg>
